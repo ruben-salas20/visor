@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Visor</title>
+<style>
+  :root {
+    --bg: light-dark(#ffffff, #16171a);
+    --text: light-dark(#26262a, #dcdce0);
+    --muted: light-dark(#6e6e76, #8d8d96);
+    --accent: light-dark(#3a63c7, #8aa8f0);
+    --side: color-mix(in srgb, var(--text) 4%, var(--bg));
+    --line: color-mix(in srgb, var(--text) 14%, var(--bg));
+    --hover: color-mix(in srgb, var(--text) 9%, var(--bg));
+    --active: color-mix(in srgb, var(--accent) 20%, var(--bg));
+    color-scheme: light dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex;
+    flex-direction: column;
+    font: 13.5px/1.4 system-ui, sans-serif;
+    color: var(--text);
+    background: var(--side);
+    overflow: hidden;
+    user-select: none;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+
+  .vault { position: relative; display: flex; gap: 2px; padding: 10px 8px 6px; }
+  #new-btn {
+    flex: none; width: 30px; border-radius: 6px; color: var(--muted);
+    display: grid; place-items: center;
+  }
+  #new-btn:hover { background: var(--hover); color: var(--text); }
+  #new-note { margin: 0 8px 6px; padding: 8px; border-radius: 8px; background: var(--hover); }
+  #new-note label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  #new-note input {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; outline: none;
+  }
+  #new-note input:focus { border-color: var(--accent); }
+  #new-note .error { color: #c0392b; font-size: 12px; margin-top: 4px; }
+  #vault-btn {
+    display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+    padding: 6px 8px; border-radius: 6px;
+    font-weight: 600; text-align: left;
+  }
+  #vault-btn:hover { background: var(--hover); }
+  #vault-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vault-menu {
+    position: absolute; z-index: 10; left: 8px; right: 8px; top: calc(100% - 2px);
+    padding: 4px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / .18);
+  }
+  #vault-menu .row { display: flex; align-items: center; border-radius: 6px; }
+  #vault-menu .row:hover { background: var(--hover); }
+  #vault-menu .switch { flex: 1; min-width: 0; padding: 6px 8px; text-align: left; }
+  #vault-menu .switch span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vault-menu .switch small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  #vault-menu .switch[aria-current="true"] span { color: var(--accent); font-weight: 600; }
+  #vault-menu .remove { padding: 4px 8px; color: var(--muted); border-radius: 6px; }
+  #vault-menu .remove:hover { color: var(--text); }
+  #vault-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+  #vault-menu .pick { display: flex; width: 100%; padding: 6px 8px; border-radius: 6px; }
+  #vault-menu .pick:hover { background: var(--hover); }
+  kbd { margin-left: auto; color: var(--muted); font: 11.5px system-ui, sans-serif; }
+
+  #tree { flex: 1; overflow: auto; padding: 2px 8px 16px; }
+  details > summary, .file {
+    display: block; width: 100%; padding: 3px 8px; border-radius: 6px;
+    text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  details > summary { list-style: none; color: var(--muted); font-weight: 500; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before {
+    content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 8px 2px 1px;
+    border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+    transform: rotate(-45deg); transition: transform .12s;
+  }
+  details[open] > summary::before { transform: rotate(45deg); }
+  details > summary:hover, .file:hover { background: var(--hover); color: var(--text); }
+  .children { margin-left: 12px; padding-left: 6px; border-left: 1px solid var(--line); }
+  .file.active { background: var(--active); color: var(--accent); font-weight: 500; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="vault">
+  <button id="vault-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="vault-menu">
+    <span id="vault-name">Sin bóveda</span>
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+  </button>
+  <button id="new-btn" title="Nueva nota (Ctrl+N)" aria-label="Nueva nota">
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+  </button>
+  <div id="vault-menu" role="menu" hidden></div>
+</div>
+<form id="new-note" hidden>
+  <label for="new-name" id="new-label">Nueva nota</label>
+  <input id="new-name" autocomplete="off" placeholder="Nombre de la nota">
+  <div class="error" id="new-error" role="alert"></div>
+</form>
+<nav id="tree" aria-label="Archivos"></nav>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const send = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const store = {
+    get(key, fallback) {
+      try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+    },
+    set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
+  };
+  const state = { vaults: [], current: null, tree: null, file: null };
+  const parents = (path) => path.split("/").slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join("/"));
+
+  function highlight() {
+    for (const el of document.querySelectorAll(".file")) {
+      const active = el.dataset.path === state.file;
+      el.classList.toggle("active", active);
+      if (active) el.setAttribute("aria-current", "page");
+      else el.removeAttribute("aria-current");
+    }
+    if (!state.file) return;
+    for (const dir of parents(state.file)) {
+      const el = document.querySelector(`details[data-path="${CSS.escape(dir)}"]`);
+      if (el) el.open = true;
+    }
+    document.querySelector(".file.active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderTree() {
+    const tree = $("tree");
+    tree.replaceChildren();
+    if (!state.tree) return;
+    const opened = new Set(store.get(`open:${state.current}`, []));
+    const saveOpen = () => store.set(
+      `open:${state.current}`,
+      [...tree.querySelectorAll("details[open]")].map((d) => d.dataset.path),
+    );
+    const build = (dir) => {
+      const frag = document.createDocumentFragment();
+      for (const sub of dir.dirs) {
+        const details = document.createElement("details");
+        details.dataset.path = sub.path;
+        details.open = opened.has(sub.path);
+        const summary = document.createElement("summary");
+        summary.textContent = sub.name;
+        const children = document.createElement("div");
+        children.className = "children";
+        children.append(build(sub));
+        details.append(summary, children);
+        details.addEventListener("toggle", saveOpen);
+        frag.append(details);
+      }
+      for (const file of dir.files) {
+        const button = document.createElement("button");
+        button.className = "file";
+        button.textContent = file.name;
+        button.title = file.path;
+        button.dataset.path = file.path;
+        button.onclick = () => send({ type: "open", path: file.path });
+        frag.append(button);
+      }
+      return frag;
+    };
+    tree.append(build(state.tree));
+    highlight();
+  }
+
+  function renderVaults() {
+    const current = state.vaults.find((v) => v.path === state.current);
+    $("vault-name").textContent = current ? current.name : "Sin bóveda";
+    const menu = $("vault-menu");
+    menu.replaceChildren();
+    for (const vault of state.vaults) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const sw = document.createElement("button");
+      sw.className = "switch";
+      sw.setAttribute("role", "menuitem");
+      sw.setAttribute("aria-current", vault.path === state.current);
+      const name = document.createElement("span");
+      name.textContent = vault.name;
+      const path = document.createElement("small");
+      path.textContent = vault.path;
+      sw.append(name, path);
+      sw.onclick = () => { closeMenu(); send({ type: "switch_vault", path: vault.path }); };
+      const remove = document.createElement("button");
+      remove.className = "remove";
+      remove.textContent = "×";
+      remove.title = "Quitar de la lista (no borra la carpeta)";
+      remove.setAttribute("aria-label", `Quitar ${vault.name} de la lista`);
+      remove.onclick = () => send({ type: "remove_vault", path: vault.path });
+      row.append(sw, remove);
+      menu.append(row);
+    }
+    if (state.vaults.length) menu.append(document.createElement("hr"));
+    const pick = document.createElement("button");
+    pick.className = "pick";
+    pick.setAttribute("role", "menuitem");
+    pick.innerHTML = "Abrir carpeta…<kbd>Ctrl+O</kbd>";
+    pick.onclick = () => { closeMenu(); send({ type: "pick_vault" }); };
+    menu.append(pick);
+  }
+
+  const menuButton = $("vault-btn");
+  const closeMenu = () => { $("vault-menu").hidden = true; menuButton.setAttribute("aria-expanded", "false"); };
+  menuButton.onclick = () => {
+    const menu = $("vault-menu");
+    menu.hidden = !menu.hidden;
+    menuButton.setAttribute("aria-expanded", String(!menu.hidden));
+  };
+  document.addEventListener("click", (e) => { if (!e.target.closest(".vault")) closeMenu(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeMenu(); hideNewNote(); }
+  });
+
+  let newDir = "";
+  const hideNewNote = () => { $("new-note").hidden = true; $("new-error").textContent = ""; };
+  $("new-btn").onclick = () => {
+    if (!state.current) return send({ type: "pick_vault" });
+    app.newNote(state.file && state.file.includes("/") ? state.file.slice(0, state.file.lastIndexOf("/")) : "");
+  };
+  $("new-note").addEventListener("submit", (e) => {
+    e.preventDefault();
+    send({ type: "create_note", dir: newDir, name: $("new-name").value });
+  });
+  $("new-name").addEventListener("blur", () => { if (!$("new-name").value) hideNewNote(); });
+
+  window.app = {
+    show(info) {
+      state.vaults = info.vaults;
+      state.current = info.current;
+      state.tree = info.tree;
+      state.file = null;
+      renderVaults();
+      renderTree();
+    },
+    setTree(tree) {
+      state.tree = tree;
+      renderTree();
+    },
+    current(path) {
+      state.file = path;
+      highlight();
+    },
+    newNote(dir) {
+      newDir = dir;
+      $("new-label").textContent = "Nueva nota en " + (dir || "la raíz de la bóveda");
+      $("new-name").value = "";
+      $("new-error").textContent = "";
+      $("new-note").hidden = false;
+      $("new-name").focus();
+    },
+    noteCreated() { hideNewNote(); },
+    noteError(message) { $("new-error").textContent = message; $("new-name").focus(); },
+    setTheme(theme) {
+      const root = document.documentElement.style;
+      for (const [name, key] of [["--bg", "bg"], ["--text", "fg"], ["--accent", "accent"], ["--muted", "muted"]]) {
+        if (theme) root.setProperty(name, theme[key]);
+        else root.removeProperty(name);
+      }
+      root.colorScheme = theme ? theme.mode : "";
+    },
+  };
+
+  send({ type: "ready" });
+</script>
+</body>
+</html>
