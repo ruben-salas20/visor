@@ -62,6 +62,11 @@ impl Bar {
             gtk::glib::Propagation::Proceed
         });
         address.connect_changed(|entry| entry.style_context().remove_class("error"));
+        let p = proxy.clone();
+        address.connect_focus_out_event(move |_, _| {
+            let _ = p.send_event(UserEvent::Action(Action::AddressDone));
+            gtk::glib::Propagation::Proceed
+        });
         root.pack_start(&address, true, true, 4);
         root.pack_start(&end, false, false, 0);
         root.show_all();

@@ -86,6 +86,19 @@
   details > summary:hover, .file:hover { background: var(--hover); color: var(--text); }
   .children { margin-left: 12px; padding-left: 6px; border-left: 1px solid var(--line); }
   .file.active { background: var(--active); color: var(--accent); font-weight: 500; }
+  .drop-target > summary, #tree.drop-target { background: var(--active); color: var(--accent); }
+  #item-menu {
+    position: fixed; z-index: 20; min-width: 180px; padding: 4px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / .18);
+  }
+  #item-menu button { display: flex; width: 100%; padding: 6px 8px; border-radius: 6px; text-align: left; }
+  #item-menu button:hover, #item-menu button:focus-visible { background: var(--hover); }
+  #notice {
+    margin: 0 8px 8px; padding: 8px 10px; border-radius: 8px;
+    background: var(--hover); font-size: 12.5px; overflow-wrap: anywhere;
+  }
+  #notice.error { color: light-dark(#a8281b, #ff8a7a); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -106,6 +119,10 @@
   <div class="error" id="new-error" role="alert"></div>
 </form>
 <nav id="tree" aria-label="Archivos"></nav>
+<div id="notice" role="status" hidden></div>
+<div id="item-menu" role="menu" hidden>
+  <button id="trash-btn" role="menuitem">Mover a la papelera<kbd>Supr</kbd></button>
+</div>
 <script>
   const $ = (id) => document.getElementById(id);
   const send = (m) => window.ipc.postMessage(JSON.stringify(m));
@@ -150,6 +167,8 @@
         details.open = opened.has(sub.path);
         const summary = document.createElement("summary");
         summary.textContent = sub.name;
+        summary.dataset.path = sub.path;
+        summary.draggable = true;
         const children = document.createElement("div");
         children.className = "children";
         children.append(build(sub));
@@ -163,6 +182,7 @@
         button.textContent = file.name;
         button.title = file.path;
         button.dataset.path = file.path;
+        button.draggable = true;
         button.onclick = () => send({ type: "open", path: file.path });
         frag.append(button);
       }
@@ -232,7 +252,81 @@
   });
   $("new-name").addEventListener("blur", () => { if (!$("new-name").value) hideNewNote(); });
 
+  // Moving and deleting. Rust checks every path; this only says what was asked for.
+  const itemAt = (el) => el?.closest?.(".file, summary");
+  let menuItem = null;
+  const closeItemMenu = () => { $("item-menu").hidden = true; menuItem = null; };
+  const trash = (el) => { if (el?.dataset.path) send({ type: "trash", path: el.dataset.path }); };
+  $("tree").addEventListener("contextmenu", (e) => {
+    const el = itemAt(e.target);
+    e.preventDefault();
+    if (!el) return closeItemMenu();
+    menuItem = el;
+    const menu = $("item-menu");
+    menu.hidden = false;
+    menu.style.left = Math.min(e.clientX, innerWidth - menu.offsetWidth - 4) + "px";
+    menu.style.top = Math.min(e.clientY, innerHeight - menu.offsetHeight - 4) + "px";
+    $("trash-btn").focus();
+  });
+  $("trash-btn").onclick = () => { trash(menuItem); closeItemMenu(); };
+  document.addEventListener("click", (e) => { if (!e.target.closest("#item-menu")) closeItemMenu(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeItemMenu();
+    if (e.key === "Delete" && $("item-menu").hidden) trash(itemAt(document.activeElement));
+  });
+
+  let dragged = null;
+  let dropTarget = null;
+  let openTimer = 0;
+  // A file counts as dropped on its folder; empty space, on the vault root.
+  const folderAt = (el) => {
+    const details = el.closest?.("details");
+    if (details && !el.closest(".file")) return details;
+    return el.closest?.(".file")?.parentElement?.closest("details") ?? $("tree");
+  };
+  const setDropTarget = (el) => {
+    if (el === dropTarget) return;
+    dropTarget?.classList.remove("drop-target");
+    clearTimeout(openTimer);
+    dropTarget = el;
+    if (!el) return;
+    el.classList.add("drop-target");
+    if (el.tagName === "DETAILS" && !el.open) openTimer = setTimeout(() => { el.open = true; }, 700);
+  };
+  $("tree").addEventListener("dragstart", (e) => {
+    const el = itemAt(e.target);
+    if (!el) return;
+    dragged = el.dataset.path;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragged);
+  });
+  $("tree").addEventListener("dragover", (e) => {
+    if (!dragged) return;
+    e.preventDefault();
+    setDropTarget(folderAt(e.target));
+  });
+  $("tree").addEventListener("dragleave", (e) => {
+    if (!$("tree").contains(e.relatedTarget)) setDropTarget(null);
+  });
+  $("tree").addEventListener("drop", (e) => {
+    e.preventDefault();
+    const dir = dropTarget?.dataset.path ?? "";
+    if (dragged) send({ type: "move", path: dragged, dir });
+    setDropTarget(null);
+    dragged = null;
+  });
+  $("tree").addEventListener("dragend", () => { setDropTarget(null); dragged = null; });
+
+  let noticeTimer = 0;
   window.app = {
+    notice(message, error) {
+      const box = $("notice");
+      box.textContent = message;
+      box.classList.toggle("error", error);
+      box.hidden = false;
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => { box.hidden = true; }, error ? 8000 : 4000);
+    },
     show(info) {
       state.vaults = info.vaults;
       state.current = info.current;

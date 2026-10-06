@@ -32,6 +32,8 @@ pub struct Config {
     pub sidebar_width: Option<i32>,
     /// Port of the local server, kept so pages keep their origin and storage.
     pub port: Option<u16>,
+    pub bar_hidden: bool,
+    pub zoom: Option<f64>,
 }
 
 impl Config {

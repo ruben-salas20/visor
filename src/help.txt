@@ -129,6 +129,13 @@ ATAJOS EN LA APP
   Ctrl+Shift+A  anotar un elemento o un punto de la página
   Ctrl+Shift+L  lista de anotaciones de la página
   Ctrl+N  nueva nota en la carpeta de la nota actual
+  Ctrl+Shift+B  mostrar u ocultar la barra de direcciones (se recuerda;
+          Ctrl+L la muestra mientras escribes)
+  Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño de
+          la página (se recuerda)
   Alt+←   atrás      Alt+→   adelante (también los botones laterales
           del ratón)
   El ancho del panel se cambia arrastrando el divisor y se recuerda.
+  En el panel, clic derecho o Supr sobre un archivo o carpeta lo mueve
+  a la papelera, con sus anotaciones. Arrástralo a otra carpeta para
+  moverlo; suéltalo en el hueco libre para llevarlo a la raíz.

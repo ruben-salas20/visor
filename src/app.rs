@@ -1,5 +1,6 @@
 use crate::annot;
 use crate::bar::Bar;
+use crate::files;
 use crate::paths;
 use crate::theme::{self, Theme};
 use crate::vault::{self, Config};
@@ -35,6 +36,7 @@ const ANNOT: &str = include_str!("annot.js");
 const SIDEBAR_WIDTH: i32 = 260;
 const MAX_CONSOLE: usize = 500;
 const MAX_EVENTS: usize = 1000;
+const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
 pub type Reply = mpsc::Sender<Result<Option<String>, String>>;
 
@@ -57,11 +59,16 @@ pub enum UserEvent {
 pub enum Action {
     PickVault,
     ToggleSidebar,
+    ToggleBar,
+    /// Steps the page zoom in (1) or out (-1), or resets it (0).
+    Zoom(i8),
     Reload,
     Back,
     Forward,
     FocusAddress,
     LeaveAddress,
+    /// The address field lost focus; a hidden bar hides again.
+    AddressDone,
     NewNote,
     ToggleEdit,
     PickElement,
@@ -132,6 +139,8 @@ enum SidebarMsg {
     RemoveVault { path: PathBuf },
     Open { path: String },
     CreateNote { dir: String, name: String },
+    Trash { path: String },
+    Move { path: String, dir: String },
 }
 
 /// Messages from vault pages. Websites never get to send these.
@@ -231,6 +240,10 @@ pub fn launch() -> i32 {
     };
     right.show();
     paned.show();
+    if config.bar_hidden {
+        bar.root.hide();
+    }
+    page.webview().set_zoom_level(config.zoom.unwrap_or(1.0));
 
     let mut app = App {
         sidebar,
@@ -279,6 +292,10 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
         let action = match () {
             _ if ctrl && shift && k == key::a => Action::PickElement,
             _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
+            _ if ctrl && shift && k == key::b => Action::ToggleBar,
+            _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::Zoom(1),
+            _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::Zoom(-1),
+            _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::Zoom(0),
             _ if k == key::F5 => Action::Reload,
             _ if ctrl && k == key::r => Action::Reload,
             _ if ctrl && k == key::o => Action::PickVault,
@@ -700,7 +717,34 @@ impl App {
                 }
                 side.set_visible(!side.is_visible());
             }
-            Action::FocusAddress => self.bar.address.grab_focus(),
+            Action::FocusAddress => {
+                self.bar.root.show();
+                self.bar.address.grab_focus();
+            }
+            Action::AddressDone => {
+                if self.config.bar_hidden {
+                    self.bar.root.hide();
+                }
+            }
+            Action::ToggleBar => {
+                self.config.bar_hidden = !self.config.bar_hidden;
+                self.config.save();
+                self.bar.root.set_visible(!self.config.bar_hidden);
+                if self.config.bar_hidden && self.bar.address.has_focus() {
+                    view.grab_focus();
+                }
+            }
+            Action::Zoom(step) => {
+                let now = view.zoom_level();
+                let zoom = match step {
+                    0 => 1.0,
+                    1 => ZOOM_STEPS.into_iter().find(|z| *z > now + 0.01).unwrap_or(now),
+                    _ => ZOOM_STEPS.into_iter().rev().find(|z| *z < now - 0.01).unwrap_or(now),
+                };
+                view.set_zoom_level(zoom);
+                self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
+                self.config.save();
+            }
             Action::LeaveAddress => {
                 view.grab_focus();
                 self.bar.show(&self.address_text());
@@ -738,7 +782,9 @@ impl App {
             self.bar.root.hide();
             side.hide();
         } else {
-            self.bar.root.show();
+            if !self.config.bar_hidden {
+                self.bar.root.show();
+            }
             if self.sidebar_before_fullscreen.take().unwrap_or(true) {
                 side.show();
             }
@@ -791,6 +837,31 @@ impl App {
                 Ok(()) => self.sidebar_js("app.noteCreated()".into()),
                 Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
             },
+            SidebarMsg::Trash { path } => {
+                let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::trash(&root, &path));
+                match result {
+                    Ok(()) => {
+                        self.sidebar_js(format!("app.notice({}, false)", json!(format!("«{path}» está en la papelera."))));
+                        if self.shows(&path) {
+                            self.empty();
+                        }
+                    }
+                    Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                }
+            }
+            SidebarMsg::Move { path, dir } => {
+                let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::move_to(&root, &path, &dir));
+                match result {
+                    Ok(Some(new)) => {
+                        let current = self.shared.lock().unwrap().file.clone();
+                        if let Some(file) = current.filter(|_| self.shows(&path)) {
+                            self.load(format!("{new}{}", &file[path.len()..]));
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                }
+            }
             SidebarMsg::RemoveVault { path } => {
                 self.config.vaults.retain(|v| *v != path);
                 self.config.last.remove(&path);
@@ -805,6 +876,11 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Whether the page on screen is `rel` or inside the folder `rel`.
+    fn shows(&self, rel: &str) -> bool {
+        self.shared.lock().unwrap().file.as_deref().is_some_and(|f| f == rel || f.starts_with(&format!("{rel}/")))
     }
 
     /// Only vault pages may log or send events; the empty page may only ask for a folder.
