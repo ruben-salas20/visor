@@ -37,10 +37,32 @@ Abre [[anotaciones]] para estas pruebas.
 - [ ] **Anotar un punto de un gráfico**: pulsa Ctrl+Shift+A (o el botón de diana de la barra), pasa el ratón por la página (se marca el elemento de debajo) y haz clic en una cresta del gráfico. Escribe una nota.
 - [ ] **Anotar una imagen y una tabla**: igual que el anterior, sobre la imagen y sobre la tabla.
 - [ ] **Lista**: pulsa Ctrl+Shift+L (o el botón de lista). Deben salir todas; al hacer clic en una, la página va hasta ella y la abre.
-- [ ] **Respuesta de un agente**: en una terminal ejecuta `visor notes`, copia un `id` y ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta debe aparecer en esa nota.
+- [ ] **Respuesta de un agente**: deja abierta en visor la página [[anotaciones]], porque `visor notes` sin más lista solo las anotaciones de la página abierta. En una terminal ejecuta `visor notes`, copia un `id` y ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta debe aparecer en esa nota. Si no sale ninguna, prueba `visor notes --all`, que lista las de toda la bóveda.
 - [ ] **Huérfanas**: edita `pruebas/anotaciones.html` y borra una frase que hayas resaltado. Al guardar, esa anotación debe salir en la lista como «Huérfana».
 - [ ] **Eliminar**: abre una anotación y pulsa «Eliminar».
 - [ ] **Al cambiar el tamaño de la ventana**, los marcadores deben seguir en su sitio.
+
+## 8. Notas: casillas y edición
+
+- [x] **Marcar tareas sin editar**: abre [[tareas]] y haz clic en varias casillas, también en las subtareas, la de la lista numerada y la de la cita. Pulsa Ctrl+E: el texto debe mostrar `[x]` justo en las que marcaste. La página no debe parpadear ni recargarse al hacer clic.
+- [x] **Casilla de un bloque de código**: en [[tareas]], el `- [ ]` del bloque de código no debe ser una casilla.
+- [x] **Clics rápidos**: en [[tareas]], marca y desmarca la misma casilla muy deprisa varias veces. Al final, el texto (Ctrl+E) debe coincidir con lo que ves.
+- [x] **Abrir el editor donde lees**: abre [[edicion]], baja hasta la sección 10 y pulsa Ctrl+E. El editor debe mostrar la sección 10 a la misma altura, con el cursor en la primera línea visible, no al principio.
+- [x] **Volver a la vista donde editas**: en el editor de [[edicion]], baja hasta la sección 14, escribe algo en su párrafo y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
+- [x] **Con bloques largos**: abre [[diagramas]], deja un diagrama cortado por el borde de arriba y pulsa Ctrl+E dos veces. Debe volver a la misma zona.
+
+## 7. Anotaciones: diseño y títulos
+
+Sigue en [[anotaciones]].
+
+- [x] **Cita larga**: selecciona casi todo el primer párrafo y pulsa «Comentar». En la cabecera, la cita debe empezar por el principio de tu selección y acabar en «…» antes de los círculos de color, sin montarse sobre ellos.
+- [x] **Ventana legible**: con la ventana de la nota abierta sobre texto de la página, no debe leerse nada de la página a través de ella. «Eliminar», «Cancelar» y «Guardar» deben verse como botones, dentro de la ventana.
+- [x] **Tema oscuro**: cambia a un tema oscuro de Omarchy y repite las dos pruebas anteriores.
+- [x] **Ventana estrecha**: haz la ventana de visor lo más estrecha que puedas y abre una anotación. Todo debe caber; si no hay sitio, los colores pasan a la línea de abajo.
+- [x] **Título calculado**: con Ctrl+Shift+A anota el gráfico, la imagen, la tabla y la figura de «Figura con pie». Los títulos deben ser «Diagrama en “Gráfico”», «Espectro», «Tabla en “Tabla”» y «Crestas y valles de una onda». En ningún sitio debe verse un nombre como `<canvas>`.
+- [x] **Cambiar el título**: abre una de esas anotaciones, haz clic en su título, escribe otro y guarda. Debe salir con el nuevo nombre en la lista (Ctrl+Shift+L) y en `visor notes` (campo `"title"`).
+- [x] **Título vacío**: borra el título entero y guarda. Debe volver el título calculado.
+- [x] **Anotaciones antiguas**: las que creaste antes de este cambio sobre un elemento deben salir en la lista con un título claro, como «Diagrama en “Gráfico”», y abrirse sin errores.
 
 ## 8. Notas: casillas y edición
 

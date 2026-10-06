@@ -64,6 +64,11 @@ ANOTACIONES
     Cada una trae "target": el texto citado ("quote.exact", con
     contexto "prefix" y "suffix") o el elemento ("element": tag, id,
     selector css, texto) y el punto ("point": x e y de 0 a 1).
+  - Las anotaciones sobre elementos traen "title": el nombre que la
+    persona le dio o uno calculado al crearla (por ejemplo «Diagrama
+    en “Ondas”»). Las antiguas pueden no tenerlo. Si escribes páginas,
+    pon aria-label, alt o un pie (figcaption, caption) a gráficos,
+    imágenes y tablas: así el título dice qué es.
   - Responde con `visor notes reply`; no edites esos archivos a mano.
   - Si cambias una página, las anotaciones se reubican solas mientras
     el texto citado siga existiendo. Si lo quitas, quedan huérfanas

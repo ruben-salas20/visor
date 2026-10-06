@@ -11,6 +11,7 @@ use std::sync::Mutex;
 pub const DIR: &str = ".visor/anotaciones";
 const COLORS: [&str; 4] = ["amarillo", "verde", "azul", "rosa"];
 const MAX_TEXT: usize = 20_000;
+const MAX_TITLE: usize = 200;
 
 /// Page writes come from the event loop and agent replies from the socket
 /// threads; one lock keeps them from overwriting each other.
@@ -54,6 +55,28 @@ fn text(value: &Value) -> Option<String> {
     (s.chars().count() <= MAX_TEXT).then(|| s.to_string())
 }
 
+/// Optional one-line title. Absent or blank means none; notes saved before
+/// titles existed have none either.
+fn title(value: &Value) -> Result<Option<String>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let s = value.as_str().ok_or("El título no es texto")?;
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if s.chars().count() > MAX_TITLE {
+        return Err("Título demasiado largo".into());
+    }
+    Ok((!s.is_empty()).then_some(s))
+}
+
+fn set_title(note: &mut Value, title: Option<String>) {
+    let map = note.as_object_mut().unwrap();
+    match title {
+        Some(t) => map.insert("title".into(), json!(t)),
+        None => map.remove("title"),
+    };
+}
+
 /// Adds or updates an annotation sent by a page. Only the fields a person
 /// edits are taken from it; creation time and agent replies are kept.
 pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
@@ -65,6 +88,7 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
     }
     let color = incoming["color"].as_str().filter(|c| COLORS.contains(c)).unwrap_or("amarillo");
     let comment = text(&incoming["comment"]).ok_or("Comentario demasiado largo")?;
+    let title = title(&incoming["title"])?;
     let target = incoming["target"].clone();
     if target.to_string().len() > MAX_TEXT {
         return Err("Ancla demasiado grande".into());
@@ -80,17 +104,22 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
             existing["comment"] = json!(comment);
             existing["target"] = target;
             existing["updated"] = json!(now);
+            set_title(existing, title);
         }
-        None => list.push(json!({
-            "id": id,
-            "author": "persona",
-            "created": now,
-            "updated": now,
-            "color": color,
-            "comment": comment,
-            "target": target,
-            "replies": [],
-        })),
+        None => {
+            let mut note = json!({
+                "id": id,
+                "author": "persona",
+                "created": now,
+                "updated": now,
+                "color": color,
+                "comment": comment,
+                "target": target,
+                "replies": [],
+            });
+            set_title(&mut note, title);
+            list.push(note);
+        }
     }
     store(root, page, &doc).map_err(|e| e.to_string())
 }
@@ -195,8 +224,22 @@ mod tests {
         assert_eq!(all[0]["replies"][0]["author"], "agente");
         assert_eq!(all[0]["color"], "rosa");
         assert_eq!(all[0]["page"], "física/ondas.html");
+        assert!(all[0].get("title").is_none());
         delete(&root, "física/ondas.html", "a1").unwrap();
         assert!(!file(&root, "física/ondas.html").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn element_title() {
+        let root = vault();
+        let target = json!({ "kind": "element", "element": { "tag": "canvas", "css": "#onda" } });
+        upsert(&root, "p.html", &json!({ "id": "e1", "comment": "", "title": "  Diagrama en\n «Ondas» ", "target": target })).unwrap();
+        assert_eq!(list(&root, None)[0]["title"], "Diagrama en «Ondas»");
+        upsert(&root, "p.html", &json!({ "id": "e1", "comment": "", "title": "", "target": target })).unwrap();
+        assert!(list(&root, None)[0].get("title").is_none());
+        assert!(upsert(&root, "p.html", &json!({ "id": "e1", "comment": "", "title": "x".repeat(201), "target": target })).is_err());
+        assert!(upsert(&root, "p.html", &json!({ "id": "e1", "comment": "", "title": 3, "target": target })).is_err());
         let _ = fs::remove_dir_all(&root);
     }
 
