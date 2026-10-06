@@ -1,0 +1,126 @@
+visor: visor de bóvedas de HTML pensado para personas y agentes.
+
+Una bóveda es una carpeta. visor muestra sus archivos .html en un árbol
+y renderiza el que se elige. Si un archivo cambia en disco, la vista se
+actualiza sola.
+
+USO
+  visor                      Abre la app.
+  visor open <ruta|URL>      Abre una carpeta como bóveda, muestra un
+                             archivo o carga una web (http o https).
+                             Abre la app si está cerrada.
+                             Espera a que la página cargue y devuelve
+                             los errores y avisos que generó.
+  visor status               Bóveda y archivo que la persona está viendo.
+                             Si está en una web, "file" es null y "url"
+                             tiene la dirección.
+  visor reload               Recarga la página actual y devuelve sus
+                             errores y avisos.
+  visor console [--errors] [--clear]
+                             Consola de la página actual: console.log,
+                             errores de JavaScript, recursos que no
+                             cargaron y promesas rechazadas.
+  visor events [--after ID] [--wait SEG] [--limit N]
+                             Datos que las páginas enviaron con
+                             visor.send(). Sin opciones devuelve los 20
+                             últimos. Con --wait espera hasta SEG
+                             segundos a que llegue uno nuevo.
+  visor notes [ruta|--all]   Anotaciones de la persona: de la página
+                             abierta, de otra página o de toda la
+                             bóveda. En la página abierta, "anchored"
+                             dice si cada una sigue encontrando su
+                             texto o elemento.
+  visor notes reply <id> <texto>
+                             Responde a una anotación. La persona ve
+                             la respuesta al momento en su nota.
+  visor help                 Esta ayuda.
+
+Todas las órdenes responden en JSON. "ok": false indica un error, y la
+orden termina con código 1.
+
+<ruta> puede ser relativa a la carpeta actual o a la bóveda abierta.
+
+NOTAS EN MARKDOWN
+  - Los archivos .md aparecen en el árbol junto a los .html y se
+    muestran renderizados con el tema. Admiten tablas, notas al pie,
+    listas de tareas, alertas (> [!NOTE]), front matter YAML (no se
+    muestra), fórmulas ($...$ y $$...$$, con KaTeX), código coloreado
+    y diagramas (bloques ```mermaid).
+  - Enlaces entre notas al estilo Obsidian: [[nota]], [[carpeta/nota]],
+    [[nota#Sección]] y [[nota|texto]]. Se buscan por nombre en toda la
+    bóveda. Un enlace a una nota que no existe la crea al hacer clic.
+  - Si editas una nota que la persona tiene abierta en el editor, verá
+    un aviso; no pierde su texto.
+
+ANOTACIONES
+  La persona puede resaltar texto, comentarlo o anotar un elemento o
+  un punto concreto de él (un gráfico, una imagen, un canvas). Las
+  anotaciones no modifican la página: se guardan aparte, en
+  <bóveda>/.visor/anotaciones/<ruta de la página>.json.
+  - Léelas con `visor notes` para saber qué subrayó y qué preguntó.
+    Cada una trae "target": el texto citado ("quote.exact", con
+    contexto "prefix" y "suffix") o el elemento ("element": tag, id,
+    selector css, texto) y el punto ("point": x e y de 0 a 1).
+  - Responde con `visor notes reply`; no edites esos archivos a mano.
+  - Si cambias una página, las anotaciones se reubican solas mientras
+    el texto citado siga existiendo. Si lo quitas, quedan huérfanas
+    ("anchored": false) y la persona las ve en su lista. Conserva el
+    texto que la persona anotó cuando sea posible.
+
+ESCRIBIR PÁGINAS PARA VISOR
+  - Cada página es un archivo .html autónomo. Se permite JavaScript,
+    CSS y librerías desde un CDN.
+  - Las rutas relativas funcionan: imágenes, CSS, JS, JSON, vídeo o
+    audio junto al HTML, y enlaces a otras páginas de la bóveda.
+  - Las páginas se sirven desde un servidor local (127.0.0.1) con un
+    origen fijo, así que localStorage e IndexedDB se conservan entre
+    sesiones. Todas las bóvedas comparten ese origen: usa claves con
+    prefijo propio, por ejemplo "fisica/ondas:progreso".
+  - Los errores de `visor console` usan rutas de la bóveda, como
+    historia/roma.html:2:69 (archivo, línea y columna).
+  - Las carpetas que empiezan por "." y node_modules no se muestran.
+  - Los enlaces a la web (http, https) se abren dentro de visor; mailto
+    abre el programa de correo. Otros esquemas se ignoran.
+  - En las webs externas no existe visor.send() y su consola no se
+    registra: lo que publique una web no debe llegar a un agente.
+  - Con Omarchy, cada página recibe los colores del tema activo como
+    variables CSS. Se actualizan solas al cambiar de tema:
+
+      --visor-bg  --visor-fg  --visor-accent  --visor-muted
+      --visor-selection  --visor-mode (light o dark)
+      --visor-red  --visor-orange  --visor-yellow  --visor-green
+      --visor-cyan  --visor-blue  --visor-magenta  --visor-brown
+      --visor-font-mono
+
+    Úsalas con un valor de reserva, porque fuera de Omarchy no existen:
+
+      body { background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
+
+    Si la página no las usa, sus colores no cambian.
+  - En cada página existe window.visor.send(datos). Envía cualquier dato
+    serializable como JSON y un agente lo lee con `visor events`.
+    Ejemplo:
+
+      visor.send({ tipo: "respuesta", pregunta: 3, elegida: "b" });
+
+    Cada evento queda guardado con id, hora, bóveda y archivo.
+
+FLUJO TÍPICO DE UN AGENTE
+  1. Escribe o edita el HTML en la bóveda.
+  2. `visor open <archivo>` para mostrarlo y ver si tiene errores.
+  3. Si hay problemas, corrige el archivo y llama a `visor reload`.
+  4. Si la página pide algo a la persona, espera su respuesta con
+     `visor events --wait 300`.
+
+ATAJOS EN LA APP
+  Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel
+  Ctrl+R  recargar la página (también F5)
+  Ctrl+L  ir a la barra de direcciones: acepta una URL, un dominio o
+          una ruta de la bóveda. Escape vuelve a la página.
+  Ctrl+E  editar la nota .md abierta, o volver a la vista
+  Ctrl+Shift+A  anotar un elemento o un punto de la página
+  Ctrl+Shift+L  lista de anotaciones de la página
+  Ctrl+N  nueva nota en la carpeta de la nota actual
+  Alt+←   atrás      Alt+→   adelante (también los botones laterales
+          del ratón)
+  El ancho del panel se cambia arrastrando el divisor y se recuerda.
