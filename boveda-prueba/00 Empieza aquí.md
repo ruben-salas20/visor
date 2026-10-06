@@ -1,6 +1,6 @@
 # Empieza aquí
 
-Esta bóveda sirve para probar lo que no se puede comprobar de forma automática. Ve marcando cada casilla en el editor (Ctrl+E) a medida que pruebes.
+Esta bóveda sirve para probar lo que no se puede comprobar de forma automática. Ve marcando cada casilla con un clic a medida que pruebes.
 
 Para abrirla: `cargo run --release` en la carpeta del proyecto y luego **Ctrl+O** para elegir esta carpeta. Eso ya prueba el diálogo de carpetas.
 
@@ -41,6 +41,15 @@ Abre [[anotaciones]] para estas pruebas.
 - [ ] **Huérfanas**: edita `pruebas/anotaciones.html` y borra una frase que hayas resaltado. Al guardar, esa anotación debe salir en la lista como «Huérfana».
 - [ ] **Eliminar**: abre una anotación y pulsa «Eliminar».
 - [ ] **Al cambiar el tamaño de la ventana**, los marcadores deben seguir en su sitio.
+
+## 8. Notas: casillas y edición
+
+- [x] **Marcar tareas sin editar**: abre [[tareas]] y haz clic en varias casillas, también en las subtareas, la de la lista numerada y la de la cita. Pulsa Ctrl+E: el texto debe mostrar `[x]` justo en las que marcaste. La página no debe parpadear ni recargarse al hacer clic.
+- [x] **Casilla de un bloque de código**: en [[tareas]], el `- [ ]` del bloque de código no debe ser una casilla.
+- [x] **Clics rápidos**: en [[tareas]], marca y desmarca la misma casilla muy deprisa varias veces. Al final, el texto (Ctrl+E) debe coincidir con lo que ves.
+- [x] **Abrir el editor donde lees**: abre [[edicion]], baja hasta la sección 10 y pulsa Ctrl+E. El editor debe mostrar la sección 10 a la misma altura, con el cursor en la primera línea visible, no al principio.
+- [x] **Volver a la vista donde editas**: en el editor de [[edicion]], baja hasta la sección 14, escribe algo en su párrafo y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
+- [x] **Con bloques largos**: abre [[diagramas]], deja un diagrama cortado por el borde de arriba y pulsa Ctrl+E dos veces. Debe volver a la misma zona.
 
 ## Si algo falla
 

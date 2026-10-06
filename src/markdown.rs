@@ -13,17 +13,61 @@ const SCRIPT: &str = include_str!("note.js");
 /// URL path, under the vault base, where the bundled libraries are served.
 pub const ASSETS: &str = "__visor__/";
 
-/// Renders the note at `rel` inside `root`.
-pub fn page(source: &str, rel: &str, root: &Path) -> String {
-    let options = Options::ENABLE_TABLES
+/// Wraps a block's source lines until `mark_lines` moves them into its tag.
+/// Raw NULs never reach the HTML: CommonMark replaces them.
+const LINE_MARK: char = '\0';
+
+fn options() -> Options {
+    Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_MATH
         | Options::ENABLE_GFM
         | Options::ENABLE_WIKILINKS
-        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
-    let mut events: Vec<Event> = Parser::new_ext(source, options).collect();
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+}
+
+/// Renders the note at `rel` inside `root`.
+///
+/// Blocks carry `data-line` and, if longer than a line, `data-end` (first and
+/// last 1-based source lines), so the editor can open where
+/// the reader was, and checkboxes carry `data-task` (byte offset of their `[ ]`),
+/// so a click can tick exactly that task in the file.
+pub fn page(source: &str, rel: &str, root: &Path) -> String {
+    let lines = !source.contains(LINE_MARK);
+    let line_starts: Vec<usize> = std::iter::once(0).chain(source.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset);
+    let mut events: Vec<Event> = Vec::new();
+    for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
+        match event {
+            Event::TaskListMarker(done) => {
+                let checked = if done { " checked" } else { "" };
+                let html = format!("<input type=\"checkbox\" data-task=\"{}\"{checked}>", range.start);
+                events.push(Event::InlineHtml(html.into()));
+            }
+            Event::Start(
+                Tag::Paragraph
+                | Tag::Heading { .. }
+                | Tag::BlockQuote(_)
+                | Tag::CodeBlock(_)
+                | Tag::HtmlBlock
+                | Tag::List(_)
+                | Tag::Item
+                | Tag::Table(_)
+                | Tag::TableRow
+                | Tag::FootnoteDefinition(_),
+            ) if lines => {
+                // Ranges of list items include the blank lines after them.
+                let content = source[range.clone()].trim_end().len();
+                let (first, last) = (line_of(range.start), line_of(range.start + content.saturating_sub(1)));
+                let end = if last > first { format!(" data-end=\"{last}\"") } else { String::new() };
+                events.push(Event::Html(format!("{LINE_MARK} data-line=\"{first}\"{end}{LINE_MARK}").into()));
+                events.push(event);
+            }
+            _ => events.push(event),
+        }
+    }
     let pages = pages(root);
     let (mut math, mut code, mut mermaid) = (false, false, false);
     let mut title = None;
@@ -122,6 +166,9 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
 
     let mut body = String::with_capacity(source.len() * 2);
     html::push_html(&mut body, events.into_iter());
+    if lines {
+        body = mark_lines(&body);
+    }
 
     let assets = format!("{}{ASSETS}", vault::base());
     let mut head = String::new();
@@ -149,6 +196,43 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
 <script>window.__visorNoteConfig = {config};\n{SCRIPT}</script></body></html>",
         title = escape(&title.unwrap_or(stem)),
     )
+}
+
+/// Moves the attributes in each line mark into the tag that follows it. A mark
+/// followed by text (a paragraph in a tight list has no tag) is dropped.
+fn mark_lines(html: &str) -> String {
+    let mut out = String::with_capacity(html.len() + html.len() / 8);
+    let mut rest = html;
+    while let Some(start) = rest.find(LINE_MARK) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find(LINE_MARK) else { break };
+        let attributes = &after[..end];
+        rest = after[end + 1..].trim_start();
+        let name = rest.strip_prefix('<').filter(|r| r.starts_with(|c: char| c.is_ascii_alphabetic()));
+        if let Some(name) = name {
+            let len = 1 + name.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(name.len());
+            out.push_str(&rest[..len]);
+            out.push_str(attributes);
+            rest = &rest[len..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Ticks or unticks the task whose `[ ]` starts at byte `offset`. Returns
+/// `None` if no task starts there any more, for example because the file changed.
+pub fn toggle_task(source: &str, offset: usize, checked: bool) -> Option<String> {
+    let found = Parser::new_ext(source, options())
+        .into_offset_iter()
+        .any(|(event, range)| matches!(event, Event::TaskListMarker(_)) && range.start == offset);
+    if !found || !matches!(source.get(offset..offset + 3), Some("[ ]" | "[x]" | "[X]")) {
+        return None;
+    }
+    let mut text = source.to_string();
+    text.replace_range(offset + 1..offset + 2, if checked { "x" } else { " " });
+    Some(text)
 }
 
 /// Every page in the vault, as relative paths, for resolving `[[wiki]]` links.
@@ -222,6 +306,31 @@ mod tests {
     #[test]
     fn slugs_keep_accents() {
         assert_eq!(slug("Ondas y frecuencia: ¿qué son?"), "ondas-y-frecuencia-qué-son");
+    }
+
+    #[test]
+    fn blocks_carry_their_line() {
+        let html = page("# Título\n\nUno\ndos\n\n- a\n- b\n\n```\n- [ ] no\n```\n", "a.md", Path::new("/nonexistent"));
+        assert!(html.contains("<h1 data-line=\"1\" id=\"título\">"), "{html}");
+        assert!(html.contains("<p data-line=\"3\" data-end=\"4\">Uno"), "{html}");
+        assert!(html.contains("<ul data-line=\"6\" data-end=\"7\">"), "{html}");
+        assert!(html.contains("<li data-line=\"7\">b"), "{html}");
+        assert!(html.contains("<pre data-line=\"9\" data-end=\"11\"><code>- [ ] no"), "{html}");
+        assert!(!html.contains('\0'));
+    }
+
+    #[test]
+    fn tasks_toggle_by_offset() {
+        let source = "- [ ] uno\n- [x] dos\n\n```\n- [ ] código\n```\n";
+        let html = page(source, "a.md", Path::new("/nonexistent"));
+        assert!(html.contains("<input type=\"checkbox\" data-task=\"2\">"), "{html}");
+        assert!(html.contains("<input type=\"checkbox\" data-task=\"12\" checked>"), "{html}");
+        assert_eq!(toggle_task(source, 2, true).unwrap(), source.replacen("[ ] uno", "[x] uno", 1));
+        assert_eq!(toggle_task(source, 12, false).unwrap(), source.replacen("[x] dos", "[ ] dos", 1));
+        let in_code = source.find("[ ] código").unwrap();
+        assert!(toggle_task(source, in_code, true).is_none());
+        assert!(toggle_task(source, 0, true).is_none());
+        assert!(toggle_task(source, 999, true).is_none());
     }
 
     #[test]

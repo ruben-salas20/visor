@@ -143,6 +143,8 @@ enum PageMsg {
     PickVault,
     /// From a note's editor: replaces that note's text.
     SaveNote { text: String },
+    /// From a checkbox in a rendered note: the task whose `[ ]` starts at `offset`.
+    ToggleTask { offset: usize, checked: bool },
     /// From a `[[link]]` to a note that does not exist yet.
     CreateNote { dir: String, name: String },
     AnnotSave { annotation: Value },
@@ -819,6 +821,10 @@ impl App {
                 };
                 let _ = self.page.evaluate_script(&format!("window.__visorNote && window.__visorNote.saved({ok}, {})", json!(error)));
             }
+            PageMsg::ToggleTask { offset, checked } if trusted => {
+                let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
+                let _ = self.page.evaluate_script(&format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
+            }
             PageMsg::AnnotSave { annotation } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
                     eprintln!("No se pudo guardar la anotación: {e}");
@@ -883,6 +889,17 @@ impl App {
         let path = vault::resolve(&root, &rel).filter(|p| vault::is_markdown(p)).ok_or("Solo se pueden guardar notas .md")?;
         self.own_write = Some((path.clone(), hash(text.as_bytes())));
         write_atomic(&path, text).map_err(|e| e.to_string())
+    }
+
+    /// Ticks or unticks one task of the note at `url`. Rust re-reads the file and
+    /// checks that a task really starts at `offset`, so the page cannot write anything else.
+    fn toggle_task(&mut self, url: &str, offset: usize, checked: bool) -> Result<(), String> {
+        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
+        let rel = vault::rel_from_url(url).ok_or("La página no es de la bóveda")?;
+        let path = vault::resolve(&root, &rel).filter(|p| vault::is_markdown(p)).ok_or("Solo se pueden cambiar notas .md")?;
+        let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let text = crate::markdown::toggle_task(&source, offset, checked).ok_or("La tarea ya no está en la nota")?;
+        self.save_note(url, &text)
     }
 
     /// Creates `name`.md in `dir` and opens it in the editor.

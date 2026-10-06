@@ -49,6 +49,9 @@ NOTAS EN MARKDOWN
   - Enlaces entre notas al estilo Obsidian: [[nota]], [[carpeta/nota]],
     [[nota#Sección]] y [[nota|texto]]. Se buscan por nombre en toda la
     bóveda. Un enlace a una nota que no existe la crea al hacer clic.
+  - La persona marca y desmarca las tareas (- [ ] / - [x]) con un clic
+    en la vista, y visor lo guarda en el .md. Vuelve a leer el archivo
+    antes de cambiarlo: puede tener casillas distintas.
   - Si editas una nota que la persona tiene abierta en el editor, verá
     un aviso; no pierde su texto.
 
