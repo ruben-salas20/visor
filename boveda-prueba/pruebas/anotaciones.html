@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Anotaciones</title>
+<style>
+  body { font: 17px/1.65 system-ui, sans-serif; max-width: 68ch; margin: 40px auto; padding: 0 24px;
+         background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
+  h1, h2 { line-height: 1.25; }
+  canvas, svg { display: block; width: 100%; height: auto; margin: 16px 0;
+                background: color-mix(in srgb, var(--visor-fg, #222) 5%, transparent); border-radius: 8px; }
+  table { border-collapse: collapse; margin: 16px 0; }
+  th, td { border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 20%, transparent); padding: 6px 12px; }
+</style>
+</head>
+<body>
+<h1>Ondas: página para anotar</h1>
+
+<p>Una onda es una perturbación que se propaga por un medio o por el vacío, transportando energía sin transportar materia. Las ondas mecánicas necesitan un medio; las electromagnéticas no.</p>
+
+<p>La <strong>frecuencia</strong> indica cuántos ciclos completa la onda por segundo y se mide en hercios. La <strong>longitud de onda</strong> es la distancia entre dos crestas consecutivas.</p>
+
+<h2>Gráfico</h2>
+<p>Haz clic en una cresta con Ctrl+Shift+A para anotar ese punto.</p>
+<canvas id="onda" width="800" height="240"></canvas>
+
+<h2>Imagen</h2>
+<svg viewBox="0 0 400 120" role="img" aria-label="Espectro">
+  <defs><linearGradient id="g"><stop offset="0" stop-color="#7b2ff7"/><stop offset=".25" stop-color="#2f6bf7"/><stop offset=".5" stop-color="#2fd47b"/><stop offset=".75" stop-color="#f7d22f"/><stop offset="1" stop-color="#f72f2f"/></linearGradient></defs>
+  <rect x="10" y="30" width="380" height="60" rx="6" fill="url(#g)"/>
+  <text x="10" y="112" font-size="12" fill="currentColor">400 nm</text>
+  <text x="350" y="112" font-size="12" fill="currentColor">700 nm</text>
+</svg>
+
+<h2>Tabla</h2>
+<table>
+  <tr><th>Magnitud</th><th>Símbolo</th><th>Unidad</th></tr>
+  <tr><td>Frecuencia</td><td>f</td><td>Hz</td></tr>
+  <tr><td>Longitud de onda</td><td>λ</td><td>m</td></tr>
+  <tr><td>Velocidad</td><td>v</td><td>m/s</td></tr>
+</table>
+
+<p>La relación entre las tres es v = λ · f. Si la frecuencia se duplica sin cambiar el medio, la longitud de onda se reduce a la mitad.</p>
+
+<script>
+  const canvas = document.getElementById("onda");
+  const c = canvas.getContext("2d");
+  c.strokeStyle = getComputedStyle(document.body).color;
+  c.lineWidth = 2;
+  c.beginPath();
+  for (let x = 0; x <= 800; x++) c.lineTo(x, 120 + 80 * Math.sin(x / 40));
+  c.stroke();
+</script>
+</body>
+</html>

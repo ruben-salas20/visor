@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Three.js</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; }
+  #fps { position: fixed; top: 10px; right: 12px; font: 600 14px ui-monospace, monospace; color: #fff;
+         background: rgb(0 0 0 / .5); padding: 4px 8px; border-radius: 6px; }
+</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<div id="fps">… fps</div>
+<script type="module">
+import * as THREE from "three";
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.append(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+camera.position.z = 40;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 2));
+const light = new THREE.DirectionalLight(0xffffff, 2);
+light.position.set(5, 10, 7);
+scene.add(light);
+const count = 2000;
+const mesh = new THREE.InstancedMesh(
+  new THREE.TorusKnotGeometry(0.5, 0.18, 96, 12),
+  new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.3 }),
+  count,
+);
+const m = new THREE.Matrix4(), c = new THREE.Color();
+for (let i = 0; i < count; i++) {
+  m.setPosition((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 35, (Math.random() - 0.5) * 30);
+  mesh.setMatrixAt(i, m);
+  mesh.setColorAt(i, c.setHSL(Math.random(), 0.7, 0.55));
+}
+scene.add(mesh);
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+const label = document.getElementById("fps");
+let frames = 0, since = performance.now();
+renderer.setAnimationLoop((t) => {
+  mesh.rotation.y = t / 2000;
+  mesh.rotation.x = t / 3000;
+  renderer.render(scene, camera);
+  frames++;
+  if (t - since >= 1000) {
+    label.textContent = Math.round((frames * 1000) / (t - since)) + " fps";
+    frames = 0;
+    since = t;
+  }
+});
+</script>
+</body>
+</html>

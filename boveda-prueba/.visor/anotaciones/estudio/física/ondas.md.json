@@ -1,0 +1,28 @@
+{
+  "annotations": [
+    {
+      "author": "persona",
+      "color": "amarillo",
+      "comment": "Ejemplo de nota sobre el diagrama",
+      "created": 1791323488,
+      "id": "e7e62045",
+      "replies": [],
+      "target": {
+        "element": {
+          "css": "#mermaid-1791323458942",
+          "id": "mermaid-1791323458942",
+          "src": null,
+          "tag": "svg",
+          "text": "#mermaid-1791323458942{font-family:\"trebuchet ms\",verdana,arial,sans-serif;font-"
+        },
+        "kind": "element",
+        "point": {
+          "x": 0.6323573717509792,
+          "y": 0.23941569695469175
+        }
+      },
+      "updated": 1791323488
+    }
+  ],
+  "page": "estudio/física/ondas.md"
+}

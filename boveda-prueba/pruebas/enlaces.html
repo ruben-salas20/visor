@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Enlaces</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 70ch; margin: 40px auto; padding: 0 24px;
+         background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
+  a { color: var(--visor-accent, #1a6cc4); }
+  li { margin: .6em 0; }
+  small { color: var(--visor-muted, #777); display: block; }
+</style>
+</head>
+<body>
+<h1>Enlaces</h1>
+<ol>
+  <li><a href="https://es.wikipedia.org/wiki/Onda">Wikipedia: Onda</a>
+    <small>Debe abrirse dentro de visor. Vuelve con Alt+←, con el botón ← de la barra o con el botón «atrás» del ratón.</small></li>
+  <li><a href="https://threejs.org/examples/" target="_blank">Ejemplos de Three.js (target="_blank")</a>
+    <small>También dentro de visor: no hay pestañas.</small></li>
+  <li><a href="mailto:ejemplo@example.com">Correo de ejemplo</a>
+    <small>Debe abrir tu programa de correo, si tienes uno configurado. visor no cambia de página.</small></li>
+  <li><a href="file:///etc/hostname">Archivo local (file://)</a>
+    <small>No debe pasar nada: visor ignora este tipo de enlace por seguridad.</small></li>
+  <li><a href="edicion-inexistente.html">Página que no existe en la bóveda</a>
+    <small>Debe mostrar «No existe: …».</small></li>
+</ol>
+</body>
+</html>
