@@ -1,0 +1,69 @@
+:root {
+  color-scheme: var(--visor-mode, light dark);
+  --bg: var(--visor-bg, Canvas);
+  --fg: var(--visor-fg, CanvasText);
+  --muted: var(--visor-muted, GrayText);
+  --accent: var(--visor-accent, LinkText);
+  --line: color-mix(in srgb, var(--fg) 14%, var(--bg));
+  --soft: color-mix(in srgb, var(--fg) 5%, var(--bg));
+  --mono: var(--visor-font-mono, ui-monospace, monospace);
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); color: var(--fg); }
+body { margin: 0; font: 16px/1.65 system-ui, sans-serif; }
+#note { max-width: 74ch; margin: 0 auto; padding: 40px 28px 96px; overflow-wrap: break-word; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.6em 0 .6em; text-wrap: balance; scroll-margin-top: 16px; }
+h1 { font-size: 2em; margin-top: 0; }
+h2 { font-size: 1.5em; padding-bottom: .25em; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1.25em; }
+p, ul, ol, blockquote, table, pre, .math-display { margin: 0 0 1em; }
+a { color: var(--accent); text-underline-offset: .15em; }
+a[href^="#visor-new:"] { color: var(--muted); text-decoration-style: dashed; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+img, video { max-width: 100%; height: auto; border-radius: 6px; }
+ul, ol { padding-left: 1.6em; }
+li + li { margin-top: .2em; }
+li > input[type="checkbox"] { margin: 0 .5em 0 -1.4em; accent-color: var(--accent); }
+ul:has(> li > input[type="checkbox"]) { list-style: none; }
+blockquote { margin-left: 0; padding: .1em 1em; border-left: 3px solid var(--line); color: var(--muted); }
+blockquote.markdown-alert-note, blockquote.markdown-alert-tip, blockquote.markdown-alert-important,
+blockquote.markdown-alert-warning, blockquote.markdown-alert-caution {
+  color: var(--fg); background: var(--soft); border-radius: 0 6px 6px 0; padding: .6em 1em;
+}
+blockquote.markdown-alert-note { border-color: var(--visor-blue, #3a7bd5); }
+blockquote.markdown-alert-tip { border-color: var(--visor-green, #2e8a2e); }
+blockquote.markdown-alert-important { border-color: var(--visor-magenta, #8a3ab9); }
+blockquote.markdown-alert-warning { border-color: var(--visor-yellow, #b58900); }
+blockquote.markdown-alert-caution { border-color: var(--visor-red, #c0392b); }
+code { font-family: var(--mono); font-size: .9em; background: var(--soft); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--soft); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: .875em; }
+pre.mermaid { background: none; text-align: center; }
+table { border-collapse: collapse; display: block; overflow-x: auto; font-variant-numeric: tabular-nums; }
+th, td { border: 1px solid var(--line); padding: .4em .75em; text-align: left; }
+th { background: var(--soft); font-weight: 600; }
+.math-display { display: block; overflow-x: auto; text-align: center; }
+.footnote-definition { font-size: .9em; color: var(--muted); }
+::selection { background: var(--visor-selection, Highlight); }
+
+/* highlight.js tokens mapped to the theme palette */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type { color: var(--visor-magenta, #8a3ab9); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute { color: var(--visor-green, #2e8a2e); }
+.hljs-number, .hljs-literal, .hljs-symbol { color: var(--visor-orange, #b04a00); }
+.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
+.hljs-title, .hljs-section, .hljs-function .hljs-title { color: var(--visor-blue, #1a6cc4); }
+.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-property { color: var(--visor-cyan, #006b80); }
+.hljs-meta, .hljs-deletion { color: var(--visor-red, #b00000); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 650; }
+
+/* editor */
+#edit { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+#edit[hidden] { display: none; }
+#status { padding: 6px 16px; font: 12px/1.4 system-ui, sans-serif; color: var(--muted); border-bottom: 1px solid var(--line); min-height: 26px; }
+#status.error { color: var(--visor-red, #c0392b); }
+#editor {
+  flex: 1; width: 100%; max-width: 86ch; margin: 0 auto; padding: 24px 28px 96px; border: 0; outline: none; resize: none;
+  background: transparent; color: var(--fg); font: 15px/1.6 var(--mono); tab-size: 4; caret-color: var(--accent);
+}
