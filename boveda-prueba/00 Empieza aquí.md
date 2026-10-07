@@ -106,23 +106,16 @@ Abre [[vista-previa]] y pulsa Ctrl+E. La nota debe verse casi igual que al leerl
 
 ## 10. Pestañas y vista dividida
 
-- [ ] **Barra oculta y botones a la vista**: con una configuración nueva, la barra de direcciones empieza oculta. Los botones de anotar (diana) y de lista siguen a la derecha de las pestañas y funcionan.
-- [ ] **Pestaña nueva desde el panel**: Ctrl+clic en una nota del panel. Debe abrirse en una pestaña nueva, a la derecha de la actual, sin cerrar la que tenías.
-- [ ] **Clic en las pestañas**: haz clic en otra pestaña para cambiar y en la ✕ para cerrarla.
-- [ ] **Atajos**: Ctrl+T abre una pestaña vacía, Ctrl+W la cierra, Ctrl+Tab y Ctrl+Mayús+Tab pasan a la siguiente y a la anterior.
-- [ ] **Dividir**: pulsa Ctrl+| (la tecla a la izquierda del 1). La nota que ves debe salir también a la derecha, con el divisor en el centro. Pulsa Ctrl+| otra vez: las pestañas de la derecha pasan a la izquierda.
-- [ ] **Abrir al otro lado**: Ctrl+Alt+clic en una nota del panel. Debe abrirse en el otro lado (y dividir la ventana si no lo estaba).
-- [ ] **Mezclar formatos**: pon [[threejs]] a un lado y [[edicion]] al otro. Las dos deben verse bien, y Three.js debe ir fluido.
-- [ ] **Foco**: haz clic en un lado. Su pestaña activa lleva una línea de color debajo, el panel resalta su archivo y Ctrl+E, Ctrl+Shift+A y Ctrl+R actúan sobre ese lado. Ctrl+Alt+← y Ctrl+Alt+→ cambian de lado con el teclado.
-- [ ] **Pestañas que se descargan**: abre [[threejs]], después 3 pestañas más. Vuelve a la de Three.js: puede tardar un momento en cargar, porque visor mantiene vivas solo 3 páginas.
-- [ ] **Pantalla completa en un lado**: con la ventana dividida, abre [[video]] y ponlo en pantalla completa. Solo debe verse el vídeo; al salir, vuelven los dos lados, las pestañas y el panel.
-- [ ] **Recuperar al abrir**: deja varias pestañas en los dos lados, cierra visor y ábrelo. Deben volver las mismas pestañas, la división y el lado con el foco.
-- [ ] **Cada bóveda con sus pestañas**: cambia a otra bóveda y vuelve. Cada una debe recuperar sus propias pestañas.
-- [ ] **Botón «+» y clic central**: el «+» tras la última pestaña abre una vacía; el clic central sobre una pestaña la cierra.
+Los atajos de teclado, la CLI, la división, el límite de páginas, la posición al recargar y recuperar las pestañas ya están probados. Aquí queda solo lo que necesita ratón.
+
+- [ ] **Botones de anotaciones**: con la barra oculta, el botón de diana y el de lista (a la derecha de las pestañas) funcionan. Con la ventana dividida, actúan sobre su lado.
+- [ ] **Pestañas con el ratón**: clic en una pestaña para cambiar, en la ✕ para cerrarla, en el «+» para abrir una vacía y clic central sobre una pestaña para cerrarla.
+- [ ] **Desde el panel**: Ctrl+clic en una nota la abre en una pestaña nueva. Ctrl+Alt+clic la abre en el otro lado y divide la ventana si no lo estaba.
+- [ ] **Foco con un clic**: haz clic dentro de un lado. Su pestaña activa lleva una línea de color debajo, el panel resalta su archivo y Ctrl+E, Ctrl+Shift+A y Ctrl+R actúan sobre ese lado.
 - [ ] **Enlaces en pestaña nueva**: en [[enlaces]], el de Three.js (`target="_blank"`) debe abrirse en una pestaña nueva, a la vista. En una nota, Ctrl+clic y clic central sobre un enlace la añaden al final de la fila sin cambiar de pestaña; al mostrarla, carga (con `[[nota#Sección]]`, en esa sección). Un clic normal sigue abriendo en la misma pestaña.
-- [ ] **Posición al volver**: en [[edicion]], baja hasta la sección 10. Abre 3 pestañas más con Ctrl+clic en el panel y vuelve: la nota se recarga, pero en la sección 10.
+- [ ] **Pantalla completa en un lado**: con la ventana dividida, abre [[video]] y ponlo en pantalla completa. Solo debe verse el vídeo; al salir, vuelven los dos lados, las pestañas y el panel.
 - [ ] **Divisor recordado**: divide la ventana, arrastra el divisor hacia un lado, une con Ctrl+| y vuelve a dividir. Debe salir donde lo dejaste, también tras cerrar y abrir visor.
-- [ ] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta desde el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
+- [ ] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta arrastrándola en el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
 
 ## Si algo falla
 

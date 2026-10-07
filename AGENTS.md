@@ -1,6 +1,6 @@
 # visor
 
-Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. Rust + tao + wry sobre WebKitGTK, Wayland nativo (Omarchy/Hyprland). Los agentes lo controlan por CLI; `visor help` es la referencia de esa interfaz y de cómo escribir páginas para visor: si cambias su comportamiento, actualiza `src/help.txt`.
+Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. Rust + tao + wry sobre WebKitGTK, Wayland nativo (Omarchy/Hyprland); solo compila en Linux. Los agentes lo controlan por CLI; `visor help` es la referencia de esa interfaz y de cómo escribir páginas para visor: si cambias su comportamiento, actualiza `src/help.txt`.
 
 ## Mapa
 
@@ -24,7 +24,3 @@ Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo 
 
 - **probar o medir** cualquier cosa: lee `docs/pruebas.md`. El usuario suele tener visor abierto y tus órdenes irían a su ventana.
 - **tocar arquitectura, dependencias o perfil de compilación**: lee `docs/decisiones.md`; recoge lo ya medido y decidido con el usuario.
-
-## Pendiente
-
-Escribir una skill para agentes. Solo compila en Linux.
