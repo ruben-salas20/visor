@@ -99,6 +99,10 @@ Abre [[vista-previa]] y pulsa Ctrl+E. La nota debe verse casi igual que al leerl
 - [x] **Imagen**: la onda se ve debajo de su línea.
 - [x] **Tema claro y oscuro**: cambia de tema con el editor abierto y sin él. Los colores del editor deben seguir al tema.
 - [x] **Ir y volver**: en [[edicion]], baja hasta la sección 10, pulsa Ctrl+E, escribe algo en la sección 12 y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
+- [x] **Continuar listas**: en el editor, escribe `- uno` y pulsa Enter: debe salir `- ` solo. Pulsa Enter otra vez sin escribir: la lista termina. Prueba también con `1. ` (sigue con `2. `) y con `- [x] ` (sigue con `- [ ] `).
+- [x] **Imagen por nombre**: en una nota escribe `![[onda.svg]]` (la imagen está en `pruebas/notas/imagenes/`). Debe verse en la lectura y en el editor.
+- [x] **Mayúsculas con tilde**: crea una nota `árbol` y en otra escribe `[[Árbol]]`. El enlace debe funcionar (no gris).
+- [x] **Texto visible al mover**: crea una nota `edicion` en `estudio`. En [[tareas]] escribe `[[edicion]]`. Arrastra `pruebas/notas/edicion` a la carpeta `pruebas/notas/imagenes`. El enlace de [[tareas]] debe seguir viéndose como «edicion» y abrir la nota movida, no la de `estudio`.
 
 ## Si algo falla
 

@@ -76,6 +76,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
         Mermaid,
         Heading,
         Wiki,
+        Embed,
     }
     let mut i = 0;
     while i < events.len() {
@@ -94,6 +95,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
             }
             Event::Start(Tag::Heading { .. }) => Some(Fix::Heading),
             Event::Start(Tag::Link { link_type: LinkType::WikiLink { .. }, .. }) => Some(Fix::Wiki),
+            Event::Start(Tag::Image { link_type: LinkType::WikiLink { .. }, .. }) => Some(Fix::Embed),
             _ => None,
         };
         let end_of = |events: &[Event], done: fn(&Event) -> bool| events[i..].iter().position(done).map_or(i, |p| i + p);
@@ -143,6 +145,13 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
                             *dest_url = new.into();
                         }
                     }
+                }
+            }
+            Some(Fix::Embed) => {
+                if let Event::Start(Tag::Image { dest_url, .. }) = &mut events[i]
+                    && let Some(url) = embed_url(dest_url, rel, root)
+                {
+                    *dest_url = url.into();
                 }
             }
             None => {}
@@ -237,7 +246,11 @@ pub fn toggle_task(source: &str, offset: usize, checked: bool) -> Option<String>
 
 /// Every page in the vault, as relative paths, for resolving `[[wiki]]` links.
 pub(crate) fn pages(root: &Path) -> Vec<String> {
-    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    files(root, vault::is_page)
+}
+
+fn files(root: &Path, keep: fn(&Path) -> bool) -> Vec<String> {
+    fn walk(root: &Path, dir: &Path, keep: fn(&Path) -> bool, out: &mut Vec<String>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -245,15 +258,29 @@ pub(crate) fn pages(root: &Path) -> Vec<String> {
                 continue;
             }
             if path.is_dir() {
-                walk(root, &path, out);
-            } else if vault::is_page(&path) {
+                walk(root, &path, keep, out);
+            } else if keep(&path) {
                 out.push(vault::rel(root, &path));
             }
         }
     }
     let mut out = vec![];
-    walk(root, root, &mut out);
+    walk(root, root, keep, &mut out);
     out
+}
+
+fn is_image(path: &Path) -> bool {
+    vault::mime(path).starts_with("image/")
+}
+
+/// URL of the image that `![[name]]` in the note at `rel` shows: found by name
+/// anywhere in the vault, like `[[links]]`, preferring the note's own folder.
+pub fn embed_url(name: &str, rel: &str, root: &Path) -> Option<String> {
+    let name = name.split('|').next().unwrap_or(name);
+    if !is_image(Path::new(name.trim())) {
+        return None;
+    }
+    wiki_page(name, rel, &files(root, is_image)).map(|p| vault::url(p))
 }
 
 /// URL of the `[[target]]` written in the note at `rel`, for the editor, which
@@ -281,14 +308,16 @@ pub(crate) fn wiki_page<'a>(name: &str, from: &str, pages: &'a [String]) -> Opti
         return None;
     }
     let here = from.rsplit_once('/').map_or("", |(d, _)| d);
+    // Unicode-aware, not ASCII: [[Árbol]] must find árbol.md.
+    let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
     let matches = |page: &&String| {
         let without_ext = page.rsplit_once('.').map_or(page.as_str(), |(p, _)| p);
         if name.contains('/') {
-            page.eq_ignore_ascii_case(name) || without_ext.eq_ignore_ascii_case(name)
+            same(page, name) || same(without_ext, name)
         } else {
             let file = page.rsplit('/').next().unwrap_or(page);
             let stem = without_ext.rsplit('/').next().unwrap_or(without_ext);
-            file.eq_ignore_ascii_case(name) || stem.eq_ignore_ascii_case(name)
+            same(file, name) || same(stem, name)
         }
     };
     pages.iter().filter(matches).min_by_key(|page| {
@@ -316,6 +345,18 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_image_found_by_name() {
+        vault::set_base("http://127.0.0.1:1/s/".into());
+        let root = std::env::temp_dir().join(format!("visor-embed-{}", std::process::id()));
+        fs::create_dir_all(root.join("img")).unwrap();
+        fs::write(root.join("img/foto.png"), "").unwrap();
+        let html = page("![[foto.png]] ![[nota]]\n", "x.md", &root);
+        assert!(html.contains("src=\"http://127.0.0.1:1/s/img/foto.png\""), "{html}");
+        assert_eq!(embed_url("nota", "x.md", &root), None, "only images");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn slugs_keep_accents() {
@@ -358,5 +399,7 @@ mod tests {
         assert_eq!(wiki_target("Roma#El Senado", "a.md", &pages).unwrap(), "http://127.0.0.1:1/s/roma.html#el-senado");
         assert_eq!(wiki_target("historia/ondas", "a.md", &pages).unwrap(), "http://127.0.0.1:1/s/historia/ondas.md");
         assert!(wiki_target("no existe", "a.md", &pages).is_none());
+        let pages = vec!["árbol.md".to_string()];
+        assert!(wiki_target("Árbol", "x.md", &pages).is_some(), "capitals with accents");
     }
 }

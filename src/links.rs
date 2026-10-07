@@ -22,7 +22,7 @@ pub fn relink(root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>, String>
     let old_pages = new_pages.iter().map(|p| swap(p, to, from).unwrap_or_else(|| p.clone())).collect();
     let mut moved_names = HashSet::new();
     for page in new_pages.iter().filter(|p| swap(p, to, to).is_some()) {
-        let file = page.rsplit('/').next().unwrap_or(page).to_ascii_lowercase();
+        let file = page.rsplit('/').next().unwrap_or(page).to_lowercase();
         if let Some((stem, _)) = file.rsplit_once('.') {
             moved_names.insert(stem.to_string());
         }
@@ -89,7 +89,7 @@ impl Relinker<'_> {
                         edits.push((span, link));
                     }
                 }
-                LinkType::WikiLink { .. } => {
+                LinkType::WikiLink { has_pothole } => {
                     let Some(open) = source[range.clone()].find("[[") else { continue };
                     let start = range.start + open + 2;
                     let name = dest_url.split('#').next().unwrap_or("");
@@ -99,7 +99,17 @@ impl Relinker<'_> {
                     let lead = name.len() - name.trim_start().len();
                     let span = start + lead..start + name.trim_end().len();
                     if let Some(link) = self.wiki(name.trim(), old, new) {
-                        edits.push((span, link));
+                        // Without `|text` the link shows what was written; keep showing it.
+                        let close = source[start..range.end].find("]]").map(|i| start + i);
+                        match close.filter(|_| !has_pothole) {
+                            Some(close) => {
+                                let inner = &source[start..close];
+                                let section = &inner[name.len()..];
+                                let shown = inner.trim().replacen('#', " › ", 1);
+                                edits.push((start..close, format!("{link}{section}|{shown}")));
+                            }
+                            None => edits.push((span, link)),
+                        }
                     }
                 }
                 _ => {}
@@ -150,7 +160,7 @@ impl Relinker<'_> {
     /// New name for `[[name]]` if, after the move, it would resolve to another page
     /// (or to none): the shortest that resolves to where it pointed before.
     fn wiki(&self, name: &str, old: &str, new: &str) -> Option<String> {
-        let last = name.rsplit('/').next().unwrap_or(name).to_ascii_lowercase();
+        let last = name.rsplit('/').next().unwrap_or(name).to_lowercase();
         if old == new && !self.moved_names.contains(&last) {
             return None;
         }
@@ -160,7 +170,7 @@ impl Relinker<'_> {
             return None;
         }
         let file = target.rsplit('/').next().unwrap_or(&target);
-        let with_ext = file.eq_ignore_ascii_case(&last);
+        let with_ext = file.to_lowercase() == last;
         let strip = |p: &str| p.rsplit_once('.').map_or(p.to_string(), |(s, _)| s.to_string());
         let mut candidates = vec![];
         if !name.contains('/') {
@@ -387,7 +397,7 @@ mod tests {
             ],
         );
         assert_eq!(moved(&root, "tema/nota.md", "archivo"), ["a/x.md"]);
-        assert_eq!(read(&root, "a/x.md"), "[[archivo/nota]] [[nota#Sección|alias]] [[ archivo/nota.md |Nota]] [[otra]]");
+        assert_eq!(read(&root, "a/x.md"), "[[archivo/nota|tema/nota]] [[nota#Sección|alias]] [[ archivo/nota.md |Nota]] [[otra]]");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -395,7 +405,7 @@ mod tests {
     fn ambiguous_wikilink_gets_a_path() {
         let root = vault("ambiguous", &[("a/x.md", "[[ondas]] y [[Ondas#Fase]]"), ("a/ondas.md", ""), ("b/ondas.md", ""), ("zzz/", "")]);
         assert_eq!(moved(&root, "a/ondas.md", "zzz"), ["a/x.md"]);
-        assert_eq!(read(&root, "a/x.md"), "[[zzz/ondas]] y [[zzz/ondas#Fase]]");
+        assert_eq!(read(&root, "a/x.md"), "[[zzz/ondas|ondas]] y [[zzz/ondas#Fase|Ondas › Fase]]");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -419,7 +429,7 @@ mod tests {
             .replacen("[o](otra.md)", "[o](../../tema/otra.md)", 1)
             .replace("../indice.md", "../../indice.md")
             .replace("img/f.png", "../../tema/img/f.png")
-            .replace("[[otra]]", "[[tema/otra]]");
+            .replace("[[otra]]", "[[tema/otra|otra]]");
         assert_eq!(read(&root, "archivo/2026/nota.md"), expected);
         fs::remove_dir_all(root).unwrap();
     }
@@ -437,7 +447,7 @@ mod tests {
             ],
         );
         assert_eq!(moved(&root, "tema", "archivo"), ["archivo/tema/a.md", "indice.md"]);
-        assert_eq!(read(&root, "indice.md"), "[a](archivo/tema/a.md) [[archivo/tema/b]] [[a]]");
+        assert_eq!(read(&root, "indice.md"), "[a](archivo/tema/a.md) [[archivo/tema/b|tema/b]] [[a]]");
         assert_eq!(read(&root, "archivo/tema/a.md"), "[b](b.md) [[b]] [i](../../indice.md)");
         assert_eq!(read(&root, "suelta.md"), "[s](otra/cosa.md)");
         fs::remove_dir_all(root).unwrap();

@@ -22,6 +22,7 @@
       { name: "WikiLink", style: t.link },
       { name: "WikiMark", style: t.processingInstruction },
       { name: "WikiTarget" },
+      { name: "WikiEmbed", style: t.link },
       { name: "FrontMatter", block: true, style: t.meta },
     ],
     parseInline: [
@@ -46,6 +47,23 @@
             return cx.addElement(cx.elt("InlineMath", pos, end, [cx.elt("MathMark", pos, start), cx.elt("MathMark", i, end)]));
           }
           return -1;
+        },
+      },
+      {
+        // ![[image.png]], as in Obsidian: the image is found by name in the vault.
+        name: "WikiEmbed",
+        before: "Image",
+        parse(cx, next, pos) {
+          if (next !== 33 || cx.char(pos + 1) !== 91 || cx.char(pos + 2) !== 91) return -1;
+          const inner = cx.slice(pos + 3, cx.end);
+          const close = inner.indexOf("]]");
+          if (close < 1 || /[[\]\n]/.test(inner.slice(0, close))) return -1;
+          const end = pos + 3 + close + 2;
+          const bar = inner.slice(0, close).indexOf("|");
+          const targetEnd = pos + 3 + (bar >= 0 ? bar : close);
+          return cx.addElement(cx.elt("WikiEmbed", pos, end, [
+            cx.elt("WikiMark", pos, pos + 3), cx.elt("WikiTarget", pos + 3, targetEnd), cx.elt("WikiMark", targetEnd, end),
+          ]));
         },
       },
       {
@@ -217,6 +235,26 @@
   const unbracket = (url) => (url.startsWith("<") && url.endsWith(">") ? url.slice(1, -1) : url);
 
   // The link at `pos`, if any: { href } or { wiki }.
+  // Enter continues a list item, as in Obsidian; on an empty item it ends the list.
+  function continueList(view) {
+    const { state } = view;
+    const sel = state.selection.main;
+    if (!sel.empty) return false;
+    const line = state.doc.lineAt(sel.head);
+    const m = /^(\s*(?:>\s*)*)(?:([-*+])|(\d+)([.)]))(\s+)(\[[ xX]\]\s+)?/.exec(line.text);
+    if (!m || sel.head - line.from < m[0].length) return false;
+    for (let n = syntaxTree(state).resolveInner(sel.head, -1); n; n = n.parent) {
+      if (/^(FencedCode|CodeBlock|FrontMatter|BlockMath)$/.test(n.name)) return false;
+    }
+    if (line.text.slice(m[0].length).trim() === "") {
+      view.dispatch({ changes: { from: line.from, to: line.to, insert: m[1] }, selection: { anchor: line.from + m[1].length }, userEvent: "input" });
+      return true;
+    }
+    const marker = m[2] || `${Number(m[3]) + 1}${m[4]}`;
+    view.dispatch(state.replaceSelection("\n" + m[1] + marker + m[5] + (m[6] ? "[ ] " : "")), { scrollIntoView: true, userEvent: "input" });
+    return true;
+  }
+
   function linkAt(state, pos) {
     for (const side of [1, -1]) {
       for (let node = syntaxTree(state).resolveInner(pos, side); node; node = node.parent) {
@@ -508,6 +546,15 @@
             }
             return false;
           }
+          case "WikiEmbed": {
+            const target = node.node.getChild("WikiTarget");
+            const name = state.sliceDoc(target.from, target.to).trim();
+            // Rust answers with a redirect to the image, wherever it is.
+            if (/\.(png|jpe?g|gif|webp|avif|svg|ico)$/i.test(name)) {
+              blocks.push({ kind: "image", from: node.from, to: node.to, src: location.pathname + "?embed=" + encodeURIComponent(name), alt: name });
+            }
+            return false;
+          }
           case "CodeBlock": case "HTMLBlock": case "FrontMatter": case "CommentBlock":
             return false;
         }
@@ -677,6 +724,12 @@
             case "Image":
               if (!on(ref.from, ref.to)) conceal(ref.from, ref.to);
               return false;
+            case "WikiEmbed": {
+              const target = node.getChild("WikiTarget");
+              const image = /\.(png|jpe?g|gif|webp|avif|svg|ico)$/i.test(state.sliceDoc(target.from, target.to).trim());
+              if (image && !on(ref.from, ref.to)) conceal(ref.from, ref.to);
+              return false;
+            }
             case "WikiLink": {
               const target = node.getChild("WikiTarget");
               const marks = node.getChildren("WikiMark");
@@ -837,6 +890,7 @@
             EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-label": "Texto de la nota" }),
             Prec.high(keymap.of([
               { key: "Mod-s", run: () => { hooks.save(); return true; } },
+              { key: "Enter", run: continueList },
               { key: "Tab", run: insertTab },
               { key: "ArrowDown", run: intoBlock(true) },
               { key: "ArrowUp", run: intoBlock(false) },

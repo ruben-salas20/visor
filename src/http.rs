@@ -101,6 +101,17 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
     // Notes are rendered unless the editor asks for the source with `?raw`,
     // or where one of its `[[links]]` leads with `?wiki=target`.
     if vault::is_markdown(&path) {
+        // `![[image]]` in the editor: the image file, wherever it is in the vault.
+        if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
+            let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
+            let root = root.canonicalize().unwrap_or(root);
+            let response = match crate::markdown::embed_url(&name, &vault::rel(&root, &path), &root) {
+                Some(url) => text(302, "").with_header(header("Location", &url)),
+                None => text(404, "No existe"),
+            };
+            let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
+            return;
+        }
         if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
             let root = root.canonicalize().unwrap_or(root);

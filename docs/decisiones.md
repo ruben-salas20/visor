@@ -32,7 +32,7 @@ Cada punto se midió o se acordó con el usuario. Para cambiar uno, trae datos n
 
 - `panic = "abort"` y `opt-level = 3`. `"s"` ahorraba 380 KB pero renderizaba Markdown un 8–15 % más lento; `"z"`, un 50 %.
 - Las librerías de `assets/` van comprimidas con brotli: WebKit solo anuncia gzip por HTTP, pero descodifica brotli. `build-override` optimiza el script de compilación (sin optimizar, brotli tardaba 39 s).
-- Mermaid completo (1,15 MB comprimido): la versión *tiny* ahorra 0,6 MB pero pierde los mapas mentales. Pendiente de que el usuario decida.
+- **Mermaid completo** (1,15 MB comprimido): la versión *tiny* ahorra 0,6 MB pero pierde los mapas mentales. El usuario eligió el completo.
 
 ## Requisitos del sistema
 
