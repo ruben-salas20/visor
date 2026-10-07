@@ -38,4 +38,4 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 | Memoria con el editor abierto (Ctrl+E) | ~334–338 MB |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js |
 | Three.js (2000 nudos instanciados) | 59–60 fps |
-| Binario | 3,93 MiB |
+| Binario | 3,94 MiB |

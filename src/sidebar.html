@@ -323,6 +323,8 @@
     dragged = el.dataset.path;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", dragged);
+    // Files can also be dropped on the pages, which the app marks while dragging.
+    if (el.classList.contains("file")) send({ type: "drag_start", path: dragged });
   });
   $("tree").addEventListener("dragover", (e) => {
     if (!dragged) return;
@@ -339,7 +341,7 @@
     setDropTarget(null);
     dragged = null;
   });
-  $("tree").addEventListener("dragend", () => { setDropTarget(null); dragged = null; });
+  $("tree").addEventListener("dragend", () => { setDropTarget(null); dragged = null; send({ type: "drag_end" }); });
 
   let noticeTimer = 0;
   window.app = {

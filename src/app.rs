@@ -78,6 +78,9 @@ pub enum UserEvent {
     OpenTab { view: u64, url: String, background: bool },
     /// The reading position a page reported as its tab was hidden.
     Position { view: u64, json: String },
+    /// A file dragged from the sidebar was dropped on a side: on one half of
+    /// it (0 left, 1 right) when the window is not split, or on all of it.
+    Dropped { pane: u64, half: Option<usize> },
     Action(Action),
 }
 
@@ -208,6 +211,9 @@ enum SidebarMsg {
     CreateFolder { dir: String, name: String },
     Trash { path: String },
     Move { path: String, dir: String },
+    /// A file started being dragged; the pages can take it while it lasts.
+    DragStart { path: String },
+    DragEnd,
 }
 
 /// Messages from vault pages. Websites never get to send these.
@@ -330,6 +336,7 @@ pub fn launch() -> i32 {
         next_id: 2,
         clock: 0,
         mono: None,
+        dragging: None,
         sidebar_before_fullscreen: None,
         own_write: None,
         paned,
@@ -609,6 +616,8 @@ struct App {
     /// Counts tab switches, to find the tab used longest ago.
     clock: u64,
     mono: Option<String>,
+    /// The file being dragged from the sidebar.
+    dragging: Option<String>,
     /// Whether the sidebar was showing when fullscreen began, to restore it after.
     sidebar_before_fullscreen: Option<bool>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
@@ -1145,6 +1154,7 @@ impl App {
             UserEvent::ThemeChanged => self.apply_theme(),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
+            UserEvent::Dropped { pane, half } => self.dropped(pane, half),
             UserEvent::Position { view, json } => {
                 if let Some((p, i)) = self.find_view(view) {
                     self.panes[p].tabs[i].position = clean_position(&json);
@@ -1293,6 +1303,39 @@ impl App {
         } else {
             self.focused = p;
             self.open_with(target, Place::NewTab, &fragment);
+        }
+    }
+
+    fn end_drag(&mut self) {
+        for pane in &self.panes {
+            pane.show_drop(false, false);
+        }
+        self.dragging = None;
+    }
+
+    /// Opens the dragged file where it was dropped. On an unsplit window it
+    /// splits it and takes the half it fell on; on a split one, a new tab of that side.
+    fn dropped(&mut self, pane: u64, half: Option<usize>) {
+        let target = self.dragging.take();
+        self.end_drag();
+        let (Some(target), Some(p)) = (target, self.panes.iter().position(|x| x.id == pane)) else { return };
+        if self.panes.len() == 2 {
+            self.focused = p;
+            self.open_in(target, Place::NewTab);
+            return;
+        }
+        self.focused = 0;
+        self.open_in(target, Place::Beside);
+        if half == Some(0) {
+            // The new side was added on the right; the file goes on the left.
+            self.panes.swap(0, 1);
+            for pane in &self.panes {
+                self.split.remove(&pane.root);
+            }
+            self.split.pack1(&self.panes[0].root, true, false);
+            self.split.pack2(&self.panes[1].root, true, false);
+            self.focused = 0;
+            self.focus_changed();
         }
     }
 
@@ -1477,6 +1520,14 @@ impl App {
                     Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
                 }
             }
+            SidebarMsg::DragStart { path } => {
+                let split = self.panes.len() == 2;
+                for pane in &self.panes {
+                    pane.show_drop(true, split);
+                }
+                self.dragging = Some(path);
+            }
+            SidebarMsg::DragEnd => self.end_drag(),
             SidebarMsg::RemoveVault { path } => {
                 self.config.vaults.retain(|v| *v != path);
                 self.config.last.remove(&path);

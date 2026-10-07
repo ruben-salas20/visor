@@ -162,7 +162,10 @@ ATAJOS EN LA APP
           del ratón)
   El ancho del panel se cambia arrastrando el divisor y se recuerda.
   En el panel, Ctrl+clic abre en una pestaña nueva y Ctrl+Alt+clic, en
-  el otro lado. Cada bóveda recuerda sus pestañas y su división.
+  el otro lado. Arrastrar un archivo del panel a la mitad izquierda o
+  derecha de la página divide la ventana y lo abre en ese lado; con la
+  ventana ya dividida, lo abre en una pestaña nueva del lado donde se
+  suelta. Cada bóveda recuerda sus pestañas y su división.
   En el panel, clic derecho o Supr sobre un archivo o carpeta lo mueve
   a la papelera, con sus anotaciones. Arrástralo a otra carpeta para
   moverlo; suéltalo en el hueco libre para llevarlo a la raíz.

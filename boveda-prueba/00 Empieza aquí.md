@@ -108,14 +108,14 @@ Abre [[vista-previa]] y pulsa Ctrl+E. La nota debe verse casi igual que al leerl
 
 Los atajos de teclado, la CLI, la división, el límite de páginas, la posición al recargar y recuperar las pestañas ya están probados. Aquí queda solo lo que necesita ratón.
 
-- [ ] **Botones de anotaciones**: con la barra oculta, el botón de diana y el de lista (a la derecha de las pestañas) funcionan. Con la ventana dividida, actúan sobre su lado.
-- [ ] **Pestañas con el ratón**: clic en una pestaña para cambiar, en la ✕ para cerrarla, en el «+» para abrir una vacía y clic central sobre una pestaña para cerrarla.
-- [ ] **Desde el panel**: Ctrl+clic en una nota la abre en una pestaña nueva. Ctrl+Alt+clic la abre en el otro lado y divide la ventana si no lo estaba.
-- [ ] **Foco con un clic**: haz clic dentro de un lado. Su pestaña activa lleva una línea de color debajo, el panel resalta su archivo y Ctrl+E, Ctrl+Shift+A y Ctrl+R actúan sobre ese lado.
-- [ ] **Enlaces en pestaña nueva**: en [[enlaces]], el de Three.js (`target="_blank"`) debe abrirse en una pestaña nueva, a la vista. En una nota, Ctrl+clic y clic central sobre un enlace la añaden al final de la fila sin cambiar de pestaña; al mostrarla, carga (con `[[nota#Sección]]`, en esa sección). Un clic normal sigue abriendo en la misma pestaña.
-- [ ] **Pantalla completa en un lado**: con la ventana dividida, abre [[video]] y ponlo en pantalla completa. Solo debe verse el vídeo; al salir, vuelven los dos lados, las pestañas y el panel.
-- [ ] **Divisor recordado**: divide la ventana, arrastra el divisor hacia un lado, une con Ctrl+| y vuelve a dividir. Debe salir donde lo dejaste, también tras cerrar y abrir visor.
-- [ ] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta arrastrándola en el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
+- [x] **Botones de anotaciones**: con la barra oculta, el botón de diana y el de lista (a la derecha de las pestañas) funcionan. Con la ventana dividida, actúan sobre su lado.
+- [x] **Pestañas con el ratón**: clic en una pestaña para cambiar, en la ✕ para cerrarla, en el «+» para abrir una vacía y clic central sobre una pestaña para cerrarla.
+- [x] **Desde el panel**: Ctrl+clic en una nota la abre en una pestaña nueva. Ctrl+Alt+clic la abre en el otro lado y divide la ventana si no lo estaba.
+- [x] **Foco con un clic**: haz clic dentro de un lado. Su pestaña activa lleva una línea de color debajo, el panel resalta su archivo y Ctrl+E, Ctrl+Shift+A y Ctrl+R actúan sobre ese lado.
+- [x] **Enlaces en pestaña nueva**: en [[enlaces]], el de Three.js (`target="_blank"`) debe abrirse en una pestaña nueva, a la vista. En una nota, Ctrl+clic y clic central sobre un enlace la añaden al final de la fila sin cambiar de pestaña; al mostrarla, carga (con `[[nota#Sección]]`, en esa sección). Un clic normal sigue abriendo en la misma pestaña.
+- [x] **Pantalla completa en un lado**: con la ventana dividida, abre [[video]] y ponlo en pantalla completa. Solo debe verse el vídeo; al salir, vuelven los dos lados, las pestañas y el panel.
+- [x] **Divisor recordado**: divide la ventana, arrastra el divisor hacia un lado, une con Ctrl+| y vuelve a dividir. Debe salir donde lo dejaste, también tras cerrar y abrir visor.
+- [x] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta arrastrándola en el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
 
 ## Si algo falla
 
