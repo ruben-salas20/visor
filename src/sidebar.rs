@@ -476,7 +476,7 @@ impl Sidebar {
     fn connect_folders(&self) {
         let s = self.clone();
         self.tree.connect_row_expanded(move |tree, iter, _| {
-            let path: String = rel_path(&s.store, &iter);
+            let path: String = rel_path(&s.store, iter);
             let report = {
                 let mut state = s.state.borrow_mut();
                 state.opened.insert(path) && !state.restoring
@@ -497,7 +497,7 @@ impl Sidebar {
         });
         let s = self.clone();
         self.tree.connect_row_collapsed(move |_, iter, _| {
-            let path: String = rel_path(&s.store, &iter);
+            let path: String = rel_path(&s.store, iter);
             let report = {
                 let mut state = s.state.borrow_mut();
                 state.opened.remove(&path) && !state.restoring
