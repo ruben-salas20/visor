@@ -7,40 +7,40 @@ Para abrirla: `cargo run --release` en la carpeta del proyecto y luego **Ctrl+O*
 ## 1. Notas
 
 - [x] **Botón «+»** (arriba, junto al nombre de la bóveda): crea una nota llamada `mi nota`. Debe abrirse en el editor con el cursor al final.
-- [ ] **Enlace a una nota que no existe**: haz clic en [[Nota nueva desde enlace]]. Debe crearla y abrirla en el editor.
-- [ ] **Posición al volver de editar**: abre [[edicion]], baja hasta la mitad, pulsa Ctrl+E y otra vez Ctrl+E. Debe quedar donde estabas.
-- [ ] **Diagramas con tema oscuro**: abre [[diagramas]], cambia a un tema oscuro de Omarchy y mira si los diagramas se leen bien. Recarga con Ctrl+R si no cambian solos.
+- [x] **Enlace a una nota que no existe**: haz clic en [[Nota nueva desde enlace]]. Debe crearla y abrirla en el editor.
+- [x] **Posición al volver de editar**: abre [[edicion]], baja hasta la mitad, pulsa Ctrl+E y otra vez Ctrl+E. Debe quedar donde estabas.
+- [x] **Diagramas con tema oscuro**: abre [[diagramas]], cambia a un tema oscuro de Omarchy y mira si los diagramas se leen bien. Recarga con Ctrl+R si no cambian solos.
 
 ## 2. Navegación
 
-- [ ] **Enlaces externos**: abre [[enlaces]] y prueba cada enlace.
-- [ ] **Botones laterales del ratón**: tras abrir una web desde [[enlaces]], usa el botón «atrás» del ratón para volver.
-- [ ] **Ancho del panel**: arrastra el divisor entre el panel y la página, cierra visor y ábrelo otra vez. Debe conservar el ancho.
+- [x] **Enlaces externos**: abre [[enlaces]] y prueba cada enlace.
+- [x] **Botones laterales del ratón**: tras abrir una web desde [[enlaces]], usa el botón «atrás» del ratón para volver.
+- [x] **Ancho del panel**: arrastra el divisor entre el panel y la página, cierra visor y ábrelo otra vez. Debe conservar el ancho.
 
 ## 3. Multimedia y rendimiento
 
-- [ ] **Vídeo de la bóveda**: abre [[video]], reprodúcelo, salta a otro punto y pon pantalla completa (Escape para salir).
-- [ ] **YouTube en pantalla completa**: escribe `youtube.com` en la barra de direcciones (Ctrl+L), abre un vídeo y ponlo en pantalla completa.
-- [ ] **Three.js**: abre [[threejs]]. Debe ir fluido; el contador de la esquina muestra los fps.
+- [x] **Vídeo de la bóveda**: abre [[video]], reprodúcelo, salta a otro punto y pon pantalla completa (Escape para salir).
+- [x] **YouTube en pantalla completa**: escribe `youtube.com` en la barra de direcciones (Ctrl+L), abre un vídeo y ponlo en pantalla completa.
+- [x] **Three.js**: abre [[threejs]]. Debe ir fluido; el contador de la esquina muestra los fps.
 
 ## 4. Agentes
 
-- [ ] **Respuestas de un test**: en una terminal ejecuta `visor events --wait 300`, abre [[test]] y responde. La terminal debe mostrar tu respuesta.
+- [x] **Respuestas de un test**: en una terminal ejecuta `visor events --wait 300`, abre [[test]] y responde. La terminal debe mostrar tu respuesta.
 
 ## 5. Anotaciones
 
 Abre [[anotaciones]] para estas pruebas.
 
-- [ ] **Resaltar**: selecciona una frase con el ratón. Debe aparecer una barrita con 4 colores y «Comentar». Elige un color.
-- [ ] **Comentar texto**: selecciona otra frase, pulsa «Comentar», escribe y guarda (botón o Ctrl+Enter). Debe aparecer un punto de color al final de la frase.
-- [ ] **Abrir una anotación**: haz clic sobre un texto resaltado. Debe abrirse su nota; cambia el color y guarda.
-- [ ] **Anotar un punto de un gráfico**: pulsa Ctrl+Shift+A (o el botón de diana de la barra), pasa el ratón por la página (se marca el elemento de debajo) y haz clic en una cresta del gráfico. Escribe una nota.
-- [ ] **Anotar una imagen y una tabla**: igual que el anterior, sobre la imagen y sobre la tabla.
-- [ ] **Lista**: pulsa Ctrl+Shift+L (o el botón de lista). Deben salir todas; al hacer clic en una, la página va hasta ella y la abre.
-- [ ] **Respuesta de un agente**: deja abierta en visor la página [[anotaciones]], porque `visor notes` sin más lista solo las anotaciones de la página abierta. En una terminal ejecuta `visor notes`, copia un `id` y ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta debe aparecer en esa nota. Si no sale ninguna, prueba `visor notes --all`, que lista las de toda la bóveda.
-- [ ] **Huérfanas**: edita `pruebas/anotaciones.html` y borra una frase que hayas resaltado. Al guardar, esa anotación debe salir en la lista como «Huérfana».
-- [ ] **Eliminar**: abre una anotación y pulsa «Eliminar».
-- [ ] **Al cambiar el tamaño de la ventana**, los marcadores deben seguir en su sitio.
+- [x] **Resaltar**: selecciona una frase con el ratón. Debe aparecer una barrita con 4 colores y «Comentar». Elige un color.
+- [x] **Comentar texto**: selecciona otra frase, pulsa «Comentar», escribe y guarda (botón o Ctrl+Enter). Debe aparecer un punto de color al final de la frase.
+- [x] **Abrir una anotación**: haz clic sobre un texto resaltado. Debe abrirse su nota; cambia el color y guarda.
+- [x] **Anotar un punto de un gráfico**: pulsa Ctrl+Shift+A (o el botón de diana de la barra), pasa el ratón por la página (se marca el elemento de debajo) y haz clic en una cresta del gráfico. Escribe una nota.
+- [x] **Anotar una imagen y una tabla**: igual que el anterior, sobre la imagen y sobre la tabla.
+- [x] **Lista**: pulsa Ctrl+Shift+L (o el botón de lista). Deben salir todas; al hacer clic en una, la página va hasta ella y la abre.
+- [x] **Respuesta de un agente**: deja abierta en visor la página [[anotaciones]], porque `visor notes` sin más lista solo las anotaciones de la página abierta. En una terminal ejecuta `visor notes`, copia un `id` y ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta debe aparecer en esa nota. Si no sale ninguna, prueba `visor notes --all`, que lista las de toda la bóveda.
+- [x] **Huérfanas**: edita `pruebas/anotaciones.html` y borra una frase que hayas resaltado. Al guardar, esa anotación debe salir en la lista como «Huérfana».
+- [x] **Eliminar**: abre una anotación y pulsa «Eliminar».
+- [x] **Al cambiar el tamaño de la ventana**, los marcadores deben seguir en su sitio.
 
 ## 6. Archivos y ventana
 
@@ -48,12 +48,12 @@ Usa la carpeta `estudio` o crea notas de prueba con el botón «+»: estas prueb
 
 - [x] **Papelera con clic derecho**: clic derecho sobre una nota de prueba y «Mover a la papelera». Debe desaparecer del panel, salir un aviso abajo y estar en la papelera del sistema (con su ruta original, para poder restaurarla).
 - [x] **Papelera con Supr**: haz clic en una nota de prueba del panel y pulsa Supr.
-- [ ] **Carpeta a la papelera**: haz lo mismo con una carpeta de prueba. Si tenía anotaciones, también van a la papelera.
-- [ ] **Mover a otra carpeta**: arrastra una nota sobre una carpeta. Al pasar por encima, la carpeta se resalta y, si está cerrada, se abre al cabo de un momento. Si la nota estaba abierta, debe seguir abierta en su nueva ruta y conservar sus anotaciones.
+- [x] **Carpeta a la papelera**: haz lo mismo con una carpeta de prueba. Si tenía anotaciones, también van a la papelera.
+- [x] **Mover a otra carpeta**: arrastra una nota sobre una carpeta. Al pasar por encima, la carpeta se resalta y, si está cerrada, se abre al cabo de un momento. Si la nota estaba abierta, debe seguir abierta en su nueva ruta y conservar sus anotaciones.
 - [x] **Enlaces al mover**: en una nota de prueba escribe `[[estudio/…]]` con la ruta de otra nota y un enlace `[texto](ruta/relativa.md)` hacia ella. Mueve esa otra nota a otra carpeta: debe salir «Se actualizaron los enlaces de 1 nota» y los dos enlaces deben seguir funcionando.
 - [x] **Mover a la raíz**: arrastra una nota al hueco vacío de debajo del árbol.
 - [x] **Mover una carpeta** dentro de otra. Arrastrarla dentro de sí misma debe mostrar un aviso, no hacer nada raro.
-- [ ] **Nombre repetido**: mueve una nota a una carpeta que ya tiene otra con el mismo nombre. Debe salir un aviso y no sobrescribir nada.
+- [x] **Nombre repetido**: mueve una nota a una carpeta que ya tiene otra con el mismo nombre. Debe salir un aviso y no sobrescribir nada.
 - [x] **Nueva carpeta**: pulsa el botón de carpeta (junto al «+»). Debe pedir el nombre y crearla en la carpeta de la página abierta; aparece aunque esté vacía.
 - [x] **Carpeta o nota dentro de otra**: clic derecho sobre una carpeta → «Nueva carpeta aquí» y «Nueva nota aquí».
 - [x] **Soltar en una carpeta vacía**: arrastra una nota a la carpeta que acabas de crear.
@@ -103,6 +103,26 @@ Abre [[vista-previa]] y pulsa Ctrl+E. La nota debe verse casi igual que al leerl
 - [x] **Imagen por nombre**: en una nota escribe `![[onda.svg]]` (la imagen está en `pruebas/notas/imagenes/`). Debe verse en la lectura y en el editor.
 - [x] **Mayúsculas con tilde**: crea una nota `árbol` y en otra escribe `[[Árbol]]`. El enlace debe funcionar (no gris).
 - [x] **Texto visible al mover**: crea una nota `edicion` en `estudio`. En [[tareas]] escribe `[[edicion]]`. Arrastra `pruebas/notas/edicion` a la carpeta `pruebas/notas/imagenes`. El enlace de [[tareas]] debe seguir viéndose como «edicion» y abrir la nota movida, no la de `estudio`.
+
+## 10. Pestañas y vista dividida
+
+- [ ] **Barra oculta y botones a la vista**: con una configuración nueva, la barra de direcciones empieza oculta. Los botones de anotar (diana) y de lista siguen a la derecha de las pestañas y funcionan.
+- [ ] **Pestaña nueva desde el panel**: Ctrl+clic en una nota del panel. Debe abrirse en una pestaña nueva, a la derecha de la actual, sin cerrar la que tenías.
+- [ ] **Clic en las pestañas**: haz clic en otra pestaña para cambiar y en la ✕ para cerrarla.
+- [ ] **Atajos**: Ctrl+T abre una pestaña vacía, Ctrl+W la cierra, Ctrl+Tab y Ctrl+Mayús+Tab pasan a la siguiente y a la anterior.
+- [ ] **Dividir**: pulsa Ctrl+| (la tecla a la izquierda del 1). La nota que ves debe salir también a la derecha, con el divisor en el centro. Pulsa Ctrl+| otra vez: las pestañas de la derecha pasan a la izquierda.
+- [ ] **Abrir al otro lado**: Ctrl+Alt+clic en una nota del panel. Debe abrirse en el otro lado (y dividir la ventana si no lo estaba).
+- [ ] **Mezclar formatos**: pon [[threejs]] a un lado y [[edicion]] al otro. Las dos deben verse bien, y Three.js debe ir fluido.
+- [ ] **Foco**: haz clic en un lado. Su pestaña activa lleva una línea de color debajo, el panel resalta su archivo y Ctrl+E, Ctrl+Shift+A y Ctrl+R actúan sobre ese lado. Ctrl+Alt+← y Ctrl+Alt+→ cambian de lado con el teclado.
+- [ ] **Pestañas que se descargan**: abre [[threejs]], después 3 pestañas más. Vuelve a la de Three.js: puede tardar un momento en cargar, porque visor mantiene vivas solo 3 páginas.
+- [ ] **Pantalla completa en un lado**: con la ventana dividida, abre [[video]] y ponlo en pantalla completa. Solo debe verse el vídeo; al salir, vuelven los dos lados, las pestañas y el panel.
+- [ ] **Recuperar al abrir**: deja varias pestañas en los dos lados, cierra visor y ábrelo. Deben volver las mismas pestañas, la división y el lado con el foco.
+- [ ] **Cada bóveda con sus pestañas**: cambia a otra bóveda y vuelve. Cada una debe recuperar sus propias pestañas.
+- [ ] **Botón «+» y clic central**: el «+» tras la última pestaña abre una vacía; el clic central sobre una pestaña la cierra.
+- [ ] **Enlaces en pestaña nueva**: en [[enlaces]], el de Three.js (`target="_blank"`) debe abrirse en una pestaña nueva, a la vista. En una nota, Ctrl+clic y clic central sobre un enlace la añaden al final de la fila sin cambiar de pestaña; al mostrarla, carga (con `[[nota#Sección]]`, en esa sección). Un clic normal sigue abriendo en la misma pestaña.
+- [ ] **Posición al volver**: en [[edicion]], baja hasta la sección 10. Abre 3 pestañas más con Ctrl+clic en el panel y vuelve: la nota se recarga, pero en la sección 10.
+- [ ] **Divisor recordado**: divide la ventana, arrastra el divisor hacia un lado, une con Ctrl+| y vuelve a dividir. Debe salir donde lo dejaste, también tras cerrar y abrir visor.
+- [ ] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta desde el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
 
 ## Si algo falla
 

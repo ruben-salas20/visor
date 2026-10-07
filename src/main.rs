@@ -6,6 +6,7 @@ mod files;
 mod http;
 mod links;
 mod markdown;
+mod panes;
 mod paths;
 mod server;
 mod theme;

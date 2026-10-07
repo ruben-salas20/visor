@@ -6,14 +6,22 @@ actualiza sola.
 
 USO
   visor                      Abre la app.
-  visor open <ruta|URL>      Abre una carpeta como bóveda, muestra un
+  visor open <ruta|URL> [--tab | --beside]
+                             Abre una carpeta como bóveda, muestra un
                              archivo o carga una web (http o https).
                              Abre la app si está cerrada.
                              Espera a que la página cargue y devuelve
                              los errores y avisos que generó.
+                             Sin opciones sustituye la pestaña activa.
+                             --tab abre una pestaña nueva; --beside la
+                             abre en el otro lado y divide la ventana
+                             si hace falta.
   visor status               Bóveda y archivo que la persona está viendo.
                              Si está en una web, "file" es null y "url"
-                             tiene la dirección.
+                             tiene la dirección. "sides" lista las
+                             pestañas de cada lado ("list", de izquierda
+                             a derecha, con "active") y el lado con el
+                             foco ("focused").
   visor reload               Recarga la página actual y devuelve sus
                              errores y avisos.
   visor console [--errors] [--clear]
@@ -39,6 +47,13 @@ Todas las órdenes responden en JSON. "ok": false indica un error, y la
 orden termina con código 1.
 
 <ruta> puede ser relativa a la carpeta actual o a la bóveda abierta.
+
+PESTAÑAS Y LADOS
+  La ventana puede dividirse en dos lados, cada uno con sus pestañas.
+  open, reload, console y notes actúan sobre la pestaña activa del lado
+  con el foco: lo que la persona está mirando. Solo 3 páginas siguen
+  cargadas a la vez; las demás pestañas se recargan al volver a ellas,
+  así que su consola empieza vacía.
 
 NOTAS EN MARKDOWN
   - Los archivos .md aparecen en el árbol junto a los .html y se
@@ -91,6 +106,8 @@ ESCRIBIR PÁGINAS PARA VISOR
   - Las carpetas que empiezan por "." y node_modules no se muestran.
   - Los enlaces a la web (http, https) se abren dentro de visor; mailto
     abre el programa de correo. Otros esquemas se ignoran.
+    target="_blank" abre una pestaña nueva; Ctrl+clic o clic central,
+    una pestaña que se carga al mostrarla.
   - En las webs externas no existe visor.send() y su consola no se
     registra: lo que publique una web no debe llegar a un agente.
   - Con Omarchy, cada página recibe los colores del tema activo como
@@ -129,15 +146,23 @@ ATAJOS EN LA APP
           una ruta de la bóveda. Escape vuelve a la página.
   Ctrl+E  editar la nota .md abierta, o volver a la vista
   Ctrl+Shift+A  anotar un elemento o un punto de la página
-  Ctrl+Shift+L  lista de anotaciones de la página
+  Ctrl+Shift+L  lista de anotaciones de la página (los dos botones
+          están a la derecha de las pestañas)
+  Ctrl+T  pestaña nueva (también el botón «+»)
+  Ctrl+W  cerrar la pestaña (también clic central sobre ella)
+  Ctrl+Tab  Ctrl+Shift+Tab  pestaña siguiente o anterior
+  Ctrl+|  dividir la ventana o volver a un lado (también Ctrl+\)
+  Ctrl+Alt+←  Ctrl+Alt+→  pasar al lado izquierdo o derecho
   Ctrl+N  nueva nota en la carpeta de la nota actual
-  Ctrl+Shift+B  mostrar u ocultar la barra de direcciones (se recuerda;
-          Ctrl+L la muestra mientras escribes)
+  Ctrl+Shift+B  mostrar u ocultar la barra de direcciones. Empieza
+          oculta; se recuerda. Ctrl+L la muestra mientras escribes.
   Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño de
           la página (se recuerda)
   Alt+←   atrás      Alt+→   adelante (también los botones laterales
           del ratón)
   El ancho del panel se cambia arrastrando el divisor y se recuerda.
+  En el panel, Ctrl+clic abre en una pestaña nueva y Ctrl+Alt+clic, en
+  el otro lado. Cada bóveda recuerda sus pestañas y su división.
   En el panel, clic derecho o Supr sobre un archivo o carpeta lo mueve
   a la papelera, con sus anotaciones. Arrástralo a otra carpeta para
   moverlo; suéltalo en el hueco libre para llevarlo a la raíz.

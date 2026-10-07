@@ -190,7 +190,8 @@
         button.title = file.path;
         button.dataset.path = file.path;
         button.draggable = true;
-        button.onclick = () => send({ type: "open", path: file.path });
+        // Ctrl opens in a new tab; Ctrl+Alt, on the other side.
+        button.onclick = (e) => send({ type: "open", path: file.path, tab: e.ctrlKey, beside: e.ctrlKey && e.altKey });
         frag.append(button);
       }
       return frag;

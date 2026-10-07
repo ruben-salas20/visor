@@ -199,6 +199,13 @@
 
   window.__visorNote = {
     get editing() { return editing; },
+    // Before visor hides the tab, which it may unload later: saves pending
+    // text and returns the reading position for place().
+    hide() {
+      if (dirty) save();
+      return viewAnchor() || { y: scrollY };
+    },
+    place(target) { place(target); },
     toggle() { editing ? close() : open(); },
     saved(ok, error) {
       if (!ok) return say("No se pudo guardar: " + error, true);

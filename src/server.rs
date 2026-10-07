@@ -1,4 +1,4 @@
-use crate::app::{Action, SharedRef, UserEvent};
+use crate::app::{Action, Place, SharedRef, UserEvent};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -41,45 +41,54 @@ fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent
         "ping" => json!({ "ok": true }),
         "status" => shared.lock().unwrap().status(),
         "open" => {
-            let before = shared.lock().unwrap().load_seq;
+            let place = match request["place"].as_str() {
+                Some("tab") => Place::NewTab,
+                Some("beside") => Place::Beside,
+                _ => Place::Here,
+            };
             let (reply, answer) = mpsc::channel();
             let event = match request["url"].as_str() {
-                Some(url) => UserEvent::OpenUrl { url: url.to_string(), reply },
+                Some(url) => UserEvent::OpenUrl { url: url.to_string(), place, reply },
                 None => UserEvent::Open {
                     path: PathBuf::from(request["path"].as_str().unwrap_or("")),
                     raw: request["raw"].as_str().unwrap_or("").to_string(),
+                    place,
                     reply,
                 },
             };
             let _ = proxy.send_event(event);
             match answer.recv_timeout(Duration::from_secs(15)) {
-                Ok(Ok(Some(_))) => wait_for_load(shared, before),
+                Ok(Ok(Some((view, before)))) => wait_for_load(shared, view, before),
                 Ok(Ok(None)) => shared.lock().unwrap().status(),
                 Ok(Err(e)) => fail(e),
                 Err(_) => fail("La app no respondió.".into()),
             }
         }
         "reload" => {
-            let before = shared.lock().unwrap().load_seq;
-            let showing = {
+            let (view, before, showing) = {
                 let s = shared.lock().unwrap();
-                s.file.is_some() || s.url.is_some()
+                let page = s.page();
+                (s.focused, page.load_seq, page.file.is_some() || page.url.is_some())
             };
             if !showing {
                 return fail("No hay nada abierto.".into());
             }
             let _ = proxy.send_event(UserEvent::Action(Action::Reload));
-            wait_for_load(shared, before)
+            wait_for_load(shared, view, before)
         }
         "console" => {
             let mut s = shared.lock().unwrap();
-            let entries: Vec<Value> = match request["level"].as_str() {
-                Some(level) => s.console.iter().filter(|e| e["level"] == level).cloned().collect(),
-                None => s.console.clone(),
+            let focused = s.focused;
+            let Some(page) = s.pages.get_mut(&focused) else {
+                return json!({ "ok": true, "file": null, "console": [] });
             };
-            let out = json!({ "ok": true, "file": s.file, "console": entries });
+            let entries: Vec<Value> = match request["level"].as_str() {
+                Some(level) => page.console.iter().filter(|e| e["level"] == level).cloned().collect(),
+                None => page.console.clone(),
+            };
+            let out = json!({ "ok": true, "file": page.file, "console": entries });
             if request["clear"].as_bool().unwrap_or(false) {
-                s.console.clear();
+                page.console.clear();
             }
             out
         }
@@ -99,22 +108,23 @@ fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent
     }
 }
 
-/// Waits until the page finishes loading and reports the problems it logged.
-fn wait_for_load(shared: &SharedRef, before: u64) -> Value {
+/// Waits until `view` finishes loading and reports the problems it logged.
+fn wait_for_load(shared: &SharedRef, view: u64, before: u64) -> Value {
     let deadline = Instant::now() + LOAD_TIMEOUT;
     loop {
         {
             let s = shared.lock().unwrap();
-            if s.load_seq > before || Instant::now() >= deadline {
+            let page = s.page_of(view);
+            if page.load_seq > before || Instant::now() >= deadline {
                 let mut out = s.status();
-                let problems: Vec<Value> = s
+                let problems: Vec<Value> = page
                     .console
                     .iter()
                     .filter(|e| e["level"] == "error" || e["level"] == "warn")
                     .cloned()
                     .collect();
                 out["problems"] = json!(problems);
-                if s.load_seq <= before {
+                if page.load_seq <= before {
                     out["warning"] = json!("La página no terminó de cargar en 10 s.");
                 }
                 return out;
@@ -129,7 +139,7 @@ fn wait_for_load(shared: &SharedRef, before: u64) -> Value {
 fn notes(request: &Value, shared: &SharedRef) -> Value {
     let (root, current, orphans) = {
         let s = shared.lock().unwrap();
-        (s.vault.clone(), s.file.clone(), s.orphans.clone())
+        (s.vault.clone(), s.page().file.clone(), s.page().orphans.clone())
     };
     let Some(root) = root else { return fail("No hay ninguna bóveda abierta.".into()) };
     let page = if request["all"].as_bool().unwrap_or(false) {

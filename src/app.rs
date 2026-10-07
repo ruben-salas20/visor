@@ -2,19 +2,23 @@ use crate::annot;
 use crate::bar::Bar;
 use crate::files;
 use crate::links;
+use crate::panes::{Pane, Tab};
 use crate::paths;
 use crate::theme::{self, Theme};
-use crate::vault::{self, Config};
+use crate::vault::{self, Config, PaneState, Workspace};
 use gtk::prelude::*;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::borrow::Cow;
+use std::cell::Cell;
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tao::dpi::LogicalSize;
@@ -38,22 +42,42 @@ const SIDEBAR_WIDTH: i32 = 260;
 const MAX_CONSOLE: usize = 500;
 const MAX_EVENTS: usize = 1000;
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+/// Pages kept loaded across all tabs. Each one is a WebKit process of
+/// 60–90 MB; the two on screen always count. See docs/decisiones.md.
+const MAX_LIVE: usize = 3;
 
-pub type Reply = mpsc::Sender<Result<Option<String>, String>>;
+/// The view that will load and the load count it had before, to wait for the next one.
+pub type Loading = (u64, u64);
+pub type Reply = mpsc::Sender<Result<Option<Loading>, String>>;
+
+/// Where to open something: replacing the focused tab, in a new tab, or on the other side.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Place {
+    Here,
+    NewTab,
+    Beside,
+}
 
 pub enum UserEvent {
     Sidebar(String),
-    /// A message from the page, with the URL of the page that sent it.
-    Page { url: String, body: String },
-    Navigated(String),
-    PageLoaded,
-    Open { path: PathBuf, raw: String, reply: Reply },
-    OpenUrl { url: String, reply: Reply },
+    /// A message from a page view, with the URL of the page that sent it.
+    Page { view: u64, url: String, body: String },
+    Navigated { view: u64, url: String },
+    PageLoaded(u64),
+    /// A page view got the keyboard focus.
+    Focused(u64),
+    Open { path: PathBuf, raw: String, place: Place, reply: Reply },
+    OpenUrl { url: String, place: Place, reply: Reply },
     Picked(Option<PathBuf>),
     VaultChanged(Vec<PathBuf>),
     ThemeChanged,
     MonoFont(Option<String>),
-    Fullscreen(bool),
+    Fullscreen { view: u64, on: bool },
+    /// A link the page asked to open in a new tab: in the background, for
+    /// Ctrl+click and middle click, or shown, for target="_blank".
+    OpenTab { view: u64, url: String, background: bool },
+    /// The reading position a page reported as its tab was hidden.
+    Position { view: u64, json: String },
     Action(Action),
 }
 
@@ -75,22 +99,46 @@ pub enum Action {
     PickElement,
     ToggleAnnotations,
     Go(String),
+    NewTab,
+    /// Closes the tab with this id, or the focused one.
+    CloseTab(Option<u64>),
+    /// Moves to the next (1) or previous (-1) tab of the focused side.
+    CycleTab(i8),
+    SelectTab(u64),
+    ToggleSplit,
+    /// Makes the pane with this id the one keys and agents act on.
+    FocusPane(u64),
+    /// Moves the keyboard focus to the left (0) or right (1) side.
+    FocusSide(usize),
 }
+
+/// What a page view is showing, for the socket server.
+#[derive(Default)]
+pub struct Page {
+    pub file: Option<String>,
+    /// Set when the view shows a website instead of a vault file.
+    pub url: Option<String>,
+    pub loaded: bool,
+    pub load_seq: u64,
+    pub console: Vec<Value>,
+    /// Annotations of the page that could not be placed, as reported by it.
+    pub orphans: Option<Vec<String>>,
+}
+
+static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
 
 /// What the socket server can read without going through the event loop.
 #[derive(Default)]
 pub struct Shared {
     pub vault: Option<PathBuf>,
-    pub file: Option<String>,
-    /// Set when the page shows a website instead of a vault file.
-    pub url: Option<String>,
-    pub loaded: bool,
-    pub load_seq: u64,
-    pub console: Vec<Value>,
+    /// Every live page view, by view id.
+    pub pages: HashMap<u64, Page>,
+    /// The view of the focused side's active tab: the one agents act on.
+    pub focused: u64,
+    /// Sides and tabs, as `visor status` reports them.
+    pub layout: Value,
     pub events: Vec<Value>,
     pub next_id: u64,
-    /// Annotations of the current page that could not be placed, as reported by it.
-    pub orphans: Option<Vec<String>>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
@@ -112,21 +160,32 @@ impl Shared {
         Shared { events, next_id, ..Default::default() }
     }
 
+    /// The page on the focused side.
+    pub fn page(&self) -> &Page {
+        self.page_of(self.focused)
+    }
+
+    pub fn page_of(&self, view: u64) -> &Page {
+        self.pages.get(&view).unwrap_or(&NO_PAGE)
+    }
+
     pub fn status(&self) -> Value {
-        let path = match (&self.vault, &self.file) {
+        let page = self.page();
+        let path = match (&self.vault, &page.file) {
             (Some(v), Some(f)) => Some(v.join(f)),
             _ => None,
         };
-        let errors = self.console.iter().filter(|e| e["level"] == "error").count();
+        let errors = page.console.iter().filter(|e| e["level"] == "error").count();
         json!({
             "ok": true,
             "vault": self.vault,
-            "file": self.file,
+            "file": page.file,
             "path": path,
-            "url": self.url,
-            "loaded": self.loaded,
+            "url": page.url,
+            "loaded": page.loaded,
             "errors": errors,
             "last_event_id": self.next_id - 1,
+            "sides": self.layout,
         })
     }
 }
@@ -138,7 +197,13 @@ enum SidebarMsg {
     PickVault,
     SwitchVault { path: PathBuf },
     RemoveVault { path: PathBuf },
-    Open { path: String },
+    Open {
+        path: String,
+        #[serde(default)]
+        tab: bool,
+        #[serde(default)]
+        beside: bool,
+    },
     CreateNote { dir: String, name: String },
     CreateFolder { dir: String, name: String },
     Trash { path: String },
@@ -214,47 +279,59 @@ pub fn launch() -> i32 {
         .expect("ventana");
     connect_shortcuts(&window, proxy.clone());
 
-    // Layout: [sidebar | bar over page], split by a draggable divider.
+    // Layout: [sidebar | left side | right side], split by draggable dividers.
+    // Each side stacks its tab strip, its address bar and its page views.
     let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
     paned.set_position(config.sidebar_width.unwrap_or(SIDEBAR_WIDTH));
     window.default_vbox().expect("vbox de GTK").pack_start(&paned, true, true, 0);
-    let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    let bar = Bar::new(&proxy);
-    right.pack_start(&bar.root, false, false, 0);
+    let split = gtk::Paned::new(gtk::Orientation::Horizontal);
+    // A new right side gets its saved share of the width once the width is known.
+    let place_split: Rc<Cell<Option<f64>>> = Rc::new(Cell::new(None));
+    let pending = place_split.clone();
+    split.connect_size_allocate(move |split, alloc| {
+        if let Some(ratio) = pending.get()
+            && alloc.width() > 1
+        {
+            pending.set(None);
+            split.set_position((alloc.width() as f64 * ratio) as i32);
+        }
+    });
     let styles = gtk::CssProvider::new();
     if let Some(screen) = WidgetExt::screen(&paned) {
         gtk::StyleContext::add_provider_for_screen(&screen, &styles, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
 
     let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
-    // One context for both views: one network process, and a single writer
+    // One context for every view: one network process, and a single writer
     // for cookies and storage, which two contexts on one folder would fight over.
     let mut context = WebContext::new(None);
-    let sidebar = build_sidebar(&paned, &mut context, background, proxy.clone());
-    paned.pack2(&right, true, true);
-    let page = build_page(&right, &mut context, background, proxy.clone());
-    let (sidebar, page) = match (sidebar, page) {
-        (Ok(s), Ok(p)) => (s, p),
-        (Err(e), _) | (_, Err(e)) => {
+    let sidebar = match build_sidebar(&paned, &mut context, background, proxy.clone()) {
+        Ok(s) => s,
+        Err(e) => {
             eprintln!("No se pudo crear el webview: {e}");
             return 1;
         }
     };
-    right.show();
+    paned.pack2(&split, true, true);
+    let first = Pane::new(1, &proxy);
+    first.bar.root.set_visible(config.bar_shown);
+    split.pack1(&first.root, true, false);
+    split.show();
     paned.show();
-    if config.bar_hidden {
-        bar.root.hide();
-    }
-    page.webview().set_zoom_level(config.zoom.unwrap_or(1.0));
 
     let mut app = App {
         sidebar,
-        page,
-        _context: context,
+        context,
+        background,
+        panes: vec![first],
+        focused: 0,
+        split,
+        place_split,
+        next_id: 2,
+        clock: 0,
         mono: None,
         sidebar_before_fullscreen: None,
         own_write: None,
-        bar,
         paned,
         styles,
         shared,
@@ -267,7 +344,7 @@ pub fn launch() -> i32 {
     app.apply_theme();
     // Load the page now instead of after the sidebar: both webviews start in parallel.
     let current = app.config.current.clone().filter(|p| p.is_dir());
-    app.show_vault(current, None);
+    app.show_vault(current);
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
         match event {
@@ -298,6 +375,12 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::Zoom(1),
             _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::Zoom(-1),
             _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::Zoom(0),
+            _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
+            _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
+            _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
+            _ if ctrl && alt && k == key::Right => Action::FocusSide(1),
+            // Also «|»: on Spanish layouts «\» needs AltGr and «|» does not.
+            _ if ctrl && matches!(k, key::backslash | key::bar) => Action::ToggleSplit,
             _ if k == key::F5 => Action::Reload,
             _ if ctrl && k == key::r => Action::Reload,
             _ if ctrl && k == key::o => Action::PickVault,
@@ -305,6 +388,8 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && k == key::l => Action::FocusAddress,
             _ if ctrl && k == key::n => Action::NewNote,
             _ if ctrl && k == key::e => Action::ToggleEdit,
+            _ if ctrl && k == key::t => Action::NewTab,
+            _ if ctrl && k == key::w => Action::CloseTab(None),
             _ if alt && k == key::Left => Action::Back,
             _ if alt && k == key::Right => Action::Forward,
             _ => return gtk::glib::Propagation::Proceed,
@@ -336,26 +421,30 @@ fn build_sidebar(
         .build_gtk(paned)
 }
 
+/// A page view inside `container`. Its events carry `id`, so the app knows
+/// which tab they come from.
 fn build_page(
     container: &gtk::Box,
     context: &mut WebContext,
     background: (u8, u8, u8, u8),
     proxy: EventLoopProxy<UserEvent>,
+    id: u64,
 ) -> wry::Result<WebView> {
     let ipc = proxy.clone();
     let new_window = proxy.clone();
+    let clicks = proxy.clone();
     let page = WebViewBuilder::new_with_web_context(context)
         .with_background_color(background)
         .with_initialization_script(BRIDGE.replace("__VISOR_BASE__", vault::base()))
         .with_initialization_script(ANNOT.replace("__VISOR_BASE__", vault::base()))
         .with_ipc_handler(move |request: Request<String>| {
             let url = request.uri().to_string();
-            let _ = ipc.send_event(UserEvent::Page { url, body: request.into_body() });
+            let _ = ipc.send_event(UserEvent::Page { view: id, url, body: request.into_body() });
         })
-        // target="_blank" and window.open stay in this view; there are no tabs.
+        // target="_blank" and window.open open a tab beside this one.
         .with_new_window_req_handler(move |url, _| {
             if is_web(&url) {
-                let _ = new_window.send_event(UserEvent::Action(Action::Go(url)));
+                let _ = new_window.send_event(UserEvent::OpenTab { view: id, url, background: false });
             } else if url.starts_with("mailto:") {
                 open_external(&url);
             }
@@ -368,8 +457,8 @@ fn build_page(
     // Clicked links may go to the vault or the web. Mail goes to the mail app,
     // and any other scheme is refused rather than handed to the system.
     // Only clicks are checked, so embedded iframes still load.
-    view.connect_decide_policy(|_, decision, kind| {
-        if kind != PolicyDecisionType::NavigationAction {
+    view.connect_decide_policy(move |_, decision, kind| {
+        if kind != PolicyDecisionType::NavigationAction && kind != PolicyDecisionType::NewWindowAction {
             return false;
         }
         let Some(nav) = decision.downcast_ref::<NavigationPolicyDecision>() else { return false };
@@ -379,7 +468,14 @@ fn build_page(
         }
         let uri = action.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
         if is_web(&uri) {
-            return false;
+            // Ctrl+click and middle click open a tab in the background, as in a browser.
+            let control = action.modifiers() & gtk::gdk::ModifierType::CONTROL_MASK.bits() != 0;
+            if !(control || action.mouse_button() == 2) {
+                return false;
+            }
+            let _ = clicks.send_event(UserEvent::OpenTab { view: id, url: uri, background: true });
+            decision.ignore();
+            return true;
         }
         if uri.starts_with("mailto:") {
             open_external(&uri);
@@ -392,11 +488,17 @@ fn build_page(
     let p = proxy.clone();
     view.connect_load_changed(move |view, event| {
         let event = match event {
-            LoadEvent::Committed => UserEvent::Navigated(view.uri().map(|u| u.to_string()).unwrap_or_default()),
-            LoadEvent::Finished => UserEvent::PageLoaded,
+            LoadEvent::Committed => UserEvent::Navigated { view: id, url: view.uri().map(|u| u.to_string()).unwrap_or_default() },
+            LoadEvent::Finished => UserEvent::PageLoaded(id),
             _ => return,
         };
         let _ = p.send_event(event);
+    });
+
+    let p = proxy.clone();
+    view.connect_focus_in_event(move |_, _| {
+        let _ = p.send_event(UserEvent::Focused(id));
+        gtk::glib::Propagation::Proceed
     });
 
     // WebKit makes the whole window fullscreen; the app hides its own chrome
@@ -404,12 +506,12 @@ fn build_page(
     // WebKit go on with its default handling.
     let p = proxy.clone();
     view.connect_enter_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen(true));
+        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: true });
         false
     });
     let p = proxy.clone();
     view.connect_leave_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen(false));
+        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: false });
         false
     });
 
@@ -493,15 +595,25 @@ button {{ font: inherit; padding: 7px 14px; border-radius: 6px; cursor: pointer;
 
 struct App {
     sidebar: WebView,
-    page: WebView,
-    _context: WebContext,
+    context: WebContext,
+    background: (u8, u8, u8, u8),
+    /// The left side and, when split, the right one.
+    panes: Vec<Pane>,
+    /// Index in `panes` of the side keys and agents act on.
+    focused: usize,
+    split: gtk::Paned,
+    /// The share of the width for the left side, applied once the new right side has a size.
+    place_split: Rc<Cell<Option<f64>>>,
+    /// Source of ids for panes, tabs and views.
+    next_id: u64,
+    /// Counts tab switches, to find the tab used longest ago.
+    clock: u64,
     mono: Option<String>,
     /// Whether the sidebar was showing when fullscreen began, to restore it after.
     sidebar_before_fullscreen: Option<bool>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
     /// that still matches is the app's own; anything else came from outside.
     own_write: Option<(PathBuf, u64)>,
-    bar: Bar,
     paned: gtk::Paned,
     styles: gtk::CssProvider,
     shared: SharedRef,
@@ -521,6 +633,50 @@ impl App {
         self.shared.lock().unwrap().vault.clone()
     }
 
+    fn new_id(&mut self) -> u64 {
+        self.next_id += 1;
+        self.next_id
+    }
+
+    fn pane(&self) -> &Pane {
+        &self.panes[self.focused]
+    }
+
+    /// The view of the focused side's active tab. It is always loaded.
+    fn view(&self) -> Option<&WebView> {
+        self.pane().tab().view.as_ref().map(|(_, v)| v)
+    }
+
+    fn eval(&self, code: &str) {
+        if let Some(view) = self.view() {
+            let _ = view.evaluate_script(code);
+        }
+    }
+
+    fn focused_file(&self) -> Option<String> {
+        let shared = self.shared.lock().unwrap();
+        shared.page().file.clone()
+    }
+
+    /// The side and tab of a view.
+    fn find_view(&self, view: u64) -> Option<(usize, usize)> {
+        self.panes.iter().enumerate().find_map(|(p, pane)| {
+            pane.tabs.iter().position(|t| t.view_id() == Some(view)).map(|i| (p, i))
+        })
+    }
+
+    fn find_tab(&self, id: u64) -> Option<(usize, usize)> {
+        self.panes
+            .iter()
+            .enumerate()
+            .find_map(|(p, pane)| pane.tabs.iter().position(|t| t.id == id).map(|i| (p, i)))
+    }
+
+    fn view_of(&self, view: u64) -> Option<&WebView> {
+        let (p, i) = self.find_view(view)?;
+        self.panes[p].tabs[i].view.as_ref().map(|(_, v)| v)
+    }
+
     fn info(&self, tree: Option<vault::Dir>) -> Value {
         let vaults: Vec<Value> = self
             .config
@@ -536,17 +692,22 @@ impl App {
 
     fn refresh_sidebar(&self) {
         let tree = self.vault().as_deref().map(vault::tree);
-        let file = self.shared.lock().unwrap().file.clone();
-        self.sidebar_js(format!("app.show({}); app.current({})", self.info(tree), json!(file)));
+        self.sidebar_js(format!("app.show({}); app.current({})", self.info(tree), json!(self.focused_file())));
     }
 
-    fn show_vault(&mut self, root: Option<PathBuf>, open: Option<String>) {
+    /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
+    fn show_vault(&mut self, root: Option<PathBuf>) {
+        self.publish();
+        while self.panes.len() > 1 {
+            self.remove_pane(1);
+        }
+        for tab in std::mem::take(&mut self.panes[0].tabs) {
+            self.drop_view(tab);
+        }
         {
             let mut shared = self.shared.lock().unwrap();
             shared.vault = root.clone();
-            shared.file = None;
-            shared.loaded = false;
-            shared.console.clear();
+            shared.pages.clear();
         }
         self.watcher = None;
         if let Some(root) = &root {
@@ -556,32 +717,172 @@ impl App {
         }
         let tree = root.as_deref().map(vault::tree);
         self.sidebar_js(format!("app.show({})", self.info(tree)));
-        let last = root
-            .as_ref()
-            .and_then(|r| self.config.last.get(r).filter(|f| r.join(f).is_file()))
-            .cloned();
-        match open.or(last) {
-            Some(rel) => self.load(rel),
-            None => self.empty(),
+
+        let workspace = root.as_ref().and_then(|r| self.restore(r)).unwrap_or_default();
+        for (p, state) in workspace.panes.iter().enumerate().take(2) {
+            if p == 1 {
+                self.add_pane();
+            }
+            let tabs: Vec<Tab> = state.tabs.iter().map(|t| Tab::new(self.new_id(), t.clone())).collect();
+            let pane = &mut self.panes[p];
+            pane.tabs = tabs;
+            pane.active = state.active.min(pane.tabs.len().saturating_sub(1));
         }
+        if self.panes[0].tabs.is_empty() {
+            let id = self.new_id();
+            self.panes[0].tabs.push(Tab::new(id, String::new()));
+            self.panes[0].active = 0;
+        }
+        self.focused = workspace.focused.min(self.panes.len() - 1);
+        for p in 0..self.panes.len() {
+            self.show_pane(p);
+        }
+        self.focus_changed();
+        // Otherwise GTK gives the keys to whichever view it finds first.
+        self.focus_pane(self.focused, true);
     }
 
-    fn load(&mut self, rel: String) {
-        if let Some(root) = self.vault() {
-            self.config.last.insert(root, rel.clone());
-            self.config.save();
+    /// The saved tabs of `root`, without files that no longer exist.
+    fn restore(&mut self, root: &Path) -> Option<Workspace> {
+        let keep = |t: &String| t.is_empty() || is_web(t) || root.join(t).is_file();
+        let mut workspace = self.config.workspaces.get(root).cloned().or_else(|| {
+            let last = self.config.last.get(root)?.clone();
+            Some(Workspace { panes: vec![PaneState { tabs: vec![last], active: 0 }], focused: 0 })
+        })?;
+        for pane in &mut workspace.panes {
+            let active = pane.tabs.get(pane.active).cloned();
+            pane.tabs.retain(keep);
+            pane.active = active.and_then(|a| pane.tabs.iter().position(|t| *t == a)).unwrap_or(0);
         }
-        let _ = self.page.load_url(&vault::url(&rel));
-        self.sidebar_js(format!("app.current({})", json!(rel)));
+        workspace.panes.retain(|p| !p.tabs.is_empty());
+        (!workspace.panes.is_empty()).then_some(workspace)
     }
 
-    fn empty(&mut self) {
-        {
+    /// Records the sides and tabs for `visor status` and in the vault's workspace.
+    fn publish(&mut self) {
+        let sides: Vec<Value> = self
+            .panes
+            .iter()
+            .map(|pane| {
+                let tabs: Vec<&str> = pane.tabs.iter().map(|t| t.target.as_str()).collect();
+                json!({ "tabs": tabs, "active": pane.active })
+            })
+            .collect();
+        let focused = self.pane().tabs.get(self.pane().active).and_then(Tab::view_id).unwrap_or(0);
+        let root = {
             let mut shared = self.shared.lock().unwrap();
-            shared.file = None;
-            shared.url = None;
+            shared.layout = json!({ "list": sides, "focused": self.focused });
+            shared.focused = focused;
+            shared.vault.clone()
+        };
+        let Some(root) = root else { return };
+        let workspace = Workspace {
+            panes: self
+                .panes
+                .iter()
+                .map(|p| PaneState { tabs: p.tabs.iter().map(|t| t.target.clone()).collect(), active: p.active })
+                .collect(),
+            focused: self.focused,
+        };
+        self.config.workspaces.insert(root, workspace);
+        self.config.save();
+    }
+
+    /// Adds the right side, empty.
+    fn add_pane(&mut self) {
+        let id = self.new_id();
+        let pane = Pane::new(id, &self.proxy);
+        pane.bar.root.set_visible(self.config.bar_shown);
+        self.split.pack2(&pane.root, true, false);
+        self.place_split.set(Some(self.config.split_ratio.unwrap_or(0.5)));
+        self.split.queue_resize();
+        self.panes.push(pane);
+    }
+
+    fn remove_pane(&mut self, p: usize) {
+        self.save_split();
+        let mut pane = self.panes.remove(p);
+        for tab in std::mem::take(&mut pane.tabs) {
+            self.drop_view(tab);
         }
-        let message = match self.vault() {
+        self.split.remove(&pane.root);
+        // The right side moves to the left.
+        if p == 0
+            && let Some(left) = self.panes.first()
+        {
+            self.split.remove(&left.root);
+            self.split.pack1(&left.root, true, false);
+        }
+        self.focused = 0;
+    }
+
+    fn drop_view(&mut self, mut tab: Tab) -> Tab {
+        if let Some((id, _)) = tab.view.take() {
+            self.shared.lock().unwrap().pages.remove(&id);
+        }
+        tab
+    }
+
+    /// Loads the view of a tab if it has none, and unloads the tab hidden
+    /// longest ago when there are more than MAX_LIVE.
+    fn ensure_live(&mut self, p: usize, i: usize) {
+        self.clock += 1;
+        self.panes[p].tabs[i].used = self.clock;
+        if self.panes[p].tabs[i].view.is_none() {
+            let id = self.new_id();
+            let built = build_page(&self.panes[p].views, &mut self.context, self.background, self.proxy.clone(), id);
+            let view = match built {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("No se pudo crear el webview: {e}");
+                    return;
+                }
+            };
+            self.style_view(&view);
+            view.webview().set_zoom_level(self.config.zoom.unwrap_or(1.0));
+            self.shared.lock().unwrap().pages.insert(id, Page::default());
+            let tab = &mut self.panes[p].tabs[i];
+            let (target, fragment) = (tab.target.clone(), std::mem::take(&mut tab.fragment));
+            self.load_into(&view, &target, &fragment);
+            self.panes[p].tabs[i].view = Some((id, view));
+        }
+        loop {
+            let live: Vec<(usize, usize, u64)> = self
+                .panes
+                .iter()
+                .enumerate()
+                .flat_map(|(p, pane)| {
+                    pane.tabs.iter().enumerate().filter(|(_, t)| t.view.is_some()).map(move |(i, t)| (p, i, t.used))
+                })
+                .collect();
+            if live.len() <= MAX_LIVE {
+                break;
+            }
+            let oldest = live
+                .into_iter()
+                .filter(|(p, i, _)| self.panes[*p].active != *i)
+                .min_by_key(|(_, _, used)| *used);
+            let Some((p, i, _)) = oldest else { break };
+            let tab = &mut self.panes[p].tabs[i];
+            tab.restore = tab.position.take();
+            if let Some((id, _)) = tab.view.take() {
+                self.shared.lock().unwrap().pages.remove(&id);
+            }
+        }
+    }
+
+    fn load_into(&self, view: &WebView, target: &str, fragment: &str) {
+        if target.is_empty() {
+            let _ = view.load_html(&empty_page(self.empty_message(), self.vault().is_none()));
+        } else if is_web(target) {
+            let _ = view.load_url(target);
+        } else {
+            let _ = view.load_url(&format!("{}{fragment}", vault::url(target)));
+        }
+    }
+
+    fn empty_message(&self) -> &'static str {
+        match self.vault() {
             None => "Abre una carpeta con archivos HTML para empezar.",
             Some(root) => {
                 fn has_pages(dir: &Value) -> bool {
@@ -594,9 +895,104 @@ impl App {
                     "Elige un archivo de la lista."
                 }
             }
+        }
+    }
+
+    /// Loads the active tab of side `p` if needed, shows it and updates the side's controls.
+    fn show_pane(&mut self, p: usize) {
+        let active = self.panes[p].active;
+        self.ensure_live(p, active);
+        let pane = &self.panes[p];
+        // Asked while still on screen: the tab may be unloaded later.
+        for (i, tab) in pane.tabs.iter().enumerate() {
+            if let Some((id, view)) = &tab.view
+                && i != active
+                && view.webview().is_visible()
+            {
+                let (proxy, id) = (self.proxy.clone(), *id);
+                let _ = view.evaluate_script_with_callback(
+                    "window.__visorNote ? __visorNote.hide() : { y: scrollY }",
+                    move |json| {
+                        let _ = proxy.send_event(UserEvent::Position { view: id, json });
+                    },
+                );
+            }
+        }
+        pane.show_active();
+        pane.render(p == self.focused);
+        pane.bar.show(&pane.tab().target);
+        self.update_nav(p);
+    }
+
+    /// Updates what depends on the focused side: the sidebar, the strips and the agents' view.
+    fn focus_changed(&mut self) {
+        for (p, pane) in self.panes.iter().enumerate() {
+            pane.render(p == self.focused);
+        }
+        self.publish();
+        self.sidebar_js(format!("app.current({})", json!(self.focused_file())));
+    }
+
+    fn focus_pane(&mut self, p: usize, grab: bool) {
+        if p != self.focused {
+            self.focused = p;
+            self.focus_changed();
+        }
+        if grab && let Some(view) = self.view() {
+            view.webview().grab_focus();
+        }
+    }
+
+    /// Opens `target` (a vault path, a web address or empty) and returns the
+    /// view that loads it, to wait for the load.
+    fn open_in(&mut self, target: String, place: Place) -> Option<Loading> {
+        self.open_with(target, place, "")
+    }
+
+    fn open_with(&mut self, target: String, place: Place, fragment: &str) -> Option<Loading> {
+        let p = match place {
+            Place::Here => self.focused,
+            Place::NewTab => self.focused,
+            Place::Beside => {
+                if self.panes.len() == 1 {
+                    self.add_pane();
+                }
+                1 - self.focused
+            }
         };
-        let _ = self.page.load_html(&empty_page(message, self.vault().is_none()));
-        self.sidebar_js("app.current(null)".into());
+        let i = if place == Place::Here && !self.panes[p].tabs.is_empty() {
+            self.panes[p].active
+        } else {
+            let at = if self.panes[p].tabs.is_empty() { 0 } else { self.panes[p].active + 1 };
+            let id = self.new_id();
+            self.panes[p].tabs.insert(at, Tab::new(id, String::new()));
+            at
+        };
+        self.panes[p].active = i;
+        let tab = &mut self.panes[p].tabs[i];
+        tab.target = target.clone();
+        tab.title = None;
+        tab.position = None;
+        tab.restore = None;
+        let loading = match &self.panes[p].tabs[i].view {
+            Some((id, view)) => {
+                let before = self.shared.lock().unwrap().page_of(*id).load_seq;
+                self.load_into(view, &target, fragment);
+                Some((*id, before))
+            }
+            None => {
+                self.panes[p].tabs[i].fragment = fragment.to_string();
+                self.ensure_live(p, i);
+                self.panes[p].tabs[i].view_id().map(|id| (id, 0))
+            }
+        };
+        self.show_pane(p);
+        self.focused = p;
+        self.focus_changed();
+        if let Some(view) = self.view() {
+            view.webview().grab_focus();
+        }
+        loading
     }
 
     /// Resolves what was typed in the address field: a URL, a vault path or a bare domain.
@@ -610,27 +1006,26 @@ impl App {
             Some(vault::rel(&root.canonicalize().ok()?, &path))
         });
         if is_web(text) {
-            let _ = self.page.load_url(text);
+            self.open_in(text.to_string(), Place::Here);
         } else if let Some(rel) = in_vault {
-            self.load(rel);
+            self.open_in(rel, Place::Here);
         } else if !text.contains(char::is_whitespace) && text.contains('.') {
-            let _ = self.page.load_url(&format!("https://{text}"));
+            self.open_in(format!("https://{text}"), Place::Here);
         } else {
-            self.bar.address.style_context().add_class("error");
-            return;
+            self.pane().bar.address.style_context().add_class("error");
         }
-        self.page.webview().grab_focus();
     }
 
-    fn update_nav(&self) {
-        let view = self.page.webview();
-        self.bar.back.set_sensitive(view.can_go_back());
-        self.bar.forward.set_sensitive(view.can_go_forward());
+    fn update_nav(&self, p: usize) {
+        let pane = &self.panes[p];
+        let Some((_, view)) = &pane.tab().view else { return };
+        let view = view.webview();
+        pane.bar.back.set_sensitive(view.can_go_back());
+        pane.bar.forward.set_sensitive(view.can_go_forward());
     }
 
-    fn apply_theme(&mut self) {
-        self.theme = Theme::load(self.mono.clone());
-        if let Some(manager) = self.page.webview().user_content_manager() {
+    fn style_view(&self, view: &WebView) {
+        if let Some(manager) = view.webview().user_content_manager() {
             manager.remove_all_style_sheets();
             if let Some(theme) = &self.theme {
                 manager.add_style_sheet(&UserStyleSheet::new(
@@ -642,17 +1037,34 @@ impl App {
                 ));
             }
         }
+        if let Some(theme) = &self.theme {
+            let _ = view.set_background_color(theme.rgba());
+        }
+    }
+
+    fn live_views(&self) -> impl Iterator<Item = &WebView> {
+        self.panes.iter().flat_map(|p| p.tabs.iter().filter_map(|t| t.view.as_ref().map(|(_, v)| v)))
+    }
+
+    fn apply_theme(&mut self) {
+        self.theme = Theme::load(self.mono.clone());
+        if let Some(theme) = &self.theme {
+            self.background = theme.rgba();
+        }
+        for view in self.live_views() {
+            self.style_view(view);
+        }
         let css = self.theme.as_ref().map_or(String::new(), |t| {
             format!(
-                "paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}",
+                "paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}",
                 t.tone(14.0),
-                Bar::css(t)
+                Bar::css(t),
+                Pane::css(t)
             )
         });
         let _ = self.styles.load_from_data(css.as_bytes());
         if let Some(theme) = &self.theme {
             let _ = self.sidebar.set_background_color(theme.rgba());
-            let _ = self.page.set_background_color(theme.rgba());
         }
         let json = self.theme.as_ref().map_or(Value::Null, Theme::json);
         self.sidebar_js(format!("app.setTheme({json})"));
@@ -661,7 +1073,17 @@ impl App {
     fn save_layout(&mut self) {
         if self.sidebar.webview().is_visible() {
             self.config.sidebar_width = Some(self.paned.position());
-            self.config.save();
+        }
+        self.save_split();
+        self.publish();
+    }
+
+    /// Remembers where the divider is, while there are two sides to measure.
+    fn save_split(&mut self) {
+        let width = self.split.allocated_width();
+        if self.panes.len() == 2 && width > 1 && self.place_split.get().is_none() {
+            let ratio = self.split.position() as f64 / width as f64;
+            self.config.split_ratio = Some(ratio.clamp(0.1, 0.9));
         }
     }
 
@@ -671,32 +1093,60 @@ impl App {
                 Ok(msg) => self.on_sidebar(msg),
                 Err(e) => eprintln!("Mensaje no válido del panel: {e}"),
             },
-            UserEvent::Page { url, body } => {
+            UserEvent::Page { view, url, body } => {
                 if let Ok(msg) = serde_json::from_str(&body) {
-                    self.on_page(&url, msg);
+                    self.on_page(view, &url, msg);
                 }
             }
-            UserEvent::Navigated(url) => self.navigated(url),
-            UserEvent::PageLoaded => {
+            UserEvent::Navigated { view, url } => self.navigated(view, url),
+            UserEvent::PageLoaded(view) => {
                 {
                     let mut shared = self.shared.lock().unwrap();
-                    shared.loaded = true;
-                    shared.load_seq += 1;
+                    let Some(page) = shared.pages.get_mut(&view) else { return };
+                    page.loaded = true;
+                    page.load_seq += 1;
                 }
-                self.update_nav();
+                let Some((p, i)) = self.find_view(view) else { return };
+                let tab = &mut self.panes[p].tabs[i];
+                if let Some(position) = tab.restore.take()
+                    && let Some((_, v)) = &tab.view
+                {
+                    let _ = v.evaluate_script(&format!(
+                        "(t => window.__visorNote ? __visorNote.place(t) : scrollTo(0, t.y))({position})"
+                    ));
+                }
+                if is_web(&tab.target)
+                    && let Some((_, v)) = &tab.view
+                {
+                    tab.title = v.webview().title().map(|t| t.to_string());
+                    self.panes[p].render(p == self.focused);
+                }
+                self.update_nav(p);
             }
-            UserEvent::Open { path, raw, reply } => {
-                let _ = reply.send(self.open(path, &raw));
+            UserEvent::Focused(view) => {
+                if let Some((p, i)) = self.find_view(view)
+                    && self.panes[p].active == i
+                {
+                    self.focus_pane(p, false);
+                }
             }
-            UserEvent::OpenUrl { url, reply } => {
-                let _ = self.page.load_url(&url);
-                let _ = reply.send(Ok(Some(url)));
+            UserEvent::Open { path, raw, place, reply } => {
+                let _ = reply.send(self.open(path, &raw, place));
             }
-            UserEvent::Picked(Some(path)) => self.show_vault(Some(path), None),
+            UserEvent::OpenUrl { url, place, reply } => {
+                let _ = reply.send(Ok(self.open_in(url, place)));
+            }
+            UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
             UserEvent::ThemeChanged => self.apply_theme(),
-            UserEvent::Fullscreen(on) => self.fullscreen(on),
+            UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
+            UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
+            UserEvent::Position { view, json } => {
+                if let Some((p, i)) = self.find_view(view) {
+                    self.panes[p].tabs[i].position = clean_position(&json);
+                }
+            }
             UserEvent::MonoFont(font) => {
                 self.mono = font;
                 self.apply_theme();
@@ -706,13 +1156,14 @@ impl App {
     }
 
     fn act(&mut self, action: Action) {
-        let view = self.page.webview();
         match action {
             Action::Reload => {
-                let _ = self.page.reload();
+                if let Some(view) = self.view() {
+                    let _ = view.reload();
+                }
             }
-            Action::Back => view.go_back(),
-            Action::Forward => view.go_forward(),
+            Action::Back => self.view().map_or((), |v| v.webview().go_back()),
+            Action::Forward => self.view().map_or((), |v| v.webview().go_forward()),
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => {
                 let side = self.sidebar.webview();
@@ -722,72 +1173,205 @@ impl App {
                 side.set_visible(!side.is_visible());
             }
             Action::FocusAddress => {
-                self.bar.root.show();
-                self.bar.address.grab_focus();
+                let bar = &self.pane().bar;
+                bar.root.show();
+                bar.address.grab_focus();
             }
             Action::AddressDone => {
-                if self.config.bar_hidden {
-                    self.bar.root.hide();
+                if !self.config.bar_shown {
+                    for pane in &self.panes {
+                        if !pane.bar.address.has_focus() {
+                            pane.bar.root.hide();
+                        }
+                    }
                 }
             }
             Action::ToggleBar => {
-                self.config.bar_hidden = !self.config.bar_hidden;
+                self.config.bar_shown = !self.config.bar_shown;
                 self.config.save();
-                self.bar.root.set_visible(!self.config.bar_hidden);
-                if self.config.bar_hidden && self.bar.address.has_focus() {
-                    view.grab_focus();
+                let typing = self.panes.iter().any(|p| p.bar.address.has_focus());
+                for pane in &self.panes {
+                    pane.bar.root.set_visible(self.config.bar_shown);
+                }
+                if !self.config.bar_shown && typing && let Some(view) = self.view() {
+                    view.webview().grab_focus();
                 }
             }
             Action::Zoom(step) => {
-                let now = view.zoom_level();
+                let Some(now) = self.view().map(|v| v.webview().zoom_level()) else { return };
                 let zoom = match step {
                     0 => 1.0,
                     1 => ZOOM_STEPS.into_iter().find(|z| *z > now + 0.01).unwrap_or(now),
                     _ => ZOOM_STEPS.into_iter().rev().find(|z| *z < now - 0.01).unwrap_or(now),
                 };
-                view.set_zoom_level(zoom);
+                for view in self.live_views() {
+                    view.webview().set_zoom_level(zoom);
+                }
                 self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
                 self.config.save();
             }
             Action::LeaveAddress => {
-                view.grab_focus();
-                self.bar.show(&self.address_text());
+                if let Some(view) = self.view() {
+                    view.webview().grab_focus();
+                }
+                let pane = self.pane();
+                pane.bar.show(&pane.tab().target);
             }
             Action::Go(text) => self.go(&text),
-            Action::PickElement => {
-                view.grab_focus();
-                let _ = self.page.evaluate_script("window.__visorAnnot && window.__visorAnnot.pickElement()");
-            }
-            Action::ToggleAnnotations => {
-                view.grab_focus();
-                let _ = self.page.evaluate_script("window.__visorAnnot && window.__visorAnnot.togglePanel()");
-            }
-            Action::ToggleEdit => {
-                view.grab_focus();
-                let _ = self.page.evaluate_script("window.__visorNote && window.__visorNote.toggle()");
-            }
+            Action::PickElement => self.page_call("window.__visorAnnot && window.__visorAnnot.pickElement()"),
+            Action::ToggleAnnotations => self.page_call("window.__visorAnnot && window.__visorAnnot.togglePanel()"),
+            Action::ToggleEdit => self.page_call("window.__visorNote && window.__visorNote.toggle()"),
             Action::NewNote => {
                 if self.vault().is_none() {
                     return;
                 }
-                let dir = self.shared.lock().unwrap().file.as_deref().and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d).to_string();
+                let dir = self.focused_file().as_deref().and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d).to_string();
                 let side = self.sidebar.webview();
                 side.show();
                 side.grab_focus();
                 self.sidebar_js(format!("app.newNote({})", json!(dir)));
             }
+            Action::NewTab => {
+                self.open_in(String::new(), Place::NewTab);
+            }
+            Action::CloseTab(id) => {
+                let found = match id {
+                    Some(id) => self.find_tab(id),
+                    None => Some((self.focused, self.pane().active)),
+                };
+                if let Some((p, i)) = found {
+                    self.close_tab(p, i);
+                }
+            }
+            Action::CycleTab(step) => {
+                let pane = &mut self.panes[self.focused];
+                let n = pane.tabs.len() as isize;
+                pane.active = (pane.active as isize + step as isize).rem_euclid(n) as usize;
+                self.show_pane(self.focused);
+                self.focus_changed();
+                self.focus_pane(self.focused, true);
+            }
+            Action::SelectTab(id) => {
+                if let Some((p, i)) = self.find_tab(id) {
+                    self.panes[p].active = i;
+                    self.show_pane(p);
+                    self.focused = p;
+                    self.focus_changed();
+                    self.focus_pane(p, true);
+                }
+            }
+            Action::ToggleSplit => self.toggle_split(),
+            Action::FocusPane(id) => {
+                if let Some(p) = self.panes.iter().position(|pane| pane.id == id) {
+                    self.focus_pane(p, false);
+                }
+            }
+            Action::FocusSide(p) => {
+                if p < self.panes.len() {
+                    self.focus_pane(p, true);
+                }
+            }
         }
     }
 
-    fn fullscreen(&mut self, on: bool) {
+    /// Opens a link from a page in a new tab on the page's side. A background
+    /// tab is not loaded until it is shown, so it costs nothing until then.
+    fn open_tab(&mut self, view: u64, url: &str, background: bool) {
+        let Some((p, _)) = self.find_view(view) else { return };
+        let (address, fragment) = url.split_once('#').map_or((url, ""), |(a, f)| (a, f));
+        let target = vault::rel_from_url(address).unwrap_or_else(|| url.to_string());
+        let fragment = if target == url || fragment.is_empty() { String::new() } else { format!("#{fragment}") };
+        if background {
+            let mut tab = Tab::new(self.new_id(), target);
+            tab.fragment = fragment;
+            self.panes[p].tabs.push(tab);
+            self.panes[p].render(p == self.focused);
+            self.publish();
+        } else {
+            self.focused = p;
+            self.open_with(target, Place::NewTab, &fragment);
+        }
+    }
+
+    /// Runs a page function on the focused side, giving that page the keys.
+    fn page_call(&self, code: &str) {
+        if let Some(view) = self.view() {
+            view.webview().grab_focus();
+        }
+        self.eval(code);
+    }
+
+    fn close_tab(&mut self, p: usize, i: usize) {
+        let tab = self.panes[p].tabs.remove(i);
+        self.drop_view(tab);
+        if self.panes[p].tabs.is_empty() {
+            if self.panes.len() > 1 {
+                self.remove_pane(p);
+                self.show_pane(0);
+                self.focus_changed();
+                self.focus_pane(0, true);
+                return;
+            }
+            let id = self.new_id();
+            self.panes[p].tabs.push(Tab::new(id, String::new()));
+        }
+        let pane = &mut self.panes[p];
+        if i < pane.active || pane.active >= pane.tabs.len() {
+            pane.active = pane.active.saturating_sub(1);
+        }
+        self.show_pane(p);
+        self.focus_changed();
+        if p == self.focused {
+            self.focus_pane(p, true);
+        }
+    }
+
+    /// Splits the window, with the focused document on both sides, or joins
+    /// the two sides keeping every tab on the left.
+    fn toggle_split(&mut self) {
+        if self.panes.len() == 1 {
+            let target = self.pane().tab().target.clone();
+            self.open_in(target, Place::Beside);
+            return;
+        }
+        let right_active = self.panes[1].active;
+        let was_right = self.focused == 1;
+        let moved = std::mem::take(&mut self.panes[1].tabs);
+        let offset = self.panes[0].tabs.len();
+        // Views move to the left side's container; WebKit keeps the page loaded.
+        for tab in &moved {
+            if let Some((_, view)) = &tab.view {
+                let widget = view.webview();
+                self.panes[1].views.remove(&widget);
+                self.panes[0].views.pack_start(&widget, true, true, 0);
+            }
+        }
+        self.panes[0].tabs.extend(moved);
+        self.remove_pane(1);
+        if was_right {
+            self.panes[0].active = offset + right_active;
+        }
+        self.show_pane(0);
+        self.focus_changed();
+        self.focus_pane(0, true);
+    }
+
+    fn fullscreen(&mut self, view: u64, on: bool) {
         let side = self.sidebar.webview();
+        let holder = self.find_view(view).map(|(p, _)| p);
         if on {
             self.sidebar_before_fullscreen.get_or_insert(side.is_visible());
-            self.bar.root.hide();
             side.hide();
+            for (p, pane) in self.panes.iter().enumerate() {
+                pane.strip.hide();
+                pane.bar.root.hide();
+                pane.root.set_visible(Some(p) == holder);
+            }
         } else {
-            if !self.config.bar_hidden {
-                self.bar.root.show();
+            for pane in &self.panes {
+                pane.strip.show();
+                pane.bar.root.set_visible(self.config.bar_shown);
+                pane.root.show();
             }
             if self.sidebar_before_fullscreen.take().unwrap_or(true) {
                 side.show();
@@ -795,27 +1379,32 @@ impl App {
         }
     }
 
-    fn address_text(&self) -> String {
-        let shared = self.shared.lock().unwrap();
-        shared.file.clone().or_else(|| shared.url.clone()).unwrap_or_default()
-    }
-
-    fn navigated(&mut self, url: String) {
+    fn navigated(&mut self, view: u64, url: String) {
+        let Some((p, i)) = self.find_view(view) else { return };
         let file = vault::rel_from_url(&url);
         {
             let mut shared = self.shared.lock().unwrap();
-            shared.file = file.clone();
-            shared.url = (file.is_none() && is_web(&url)).then(|| url.clone());
-            shared.loaded = false;
-            shared.console.clear();
-            shared.orphans = None;
+            if let Some(page) = shared.pages.get_mut(&view) {
+                page.file = file.clone();
+                page.url = (file.is_none() && is_web(&url)).then(|| url.clone());
+                page.loaded = false;
+                page.console.clear();
+                page.orphans = None;
+            }
         }
-        if let (Some(root), Some(rel)) = (self.vault(), &file) {
-            self.config.last.insert(root, rel.clone());
+        let tab = &mut self.panes[p].tabs[i];
+        tab.target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
+        tab.title = None;
+        let pane = &self.panes[p];
+        pane.render(p == self.focused);
+        if pane.active == i {
+            pane.bar.show(&pane.tab().target);
+            self.update_nav(p);
         }
-        self.sidebar_js(format!("app.current({})", json!(file)));
-        self.bar.show(&self.address_text());
-        self.update_nav();
+        self.publish();
+        if p == self.focused && self.panes[p].active == i {
+            self.sidebar_js(format!("app.current({})", json!(file)));
+        }
     }
 
     fn pick_vault(&self) {
@@ -835,8 +1424,11 @@ impl App {
                 self.refresh_sidebar();
             }
             SidebarMsg::PickVault => self.pick_vault(),
-            SidebarMsg::SwitchVault { path } => self.show_vault(Some(path), None),
-            SidebarMsg::Open { path } => self.load(path),
+            SidebarMsg::SwitchVault { path } => self.show_vault(Some(path)),
+            SidebarMsg::Open { path, tab, beside } => {
+                let place = if beside { Place::Beside } else if tab { Place::NewTab } else { Place::Here };
+                self.open_in(path, place);
+            }
             SidebarMsg::CreateNote { dir, name } => match self.create_note(&dir, &name) {
                 Ok(()) => self.sidebar_js("app.noteCreated()".into()),
                 Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
@@ -850,9 +1442,7 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.sidebar_js(format!("app.notice({}, false)", json!(format!("«{path}» está en la papelera."))));
-                        if self.shows(&path) {
-                            self.empty();
-                        }
+                        self.retarget(&path, None);
                     }
                     Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
                 }
@@ -871,10 +1461,7 @@ impl App {
                             Ok(_) => {}
                             Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
                         }
-                        let current = self.shared.lock().unwrap().file.clone();
-                        if let Some(file) = current.filter(|_| self.shows(&path)) {
-                            self.load(format!("{new}{}", &file[path.len()..]));
-                        }
+                        self.retarget(&path, Some(&new));
                     }
                     Ok(None) => {}
                     Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
@@ -883,11 +1470,14 @@ impl App {
             SidebarMsg::RemoveVault { path } => {
                 self.config.vaults.retain(|v| *v != path);
                 self.config.last.remove(&path);
+                self.config.workspaces.remove(&path);
                 if self.vault().as_deref() == Some(&path) {
                     self.config.current = self.config.vaults.first().cloned();
                     self.config.save();
+                    // The removed vault must not get its workspace saved back.
+                    self.shared.lock().unwrap().vault = None;
                     let next = self.config.current.clone();
-                    self.show_vault(next, None);
+                    self.show_vault(next);
                 } else {
                     self.config.save();
                     self.refresh_sidebar();
@@ -896,15 +1486,43 @@ impl App {
         }
     }
 
-    /// Whether the page on screen is `rel` or inside the folder `rel`.
-    fn shows(&self, rel: &str) -> bool {
-        self.shared.lock().unwrap().file.as_deref().is_some_and(|f| f == rel || f.starts_with(&format!("{rel}/")))
+    /// Points the tabs showing `old`, or a file inside the folder `old`, at
+    /// where it moved, or at the empty page if it was deleted.
+    fn retarget(&mut self, old: &str, new: Option<&str>) {
+        let inside = |t: &str| t == old || t.starts_with(&format!("{old}/"));
+        let mut hidden_changed = false;
+        for p in 0..self.panes.len() {
+            for i in 0..self.panes[p].tabs.len() {
+                let target = self.panes[p].tabs[i].target.clone();
+                if !inside(&target) {
+                    continue;
+                }
+                let next = new.map_or(String::new(), |n| format!("{n}{}", &target[old.len()..]));
+                let tab = &mut self.panes[p].tabs[i];
+                tab.target = next.clone();
+                tab.position = None;
+                tab.restore = None;
+                match &self.panes[p].tabs[i].view {
+                    Some((_, view)) => self.load_into(view, &next, ""),
+                    None => hidden_changed = true,
+                }
+            }
+            self.panes[p].render(p == self.focused);
+        }
+        if hidden_changed {
+            self.publish();
+        }
     }
 
     /// Only vault pages may log or send events; the empty page may only ask for a folder.
     /// A website could otherwise feed instructions to the agents that read them.
-    fn on_page(&mut self, url: &str, msg: PageMsg) {
+    fn on_page(&mut self, view: u64, url: &str, msg: PageMsg) {
         let trusted = vault::rel_from_url(url).is_some();
+        let reply = |app: &App, code: String| {
+            if let Some(v) = app.view_of(view) {
+                let _ = v.evaluate_script(&code);
+            }
+        };
         match msg {
             PageMsg::PickVault if trusted || url.starts_with("about:") => self.pick_vault(),
             PageMsg::SaveNote { text } if trusted => {
@@ -913,11 +1531,11 @@ impl App {
                     Ok(()) => (true, String::new()),
                     Err(e) => (false, e),
                 };
-                let _ = self.page.evaluate_script(&format!("window.__visorNote && window.__visorNote.saved({ok}, {})", json!(error)));
+                reply(self, format!("window.__visorNote && window.__visorNote.saved({ok}, {})", json!(error)));
             }
             PageMsg::ToggleTask { offset, checked } if trusted => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
-                let _ = self.page.evaluate_script(&format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
+                reply(self, format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
             }
             PageMsg::AnnotSave { annotation } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
@@ -930,7 +1548,9 @@ impl App {
                 }
             }
             PageMsg::AnnotStatus { orphans, total } if trusted => {
-                self.shared.lock().unwrap().orphans = (total > 0).then_some(orphans);
+                if let Some(page) = self.shared.lock().unwrap().pages.get_mut(&view) {
+                    page.orphans = (total > 0).then_some(orphans);
+                }
             }
             PageMsg::CreateNote { dir, name } if trusted => {
                 if let Err(e) = self.create_note(&dir, &name) {
@@ -939,12 +1559,13 @@ impl App {
             }
             PageMsg::Console { level, text } if trusted => {
                 let mut shared = self.shared.lock().unwrap();
-                if shared.console.len() >= MAX_CONSOLE {
-                    shared.console.remove(0);
+                let Some(page) = shared.pages.get_mut(&view) else { return };
+                if page.console.len() >= MAX_CONSOLE {
+                    page.console.remove(0);
                 }
                 // Vault paths read better than server URLs, and keep the secret out of logs.
                 let text = text.replace(vault::base(), "");
-                shared.console.push(json!({ "time": now(), "level": level, "text": text }));
+                page.console.push(json!({ "time": now(), "level": level, "text": text }));
             }
             PageMsg::Event { data } if trusted => {
                 let mut shared = self.shared.lock().unwrap();
@@ -952,7 +1573,7 @@ impl App {
                     "id": shared.next_id,
                     "time": now(),
                     "vault": shared.vault,
-                    "file": shared.file,
+                    "file": shared.page_of(view).file,
                     "data": data,
                 });
                 shared.next_id += 1;
@@ -1036,23 +1657,20 @@ impl App {
         self.own_write = Some((path.clone(), hash(text.as_bytes())));
         fs::write(&path, text).map_err(|e| e.to_string())?;
         let rel = vault::rel(&root.canonicalize().map_err(|e| e.to_string())?, &path);
-        self.config.last.insert(root, rel.clone());
-        let _ = self.page.load_url(&format!("{}#editar", vault::url(&rel)));
         // The name was typed in the sidebar; writing continues in the note.
-        self.page.webview().grab_focus();
-        self.sidebar_js(format!("app.current({})", json!(rel)));
+        self.open_with(rel, Place::Here, "#editar");
         Ok(())
     }
 
     /// Opens a folder as vault or a file inside the vault that contains it.
-    fn open(&mut self, path: PathBuf, raw: &str) -> Result<Option<String>, String> {
+    fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
         let current = self.vault();
         let path = path
             .canonicalize()
             .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
             .map_err(|_| format!("No existe: {raw}"))?;
         if path.is_dir() {
-            self.show_vault(Some(path), None);
+            self.show_vault(Some(path));
             return Ok(None);
         }
         let root = current
@@ -1061,51 +1679,70 @@ impl App {
             .or_else(|| path.parent().map(Path::to_path_buf))
             .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
         let rel = vault::rel(&root, &path);
-        if self.vault().as_ref() == Some(&root) {
-            self.load(rel.clone());
-        } else {
-            self.show_vault(Some(root), Some(rel.clone()));
+        if self.vault().as_ref() != Some(&root) {
+            self.show_vault(Some(root));
         }
-        Ok(Some(rel))
+        // A lone empty tab, as in a vault opened for the first time, is used rather than kept.
+        let lone_empty = self.panes.len() == 1 && self.pane().tabs.len() == 1 && self.pane().tab().target.is_empty();
+        Ok(self.open_in(rel, if lone_empty { Place::Here } else { place }))
     }
 
     fn vault_changed(&mut self, changed: Vec<PathBuf>) {
         let Some(root) = self.vault() else { return };
         // An agent replied or the page saved: the layer re-reads its notes.
-        let current = self.shared.lock().unwrap().file.clone();
-        if current.is_some() && changed.iter().any(|p| annot::page_of(&root, p) == current) {
-            let _ = self.page.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
+        for view in self.live_views() {
+            let file = vault::rel_from_url(&view.url().unwrap_or_default());
+            if file.is_some() && changed.iter().any(|p| annot::page_of(&root, p) == file) {
+                let _ = view.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
+            }
         }
         let changed: Vec<_> = changed.into_iter().filter(|p| !vault::ignored(&root, p)).collect();
         if changed.is_empty() {
             return;
         }
         self.sidebar_js(format!("app.setTree({})", json!(vault::tree(&root))));
-        let (file, url) = {
-            let shared = self.shared.lock().unwrap();
-            (shared.file.clone(), shared.url.clone())
-        };
-        let Some(current) = file.map(|f| root.join(f)) else {
-            // On the empty page the message depends on whether the vault has files.
-            if url.is_none() {
-                self.empty();
-            }
-            return;
-        };
         // What the app just saved itself is already on screen.
         let own = |p: &PathBuf| {
             self.own_write.as_ref().is_some_and(|(o, h)| o == p && fs::read(p).is_ok_and(|b| hash(&b) == *h))
         };
         let changed: Vec<_> = changed.into_iter().filter(|p| !own(p)).collect();
         // Pages may load sibling CSS, JS or data, so any change outside pages reloads too.
-        let reload = changed.iter().any(|p| *p == current || (!vault::is_page(p) && !p.is_dir()));
-        if reload && vault::is_markdown(&current) {
-            // A note being edited must not lose its text to a reload.
-            let _ = self.page.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
-        } else if reload {
-            let _ = self.page.reload();
+        let other = changed.iter().any(|p| !vault::is_page(p) && !p.is_dir());
+        for pane in &self.panes {
+            for tab in &pane.tabs {
+                let Some((_, view)) = &tab.view else { continue };
+                if tab.target.is_empty() {
+                    // On the empty page the message depends on whether the vault has files.
+                    self.load_into(view, "", "");
+                    continue;
+                }
+                if is_web(&tab.target) {
+                    continue;
+                }
+                let current = root.join(&tab.target);
+                if !(other || changed.contains(&current)) {
+                    continue;
+                }
+                if vault::is_markdown(&current) {
+                    // A note being edited must not lose its text to a reload.
+                    let _ = view.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
+                } else {
+                    let _ = view.reload();
+                }
+            }
         }
     }
+}
+
+/// A reading position as a page reported it, keeping only its numbers: the
+/// page may be a website, and the value is later written into a script.
+fn clean_position(json: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(json).ok()?;
+    let y = value["y"].as_f64().filter(|y| y.is_finite())?;
+    Some(match value["line"].as_u64() {
+        Some(line) => json!({ "line": line, "y": y }).to_string(),
+        None => json!({ "y": y }).to_string(),
+    })
 }
 
 fn hash(bytes: &[u8]) -> u64 {

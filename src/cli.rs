@@ -41,12 +41,17 @@ fn parse(args: &[String]) -> Result<Value, String> {
     };
     match cmd {
         "open" => {
-            let raw = rest.first().ok_or("Uso: visor open <carpeta, archivo o URL>")?;
+            let usage = "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]";
+            let raw = rest.iter().find(|a| !a.starts_with("--")).ok_or(usage)?;
+            if let Some(unknown) = rest.iter().find(|a| a.starts_with("--") && *a != "--tab" && *a != "--beside") {
+                return Err(format!("Opción desconocida: {unknown}. {usage}"));
+            }
+            let place = if flag("--beside") { Some("beside") } else if flag("--tab") { Some("tab") } else { None };
             if raw.starts_with("http://") || raw.starts_with("https://") {
-                return Ok(json!({ "cmd": "open", "url": raw }));
+                return Ok(json!({ "cmd": "open", "url": raw, "place": place }));
             }
             let path = std::env::current_dir().map_err(|e| e.to_string())?.join(raw);
-            Ok(json!({ "cmd": "open", "path": path, "raw": raw }))
+            Ok(json!({ "cmd": "open", "path": path, "raw": raw, "place": place }))
         }
         "status" | "reload" => Ok(json!({ "cmd": cmd })),
         "console" => Ok(json!({

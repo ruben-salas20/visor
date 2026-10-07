@@ -27,13 +27,33 @@ pub struct File {
 pub struct Config {
     pub vaults: Vec<PathBuf>,
     pub current: Option<PathBuf>,
-    /// Last file shown in each vault.
+    /// Last file shown in each vault, from before tabs; read when a vault has no workspace.
     pub last: HashMap<PathBuf, String>,
+    /// Open tabs and split of each vault.
+    pub workspaces: HashMap<PathBuf, Workspace>,
     pub sidebar_width: Option<i32>,
+    /// Where the divider between the two sides sits, as a share of their width.
+    pub split_ratio: Option<f64>,
     /// Port of the local server, kept so pages keep their origin and storage.
     pub port: Option<u16>,
-    pub bar_hidden: bool,
+    pub bar_shown: bool,
     pub zoom: Option<f64>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+#[serde(default)]
+pub struct Workspace {
+    /// One entry per side, left first.
+    pub panes: Vec<PaneState>,
+    pub focused: usize,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+#[serde(default)]
+pub struct PaneState {
+    /// What each tab shows: a vault path, a web address, or empty.
+    pub tabs: Vec<String>,
+    pub active: usize,
 }
 
 impl Config {
