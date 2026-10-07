@@ -248,7 +248,7 @@ fn drop_zone(pane: u64, proxy: &EventLoopProxy<UserEvent>) -> (gtk::EventBox, Rc
             }
         }
     };
-    // No target list: the drag comes from the sidebar's own WebKit view, and
+    // No target list: the drag comes from the sidebar's tree, and
     // the app already knows which file it carries.
     zone.drag_dest_set(gtk::DestDefaults::empty(), &[], gtk::gdk::DragAction::MOVE | gtk::gdk::DragAction::COPY);
     let m = mark.clone();

@@ -9,6 +9,7 @@ mod markdown;
 mod panes;
 mod paths;
 mod server;
+mod sidebar;
 mod theme;
 mod vault;
 

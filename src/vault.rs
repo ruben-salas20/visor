@@ -10,16 +10,16 @@ const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'
 
 #[derive(Serialize)]
 pub struct Dir {
-    name: String,
-    path: String,
-    dirs: Vec<Dir>,
-    files: Vec<File>,
+    pub name: String,
+    pub path: String,
+    pub dirs: Vec<Dir>,
+    pub files: Vec<File>,
 }
 
 #[derive(Serialize)]
 pub struct File {
-    name: String,
-    path: String,
+    pub name: String,
+    pub path: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -32,6 +32,8 @@ pub struct Config {
     /// Open tabs and split of each vault.
     pub workspaces: HashMap<PathBuf, Workspace>,
     pub sidebar_width: Option<i32>,
+    /// Folders open in the panel's tree, per vault.
+    pub open_folders: HashMap<PathBuf, Vec<String>>,
     /// Where the divider between the two sides sits, as a share of their width.
     pub split_ratio: Option<f64>,
     /// Port of the local server, kept so pages keep their origin and storage.

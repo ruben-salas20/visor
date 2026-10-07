@@ -31,11 +31,11 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 
 | Medida | Valor |
 |---|---|
-| Arranque en frío hasta página cargada | 267–283 ms |
+| Arranque en frío hasta página cargada | 269–277 ms |
 | Cambio de página | ~80 ms |
 | Pestaña nueva (`visor open --tab`) | ~130 ms |
-| Memoria en reposo, una página | ~307–313 MB |
-| Memoria con el editor abierto (Ctrl+E) | ~334–338 MB |
+| Memoria en reposo, una página | ~245–247 MB |
+| Memoria con el editor abierto (Ctrl+E) | ~286–287 MB |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js |
 | Three.js (2000 nudos instanciados) | 59–60 fps |
 | Binario | 3,94 MiB |

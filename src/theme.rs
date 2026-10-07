@@ -1,4 +1,3 @@
-use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
@@ -43,17 +42,6 @@ impl Theme {
             mono,
             bg,
             fg,
-        })
-    }
-
-    pub fn json(&self) -> Value {
-        json!({
-            "mode": if self.dark { "dark" } else { "light" },
-            "bg": self.bg,
-            "fg": self.fg,
-            "accent": self.accent,
-            "muted": self.muted,
-            "selection": self.selection,
         })
     }
 

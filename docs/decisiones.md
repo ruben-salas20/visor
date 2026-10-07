@@ -5,7 +5,8 @@ Cada punto se midió o se acordó con el usuario. Para cambiar uno, trae datos n
 ## Arquitectura
 
 - **wry, no GPUI.** wry solo incrusta un webview en una ventana ajena bajo X11; en Wayland exige su propio contenedor GTK (`build_gtk`).
-- **Un webview para el panel y otro por cada página viva**, en `gtk::Paned`, no iframes: WebKit limita a 30 fps los iframes de otro origen sin interacción, y así la página tampoco alcanza al panel.
+- **Un webview por cada página viva**, en `gtk::Paned`, no iframes: WebKit limita a 30 fps los iframes de otro origen sin interacción.
+- **El panel es GTK nativo** (`sidebar.rs`), no un webview. Como webview costaba un proceso de WebKit propio: 313 → 246 MB en reposo con una nota y 349 → 286 MB con el editor abierto (2026-10-07, 8 rondas alternadas). El arranque no cambia (~271 ms) y el binario tampoco (+72 bytes). Sus iconos se dibujan con cairo: los iconos SVG del tema pasan por un cargador aislado (`glycin`) y sumaban ~50 ms a 6 de cada 8 arranques en frío. Las carpetas abiertas se guardan por bóveda en `open_folders` de la configuración.
 - **Un único `WebContext`** para los dos webviews. Con dos había dos procesos de red escribiendo en las mismas bases SQLite («database is locked») y más memoria.
 - **La bóveda se sirve por HTTP en 127.0.0.1** (`http.rs`), no por un esquema propio: el reproductor de WebKitGTK y Media Source rechazan los esquemas propios. Puerto fijo guardado en la configuración, porque el origen (y con él `localStorage`) depende del puerto; todas las bóvedas comparten ese origen. Una clave secreta en la ruta, nueva en cada arranque, y la comprobación de `Host` frenan a otros programas locales y el DNS rebinding.
 - **DMA-BUF activado.** Desactivarlo arranca ~0,5 s antes, pero Three.js cae de 60 a 26 fps. El usuario usa mucho Three.js.

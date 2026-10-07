@@ -4,13 +4,13 @@ Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo 
 
 ## Mapa
 
-- `app.rs`: ventana, webviews (panel lateral y páginas), pestañas vivas y descargadas, eventos, vigilancia de archivos, tema.
+- `app.rs`: ventana, webviews de las páginas, pestañas vivas y descargadas, eventos, vigilancia de archivos, tema.
 - `panes.rs`: cada lado de la vista dividida, con su fila de pestañas, sus botones de anotaciones y su barra.
 - `http.rs`: servidor local que sirve la bóveda; `vault.rs`: árbol, rutas, configuración.
 - `files.rs`: mover y mandar a la papelera desde el panel; `links.rs`: reescribe los enlaces de las notas al mover.
 - `server.rs` + `cli.rs`: órdenes de agentes por socket Unix.
 - `markdown.rs` + `note.js/css`: notas .md en lectura. `editor.js/css`: editor de Ctrl+E (CodeMirror 6 con vista previa), que solo se carga al editar. `annot.rs` + `annot.js`: anotaciones.
-- `bridge.js`: consola y `visor.send` en las páginas. `sidebar.html`: panel. `bar.rs`: barra de direcciones GTK.
+- `bridge.js`: consola y `visor.send` en las páginas. `sidebar.rs`: panel lateral en GTK nativo. `bar.rs`: barra de direcciones GTK.
 - `build.rs`: empaqueta `assets/` (KaTeX, highlight.js, Mermaid, CodeMirror) y `editor.js/css` comprimidos con brotli. CodeMirror se regenera en `tools/codemirror/` (ver `docs/decisiones.md`).
 
 ## Reglas

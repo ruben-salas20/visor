@@ -4,13 +4,13 @@ use crate::files;
 use crate::links;
 use crate::panes::{Pane, Tab};
 use crate::paths;
+use crate::sidebar::{Sidebar, SidebarMsg};
 use crate::theme::{self, Theme};
 use crate::vault::{self, Config, PaneState, Workspace};
 use gtk::prelude::*;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
@@ -31,11 +31,9 @@ use webkit2gtk::{
     PolicyDecisionExt, PolicyDecisionType, URIRequestExt, UserContentInjectedFrames,
     UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt,
 };
-use wry::http::header::{CACHE_CONTROL, CONTENT_TYPE};
-use wry::http::{Request, Response};
+use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
-const SIDEBAR: &str = include_str!("sidebar.html");
 const BRIDGE: &str = include_str!("bridge.js");
 const ANNOT: &str = include_str!("annot.js");
 const SIDEBAR_WIDTH: i32 = 260;
@@ -59,7 +57,7 @@ pub enum Place {
 }
 
 pub enum UserEvent {
-    Sidebar(String),
+    Sidebar(SidebarMsg),
     /// A message from a page view, with the URL of the page that sent it.
     Page { view: u64, url: String, body: String },
     Navigated { view: u64, url: String },
@@ -193,29 +191,6 @@ impl Shared {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum SidebarMsg {
-    Ready,
-    PickVault,
-    SwitchVault { path: PathBuf },
-    RemoveVault { path: PathBuf },
-    Open {
-        path: String,
-        #[serde(default)]
-        tab: bool,
-        #[serde(default)]
-        beside: bool,
-    },
-    CreateNote { dir: String, name: String },
-    CreateFolder { dir: String, name: String },
-    Trash { path: String },
-    Move { path: String, dir: String },
-    /// A file started being dragged; the pages can take it while it lasts.
-    DragStart { path: String },
-    DragEnd,
-}
-
 /// Messages from vault pages. Websites never get to send these.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -310,14 +285,9 @@ pub fn launch() -> i32 {
     let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
     // One context for every view: one network process, and a single writer
     // for cookies and storage, which two contexts on one folder would fight over.
-    let mut context = WebContext::new(None);
-    let sidebar = match build_sidebar(&paned, &mut context, background, proxy.clone()) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("No se pudo crear el webview: {e}");
-            return 1;
-        }
-    };
+    let context = WebContext::new(None);
+    let sidebar = Sidebar::new(&proxy);
+    paned.pack1(&sidebar.root, false, false);
     paned.pack2(&split, true, true);
     let first = Pane::new(1, &proxy);
     first.bar.root.set_visible(config.bar_shown);
@@ -404,28 +374,6 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
         let _ = proxy.send_event(UserEvent::Action(action));
         gtk::glib::Propagation::Stop
     });
-}
-
-fn build_sidebar(
-    paned: &gtk::Paned,
-    context: &mut WebContext,
-    background: (u8, u8, u8, u8),
-    proxy: EventLoopProxy<UserEvent>,
-) -> wry::Result<WebView> {
-    WebViewBuilder::new_with_web_context(context)
-        .with_background_color(background)
-        .with_custom_protocol("app".into(), |_, request| {
-            if request.uri().path() == "/" {
-                respond(200, "text/html; charset=utf-8", SIDEBAR.as_bytes().to_vec())
-            } else {
-                respond(404, "text/plain", b"No encontrado".to_vec())
-            }
-        })
-        .with_ipc_handler(move |request: Request<String>| {
-            let _ = proxy.send_event(UserEvent::Sidebar(request.into_body()));
-        })
-        .with_url("app://localhost/")
-        .build_gtk(paned)
 }
 
 /// A page view inside `container`. Its events carry `id`, so the app knows
@@ -540,15 +488,6 @@ fn open_external(url: &str) {
     let _ = Command::new("xdg-open").arg(url).spawn();
 }
 
-fn respond(status: u16, mime: &str, body: Vec<u8>) -> Response<Cow<'static, [u8]>> {
-    Response::builder()
-        .status(status)
-        .header(CONTENT_TYPE, mime)
-        .header(CACHE_CONTROL, "no-store")
-        .body(Cow::Owned(body))
-        .unwrap()
-}
-
 /// Watches `path` and forwards changes in batches once they settle.
 /// Access events are dropped: serving a page opens it, which would reload it forever.
 fn watch(
@@ -601,7 +540,7 @@ button {{ font: inherit; padding: 7px 14px; border-radius: 6px; cursor: pointer;
 }
 
 struct App {
-    sidebar: WebView,
+    sidebar: Sidebar,
     context: WebContext,
     background: (u8, u8, u8, u8),
     /// The left side and, when split, the right one.
@@ -634,10 +573,6 @@ struct App {
 }
 
 impl App {
-    fn sidebar_js(&self, code: String) {
-        let _ = self.sidebar.evaluate_script(&code);
-    }
-
     fn vault(&self) -> Option<PathBuf> {
         self.shared.lock().unwrap().vault.clone()
     }
@@ -686,22 +621,17 @@ impl App {
         self.panes[p].tabs[i].view.as_ref().map(|(_, v)| v)
     }
 
-    fn info(&self, tree: Option<vault::Dir>) -> Value {
-        let vaults: Vec<Value> = self
-            .config
-            .vaults
-            .iter()
-            .map(|v| {
-                let name = v.file_name().map_or_else(|| v.display().to_string(), |n| n.to_string_lossy().into());
-                json!({ "path": v, "name": name })
-            })
-            .collect();
-        json!({ "vaults": vaults, "current": self.vault(), "tree": tree })
+    /// Shows the vault list and the tree of the current vault in the sidebar.
+    fn show_sidebar(&self) {
+        let root = self.vault();
+        let tree = root.as_deref().map(vault::tree);
+        let opened = root.as_ref().and_then(|r| self.config.open_folders.get(r)).map_or(&[][..], Vec::as_slice);
+        self.sidebar.show(&self.config.vaults, root.as_deref(), tree, opened);
     }
 
     fn refresh_sidebar(&self) {
-        let tree = self.vault().as_deref().map(vault::tree);
-        self.sidebar_js(format!("app.show({}); app.current({})", self.info(tree), json!(self.focused_file())));
+        self.show_sidebar();
+        self.sidebar.current(self.focused_file());
     }
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
@@ -724,8 +654,7 @@ impl App {
             self.config.save();
             self.watcher = watch(root, 150, self.proxy.clone(), UserEvent::VaultChanged);
         }
-        let tree = root.as_deref().map(vault::tree);
-        self.sidebar_js(format!("app.show({})", self.info(tree)));
+        self.show_sidebar();
 
         let workspace = root.as_ref().and_then(|r| self.restore(r)).unwrap_or_default();
         for (p, state) in workspace.panes.iter().enumerate().take(2) {
@@ -942,7 +871,7 @@ impl App {
             pane.render(p == self.focused);
         }
         self.publish();
-        self.sidebar_js(format!("app.current({})", json!(self.focused_file())));
+        self.sidebar.current(self.focused_file());
     }
 
     fn focus_pane(&mut self, p: usize, grab: bool) {
@@ -1068,22 +997,19 @@ impl App {
         }
         let css = self.theme.as_ref().map_or(String::new(), |t| {
             format!(
-                "paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}",
+                "paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}\n{}",
                 t.tone(14.0),
                 Bar::css(t),
-                Pane::css(t)
+                Pane::css(t),
+                Sidebar::css(t)
             )
         });
         let _ = self.styles.load_from_data(css.as_bytes());
-        if let Some(theme) = &self.theme {
-            let _ = self.sidebar.set_background_color(theme.rgba());
-        }
-        let json = self.theme.as_ref().map_or(Value::Null, Theme::json);
-        self.sidebar_js(format!("app.setTheme({json})"));
+        self.sidebar.set_theme(self.theme.as_ref());
     }
 
     fn save_layout(&mut self) {
-        if self.sidebar.webview().is_visible() {
+        if self.sidebar.root.is_visible() {
             self.config.sidebar_width = Some(self.paned.position());
         }
         self.save_split();
@@ -1101,10 +1027,7 @@ impl App {
 
     fn handle(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Sidebar(body) => match serde_json::from_str(&body) {
-                Ok(msg) => self.on_sidebar(msg),
-                Err(e) => eprintln!("Mensaje no válido del panel: {e}"),
-            },
+            UserEvent::Sidebar(msg) => self.on_sidebar(msg),
             UserEvent::Page { view, url, body } => {
                 if let Ok(msg) = serde_json::from_str(&body) {
                     self.on_page(view, &url, msg);
@@ -1179,7 +1102,7 @@ impl App {
             Action::Forward => self.view().map_or((), |v| v.webview().go_forward()),
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => {
-                let side = self.sidebar.webview();
+                let side = self.sidebar.root.clone();
                 if side.is_visible() {
                     self.save_layout();
                 }
@@ -1239,10 +1162,9 @@ impl App {
                     return;
                 }
                 let dir = self.focused_file().as_deref().and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d).to_string();
-                let side = self.sidebar.webview();
+                let side = self.sidebar.root.clone();
                 side.show();
-                side.grab_focus();
-                self.sidebar_js(format!("app.newNote({})", json!(dir)));
+                self.sidebar.new_note(&dir, false);
             }
             Action::NewTab => {
                 self.open_in(String::new(), Place::NewTab);
@@ -1403,7 +1325,7 @@ impl App {
     }
 
     fn fullscreen(&mut self, view: u64, on: bool) {
-        let side = self.sidebar.webview();
+        let side = self.sidebar.root.clone();
         let holder = self.find_view(view).map(|(p, _)| p);
         if on {
             self.sidebar_before_fullscreen.get_or_insert(side.is_visible());
@@ -1456,7 +1378,7 @@ impl App {
         }
         self.publish();
         if p == self.focused && self.panes[p].active == i {
-            self.sidebar_js(format!("app.current({})", json!(file)));
+            self.sidebar.current(file);
         }
     }
 
@@ -1471,10 +1393,11 @@ impl App {
 
     fn on_sidebar(&mut self, msg: SidebarMsg) {
         match msg {
-            // Scripts sent before the sidebar loaded were lost, so send its state again.
-            SidebarMsg::Ready => {
-                self.apply_theme();
-                self.refresh_sidebar();
+            SidebarMsg::OpenFolders(open) => {
+                if let Some(root) = self.vault() {
+                    self.config.open_folders.insert(root, open);
+                    self.config.save();
+                }
             }
             SidebarMsg::PickVault => self.pick_vault(),
             SidebarMsg::SwitchVault { path } => self.show_vault(Some(path)),
@@ -1483,21 +1406,21 @@ impl App {
                 self.open_in(path, place);
             }
             SidebarMsg::CreateNote { dir, name } => match self.create_note(&dir, &name) {
-                Ok(()) => self.sidebar_js("app.noteCreated()".into()),
-                Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
+                Ok(()) => self.sidebar.note_created(),
+                Err(e) => self.sidebar.note_error(&e),
             },
             SidebarMsg::CreateFolder { dir, name } => match self.create_folder(&dir, &name) {
-                Ok(()) => self.sidebar_js("app.noteCreated()".into()),
-                Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
+                Ok(()) => self.sidebar.note_created(),
+                Err(e) => self.sidebar.note_error(&e),
             },
             SidebarMsg::Trash { path } => {
                 let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::trash(&root, &path));
                 match result {
                     Ok(()) => {
-                        self.sidebar_js(format!("app.notice({}, false)", json!(format!("«{path}» está en la papelera."))));
+                        self.sidebar.notice(&format!("«{path}» está en la papelera."), false);
                         self.retarget(&path, None);
                     }
-                    Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                    Err(e) => self.sidebar.notice(&e, true),
                 }
             }
             SidebarMsg::Move { path, dir } => {
@@ -1509,15 +1432,15 @@ impl App {
                             Ok(changed) if !changed.is_empty() => {
                                 let n = changed.len();
                                 let text = if n == 1 { "Se actualizaron los enlaces de 1 nota.".to_string() } else { format!("Se actualizaron los enlaces de {n} notas.") };
-                                self.sidebar_js(format!("app.notice({}, false)", json!(text)));
+                                self.sidebar.notice(&text, false);
                             }
                             Ok(_) => {}
-                            Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                            Err(e) => self.sidebar.notice(&e, true),
                         }
                         self.retarget(&path, Some(&new));
                     }
                     Ok(None) => {}
-                    Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                    Err(e) => self.sidebar.notice(&e, true),
                 }
             }
             SidebarMsg::DragStart { path } => {
@@ -1532,6 +1455,7 @@ impl App {
                 self.config.vaults.retain(|v| *v != path);
                 self.config.last.remove(&path);
                 self.config.workspaces.remove(&path);
+                self.config.open_folders.remove(&path);
                 if self.vault().as_deref() == Some(&path) {
                     self.config.current = self.config.vaults.first().cloned();
                     self.config.save();
@@ -1761,7 +1685,7 @@ impl App {
         if changed.is_empty() {
             return;
         }
-        self.sidebar_js(format!("app.setTree({})", json!(vault::tree(&root))));
+        self.sidebar.set_tree(Some(vault::tree(&root)));
         // What the app just saved itself is already on screen.
         let own = |p: &PathBuf| {
             self.own_write.as_ref().is_some_and(|(o, h)| o == p && fs::read(p).is_ok_and(|b| hash(&b) == *h))

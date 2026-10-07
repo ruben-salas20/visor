@@ -125,6 +125,19 @@ Ya probado: al soltar, la ventana se divide, el archivo va al lado correcto y la
 - [ ] **Con la ventana dividida**: arrastra un HTML sobre un lado. Se marca el lado entero y, al soltar, se abre en una pestaña nueva de ese lado.
 - [ ] **Dentro del panel**: mover una nota a una carpeta sigue funcionando igual. Al soltarla en el panel, la marca de las páginas desaparece.
 
+## 12. Panel nativo
+
+El panel ya no es una página web: ahora es GTK nativo y gasta unos 65 MB menos. Comprueba que todo sigue funcionando igual.
+
+- [ ] **Aspecto**: el panel tiene los colores del tema, las carpetas en gris y el archivo abierto resaltado. Cambia de tema en Omarchy: el panel cambia con él.
+- [ ] **Abrir**: un clic en una nota la abre. Ctrl+clic la abre en una pestaña nueva y Ctrl+Alt+clic, en el otro lado.
+- [ ] **Carpetas**: un clic en el nombre o en la flecha abre y cierra la carpeta. Abre una subcarpeta, cierra la carpeta que la contiene y vuelve a abrirla: la subcarpeta sigue abierta. Cierra visor y ábrelo: las mismas carpetas siguen abiertas.
+- [ ] **Teclado**: haz clic en el panel y muévete con las flechas. Intro abre la nota o la carpeta; Supr manda a la papelera la que tiene el foco.
+- [ ] **Menú de bóvedas**: haz clic en el nombre de la bóveda. Cambia a otra, quita una de la lista con «×» y usa «Abrir carpeta…».
+- [ ] **Nota y carpeta nuevas**: usa los botones «+» y de carpeta, y «Nueva nota aquí» y «Nueva carpeta aquí» en el menú del clic derecho sobre una carpeta. Escribe un nombre que ya existe: sale el error debajo. Escape cierra el cuadro.
+- [ ] **Arrastrar dentro del panel**: arrastra una nota sobre una carpeta: la carpeta se resalta y, si está cerrada, se abre al poco. Al soltarla en el espacio vacío de abajo, va a la raíz de la bóveda.
+- [ ] **Avisos**: al mover o borrar sale un aviso bajo el árbol que desaparece solo.
+
 ## Si algo falla
 
 Anota qué hiciste y qué pasó justo debajo de la casilla. Con eso basta para que lo corrija.
