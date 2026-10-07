@@ -139,3 +139,7 @@ ATAJOS EN LA APP
   En el panel, clic derecho o Supr sobre un archivo o carpeta lo mueve
   a la papelera, con sus anotaciones. Arrástralo a otra carpeta para
   moverlo; suéltalo en el hueco libre para llevarlo a la raíz.
+  Al mover, se actualizan los enlaces de las notas .md, pero no los
+  de las páginas HTML.
+  El botón de carpeta, junto al «+», crea carpetas; el clic derecho
+  sobre una carpeta crea notas o carpetas dentro de ella.

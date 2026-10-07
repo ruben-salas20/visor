@@ -17,7 +17,7 @@ pub const ASSETS: &str = "__visor__/";
 /// Raw NULs never reach the HTML: CommonMark replaces them.
 const LINE_MARK: char = '\0';
 
-fn options() -> Options {
+pub(crate) fn options() -> Options {
     Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
@@ -236,7 +236,7 @@ pub fn toggle_task(source: &str, offset: usize, checked: bool) -> Option<String>
 }
 
 /// Every page in the vault, as relative paths, for resolving `[[wiki]]` links.
-fn pages(root: &Path) -> Vec<String> {
+pub(crate) fn pages(root: &Path) -> Vec<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
@@ -261,9 +261,18 @@ fn pages(root: &Path) -> Vec<String> {
 fn wiki_target(target: &str, from: &str, pages: &[String]) -> Option<String> {
     let (name, section) = target.split_once('#').map_or((target, None), |(n, s)| (n, Some(s)));
     let fragment = section.map_or(String::new(), |s| format!("#{}", slug(s)));
+    if name.trim().is_empty() {
+        return Some(fragment);
+    }
+    let best = wiki_page(name, from, pages)?;
+    Some(format!("{}{fragment}", vault::url(best)))
+}
+
+/// The page that `[[name]]` (without `#Section`) in the note `from` points at.
+pub(crate) fn wiki_page<'a>(name: &str, from: &str, pages: &'a [String]) -> Option<&'a String> {
     let name = name.trim();
     if name.is_empty() {
-        return Some(fragment);
+        return None;
     }
     let here = from.rsplit_once('/').map_or("", |(d, _)| d);
     let matches = |page: &&String| {
@@ -276,11 +285,10 @@ fn wiki_target(target: &str, from: &str, pages: &[String]) -> Option<String> {
             file.eq_ignore_ascii_case(name) || stem.eq_ignore_ascii_case(name)
         }
     };
-    let best = pages.iter().filter(matches).min_by_key(|page| {
+    pages.iter().filter(matches).min_by_key(|page| {
         let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
         (dir != here, !page.ends_with(".md"), page.len())
-    })?;
-    Some(format!("{}{fragment}", vault::url(best)))
+    })
 }
 
 /// Heading anchor: lowercase words joined by dashes, accents kept.

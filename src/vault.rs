@@ -125,9 +125,6 @@ fn walk(root: &Path, dir: &Path) -> Option<Dir> {
             });
         }
     }
-    if dirs.is_empty() && files.is_empty() && dir != root {
-        return None;
-    }
     dirs.sort_by(|a, b| natural(&a.name, &b.name));
     files.sort_by(|a, b| natural(&a.name, &b.name));
     Some(Dir {

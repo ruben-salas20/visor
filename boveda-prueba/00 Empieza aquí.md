@@ -42,37 +42,6 @@ Abre [[anotaciones]] para estas pruebas.
 - [ ] **Eliminar**: abre una anotación y pulsa «Eliminar».
 - [ ] **Al cambiar el tamaño de la ventana**, los marcadores deben seguir en su sitio.
 
-## 8. Notas: casillas y edición
-
-- [x] **Marcar tareas sin editar**: abre [[tareas]] y haz clic en varias casillas, también en las subtareas, la de la lista numerada y la de la cita. Pulsa Ctrl+E: el texto debe mostrar `[x]` justo en las que marcaste. La página no debe parpadear ni recargarse al hacer clic.
-- [x] **Casilla de un bloque de código**: en [[tareas]], el `- [ ]` del bloque de código no debe ser una casilla.
-- [x] **Clics rápidos**: en [[tareas]], marca y desmarca la misma casilla muy deprisa varias veces. Al final, el texto (Ctrl+E) debe coincidir con lo que ves.
-- [x] **Abrir el editor donde lees**: abre [[edicion]], baja hasta la sección 10 y pulsa Ctrl+E. El editor debe mostrar la sección 10 a la misma altura, con el cursor en la primera línea visible, no al principio.
-- [x] **Volver a la vista donde editas**: en el editor de [[edicion]], baja hasta la sección 14, escribe algo en su párrafo y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
-- [x] **Con bloques largos**: abre [[diagramas]], deja un diagrama cortado por el borde de arriba y pulsa Ctrl+E dos veces. Debe volver a la misma zona.
-
-## 7. Anotaciones: diseño y títulos
-
-Sigue en [[anotaciones]].
-
-- [x] **Cita larga**: selecciona casi todo el primer párrafo y pulsa «Comentar». En la cabecera, la cita debe empezar por el principio de tu selección y acabar en «…» antes de los círculos de color, sin montarse sobre ellos.
-- [x] **Ventana legible**: con la ventana de la nota abierta sobre texto de la página, no debe leerse nada de la página a través de ella. «Eliminar», «Cancelar» y «Guardar» deben verse como botones, dentro de la ventana.
-- [x] **Tema oscuro**: cambia a un tema oscuro de Omarchy y repite las dos pruebas anteriores.
-- [x] **Ventana estrecha**: haz la ventana de visor lo más estrecha que puedas y abre una anotación. Todo debe caber; si no hay sitio, los colores pasan a la línea de abajo.
-- [x] **Título calculado**: con Ctrl+Shift+A anota el gráfico, la imagen, la tabla y la figura de «Figura con pie». Los títulos deben ser «Diagrama en “Gráfico”», «Espectro», «Tabla en “Tabla”» y «Crestas y valles de una onda». En ningún sitio debe verse un nombre como `<canvas>`.
-- [x] **Cambiar el título**: abre una de esas anotaciones, haz clic en su título, escribe otro y guarda. Debe salir con el nuevo nombre en la lista (Ctrl+Shift+L) y en `visor notes` (campo `"title"`).
-- [x] **Título vacío**: borra el título entero y guarda. Debe volver el título calculado.
-- [x] **Anotaciones antiguas**: las que creaste antes de este cambio sobre un elemento deben salir en la lista con un título claro, como «Diagrama en “Gráfico”», y abrirse sin errores.
-
-## 8. Notas: casillas y edición
-
-- [x] **Marcar tareas sin editar**: abre [[tareas]] y haz clic en varias casillas, también en las subtareas, la de la lista numerada y la de la cita. Pulsa Ctrl+E: el texto debe mostrar `[x]` justo en las que marcaste. La página no debe parpadear ni recargarse al hacer clic.
-- [x] **Casilla de un bloque de código**: en [[tareas]], el `- [ ]` del bloque de código no debe ser una casilla.
-- [x] **Clics rápidos**: en [[tareas]], marca y desmarca la misma casilla muy deprisa varias veces. Al final, el texto (Ctrl+E) debe coincidir con lo que ves.
-- [x] **Abrir el editor donde lees**: abre [[edicion]], baja hasta la sección 10 y pulsa Ctrl+E. El editor debe mostrar la sección 10 a la misma altura, con el cursor en la primera línea visible, no al principio.
-- [x] **Volver a la vista donde editas**: en el editor de [[edicion]], baja hasta la sección 14, escribe algo en su párrafo y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
-- [x] **Con bloques largos**: abre [[diagramas]], deja un diagrama cortado por el borde de arriba y pulsa Ctrl+E dos veces. Debe volver a la misma zona.
-
 ## 6. Archivos y ventana
 
 Usa la carpeta `estudio` o crea notas de prueba con el botón «+»: estas pruebas mueven y borran archivos.
@@ -81,9 +50,13 @@ Usa la carpeta `estudio` o crea notas de prueba con el botón «+»: estas prueb
 - [x] **Papelera con Supr**: haz clic en una nota de prueba del panel y pulsa Supr.
 - [ ] **Carpeta a la papelera**: haz lo mismo con una carpeta de prueba. Si tenía anotaciones, también van a la papelera.
 - [ ] **Mover a otra carpeta**: arrastra una nota sobre una carpeta. Al pasar por encima, la carpeta se resalta y, si está cerrada, se abre al cabo de un momento. Si la nota estaba abierta, debe seguir abierta en su nueva ruta y conservar sus anotaciones.
+- [x] **Enlaces al mover**: en una nota de prueba escribe `[[estudio/…]]` con la ruta de otra nota y un enlace `[texto](ruta/relativa.md)` hacia ella. Mueve esa otra nota a otra carpeta: debe salir «Se actualizaron los enlaces de 1 nota» y los dos enlaces deben seguir funcionando.
 - [x] **Mover a la raíz**: arrastra una nota al hueco vacío de debajo del árbol.
 - [x] **Mover una carpeta** dentro de otra. Arrastrarla dentro de sí misma debe mostrar un aviso, no hacer nada raro.
 - [ ] **Nombre repetido**: mueve una nota a una carpeta que ya tiene otra con el mismo nombre. Debe salir un aviso y no sobrescribir nada.
+- [x] **Nueva carpeta**: pulsa el botón de carpeta (junto al «+»). Debe pedir el nombre y crearla en la carpeta de la página abierta; aparece aunque esté vacía.
+- [x] **Carpeta o nota dentro de otra**: clic derecho sobre una carpeta → «Nueva carpeta aquí» y «Nueva nota aquí».
+- [x] **Soltar en una carpeta vacía**: arrastra una nota a la carpeta que acabas de crear.
 - [x] **Ocultar la barra**: Ctrl+Shift+B la oculta; Ctrl+L la muestra mientras escribes y, al pulsar Escape o Enter, se vuelve a ocultar. Cierra y abre visor: debe seguir oculta. Ctrl+Shift+B la vuelve a mostrar.
 - [x] **Tamaño de la página**: Ctrl++ y Ctrl+- cambian el tamaño; Ctrl+0 lo restablece. Prueba en una nota y en una web. Cierra y abre visor: debe conservar el tamaño.
 

@@ -1,6 +1,7 @@
 use crate::annot;
 use crate::bar::Bar;
 use crate::files;
+use crate::links;
 use crate::paths;
 use crate::theme::{self, Theme};
 use crate::vault::{self, Config};
@@ -139,6 +140,7 @@ enum SidebarMsg {
     RemoveVault { path: PathBuf },
     Open { path: String },
     CreateNote { dir: String, name: String },
+    CreateFolder { dir: String, name: String },
     Trash { path: String },
     Move { path: String, dir: String },
 }
@@ -582,9 +584,11 @@ impl App {
         let message = match self.vault() {
             None => "Abre una carpeta con archivos HTML para empezar.",
             Some(root) => {
-                let tree = json!(vault::tree(&root));
-                let none = |key: &str| tree[key].as_array().is_some_and(Vec::is_empty);
-                if none("files") && none("dirs") {
+                fn has_pages(dir: &Value) -> bool {
+                    dir["files"].as_array().is_some_and(|f| !f.is_empty())
+                        || dir["dirs"].as_array().is_some_and(|d| d.iter().any(has_pages))
+                }
+                if !has_pages(&json!(vault::tree(&root))) {
                     "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
                 } else {
                     "Elige un archivo de la lista."
@@ -837,6 +841,10 @@ impl App {
                 Ok(()) => self.sidebar_js("app.noteCreated()".into()),
                 Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
             },
+            SidebarMsg::CreateFolder { dir, name } => match self.create_folder(&dir, &name) {
+                Ok(()) => self.sidebar_js("app.noteCreated()".into()),
+                Err(e) => self.sidebar_js(format!("app.noteError({})", json!(e))),
+            },
             SidebarMsg::Trash { path } => {
                 let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::trash(&root, &path));
                 match result {
@@ -853,6 +861,16 @@ impl App {
                 let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::move_to(&root, &path, &dir));
                 match result {
                     Ok(Some(new)) => {
+                        let root = self.vault().unwrap_or_default();
+                        match links::relink(&root, &path, &new) {
+                            Ok(changed) if !changed.is_empty() => {
+                                let n = changed.len();
+                                let text = if n == 1 { "Se actualizaron los enlaces de 1 nota.".to_string() } else { format!("Se actualizaron los enlaces de {n} notas.") };
+                                self.sidebar_js(format!("app.notice({}, false)", json!(text)));
+                            }
+                            Ok(_) => {}
+                            Err(e) => self.sidebar_js(format!("app.notice({}, true)", json!(e))),
+                        }
                         let current = self.shared.lock().unwrap().file.clone();
                         if let Some(file) = current.filter(|_| self.shows(&path)) {
                             self.load(format!("{new}{}", &file[path.len()..]));
@@ -978,8 +996,8 @@ impl App {
         self.save_note(url, &text)
     }
 
-    /// Creates `name`.md in `dir` and opens it in the editor.
-    fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
+    /// The vault folder `dir` and a checked `name` for something new inside it.
+    fn new_in<'a>(&self, dir: &str, name: &'a str) -> Result<(PathBuf, &'a str), String> {
         let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
         let name = name.trim();
         if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
@@ -992,6 +1010,22 @@ impl App {
             }
             folder
         };
+        Ok((folder, name))
+    }
+
+    fn create_folder(&mut self, dir: &str, name: &str) -> Result<(), String> {
+        let (folder, name) = self.new_in(dir, name)?;
+        let path = folder.join(name);
+        if path.exists() {
+            return Err(format!("Ya existe {name}"));
+        }
+        fs::create_dir(&path).map_err(|e| e.to_string())
+    }
+
+    /// Creates `name`.md in `dir` and opens it in the editor.
+    fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
+        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
+        let (folder, name) = self.new_in(dir, name)?;
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {
