@@ -98,8 +98,19 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let _ = request.respond(text(404, &format!("No existe: {rel}")));
         return;
     };
-    // Notes are rendered unless the editor asks for the source with `?raw`.
+    // Notes are rendered unless the editor asks for the source with `?raw`,
+    // or where one of its `[[links]]` leads with `?wiki=target`.
     if vault::is_markdown(&path) {
+        if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
+            let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
+            let root = root.canonicalize().unwrap_or(root);
+            let response = match crate::markdown::wiki_url(&target, &vault::rel(&root, &path), &root) {
+                Some(url) => text(200, &url),
+                None => text(404, "No existe"),
+            };
+            let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
+            return;
+        }
         let Ok(source) = std::fs::read_to_string(&path) else {
             let _ = request.respond(text(500, "No se pudo leer la nota"));
             return;

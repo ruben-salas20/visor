@@ -71,16 +71,34 @@ Sigue en [[anotaciones]].
 - [x] **Título calculado**: con Ctrl+Shift+A anota el gráfico, la imagen, la tabla y la figura de «Figura con pie». Los títulos deben ser «Diagrama en “Gráfico”», «Espectro», «Tabla en “Tabla”» y «Crestas y valles de una onda». En ningún sitio debe verse un nombre como `<canvas>`.
 - [x] **Cambiar el título**: abre una de esas anotaciones, haz clic en su título, escribe otro y guarda. Debe salir con el nuevo nombre en la lista (Ctrl+Shift+L) y en `visor notes` (campo `"title"`).
 - [x] **Título vacío**: borra el título entero y guarda. Debe volver el título calculado.
+- [x] **Marcador centrado**: el bocadillo de los marcadores redondos (sobre el gráfico o la imagen) debe quedar en el centro del círculo.
 - [x] **Anotaciones antiguas**: las que creaste antes de este cambio sobre un elemento deben salir en la lista con un título claro, como «Diagrama en “Gráfico”», y abrirse sin errores.
 
 ## 8. Notas: casillas y edición
 
 - [x] **Marcar tareas sin editar**: abre [[tareas]] y haz clic en varias casillas, también en las subtareas, la de la lista numerada y la de la cita. Pulsa Ctrl+E: el texto debe mostrar `[x]` justo en las que marcaste. La página no debe parpadear ni recargarse al hacer clic.
+- [x] **Casilla centrada**: la marca ✓ de las casillas marcadas debe quedar en el centro, con tema claro y oscuro.
 - [x] **Casilla de un bloque de código**: en [[tareas]], el `- [ ]` del bloque de código no debe ser una casilla.
 - [x] **Clics rápidos**: en [[tareas]], marca y desmarca la misma casilla muy deprisa varias veces. Al final, el texto (Ctrl+E) debe coincidir con lo que ves.
 - [x] **Abrir el editor donde lees**: abre [[edicion]], baja hasta la sección 10 y pulsa Ctrl+E. El editor debe mostrar la sección 10 a la misma altura, con el cursor en la primera línea visible, no al principio.
 - [x] **Volver a la vista donde editas**: en el editor de [[edicion]], baja hasta la sección 14, escribe algo en su párrafo y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
 - [x] **Con bloques largos**: abre [[diagramas]], deja un diagrama cortado por el borde de arriba y pulsa Ctrl+E dos veces. Debe volver a la misma zona.
+
+## 9. Editor con vista previa
+
+Abre [[vista-previa]] y pulsa Ctrl+E. La nota debe verse casi igual que al leerla, en la misma posición.
+
+- [x] **Marcas que aparecen y desaparecen**: haz clic en una línea con negrita, cursiva, código o un título. Al entrar en la línea aparecen los `**`, `*`, `` ` `` y `#`; al salir de ella se ocultan.
+- [x] **Escribir con acentos**: escribe «canción, pingüino, ¿qué?» con el teclado (con las teclas de tilde, no copiando). Debe salir igual, sin letras repetidas ni el cursor saltando.
+- [x] **Deshacer y rehacer**: escribe algo, pulsa Ctrl+Z varias veces y después Ctrl+Mayús+Z. El texto debe ir y volver.
+- [x] **Pegar sin formato**: copia un trozo de una web con negritas y enlaces y pégalo. Debe entrar solo el texto.
+- [x] **Casillas**: haz clic en las casillas de «Casillas». Se marcan y desmarcan; con el cursor en esa línea, el texto muestra `[x]` o `[ ]`.
+- [x] **Enlaces con Ctrl+clic**: un clic normal en un enlace solo pone el cursor. Con Ctrl+clic, «tareas» abre la nota, «La nota larga» abre [[edicion]], «edicion › Sección 10» lleva a esa sección y el enlace web abre la web.
+- [x] **Enlace a una nota que no existe**: se ve gris y discontinuo. Con Ctrl+clic se crea y se abre en el editor.
+- [x] **Tabla, fórmula y diagrama**: fuera de ellos se ven dibujados. Haz clic en la tabla: aparece su texto. Muévete con las flechas fuera de ella: vuelve a ser tabla. Haz lo mismo con la fórmula en bloque y con el diagrama.
+- [x] **Imagen**: la onda se ve debajo de su línea.
+- [x] **Tema claro y oscuro**: cambia de tema con el editor abierto y sin él. Los colores del editor deben seguir al tema.
+- [x] **Ir y volver**: en [[edicion]], baja hasta la sección 10, pulsa Ctrl+E, escribe algo en la sección 12 y pulsa Ctrl+E. La vista debe quedar con ese párrafo a la misma altura.
 
 ## Si algo falla
 

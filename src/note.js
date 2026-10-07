@@ -88,48 +88,52 @@
     addEventListener(type, () => { placed = null; }, { passive: true });
   }
 
-  // Top of each source line inside the editor's scrolled content, measured on a
-  // hidden copy that wraps text like the textarea does.
-  function lineTops(lines) {
-    const cs = getComputedStyle(editor);
-    const copy = document.createElement("div");
-    for (const p of ["font", "letterSpacing", "wordSpacing", "tabSize", "paddingTop", "paddingLeft", "paddingRight"]) copy.style[p] = cs[p];
-    Object.assign(copy.style, {
-      position: "absolute", visibility: "hidden", top: "0", left: "0", boxSizing: "border-box",
-      width: editor.clientWidth + "px", whiteSpace: "pre-wrap", overflowWrap: "break-word",
-    });
-    for (const line of lines) copy.appendChild(document.createElement("div")).textContent = line || " ";
-    edit.append(copy);
-    const tops = [...copy.children].map((el) => el.offsetTop);
-    copy.remove();
-    return tops;
-  }
-
-  // The source line at the top of the editor (or the caret's, if the person
-  // typed and it is on screen) and its height on screen.
-  function editAnchor() {
-    const lines = editor.value.split("\n");
-    const tops = lineTops(lines);
-    const top = editor.scrollTop;
-    let i = editor.value.slice(0, editor.selectionStart).split("\n").length - 1;
-    if (!typed || !(tops[i] >= top && tops[i] < top + editor.clientHeight)) {
-      i = 0;
-      while (i + 1 < tops.length && tops[i + 1] <= top) i++;
-    }
-    return { line: i + 1, y: editor.getBoundingClientRect().top + tops[i] - top };
-  }
-
   // Reloads the rendered view, keeping the reading position.
   function reload(target = viewAnchor() || { y: scrollY }) {
     sessionStorage.setItem(scrollKey, JSON.stringify(target));
     location.replace(location.pathname);
   }
 
+  // CodeMirror and the live preview (src/editor.js) load on the first Ctrl+E only.
+  let loading = null;
+  function loadEditor() {
+    return (loading ||= new Promise((resolve, reject) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = config.assets + "visor/editor.css";
+      document.head.append(css);
+      const files = ["codemirror/codemirror.min.js", "visor/editor.js"];
+      let left = files.length;
+      for (const file of files) {
+        const script = document.createElement("script");
+        script.src = config.assets + file;
+        script.async = false; // in order: editor.js needs CodeMirror
+        script.onload = () => --left || resolve();
+        script.onerror = () => reject(new Error("No se pudo cargar " + file));
+        document.head.append(script);
+      }
+    }));
+  }
+
+  let ed = null;
+  let opening = false;
   async function open(atEnd = false) {
+    if (opening) return;
+    opening = true;
     const anchor = atEnd ? null : viewAnchor();
     opened = null;
-    const response = await fetch(location.pathname + "?raw", { cache: "no-store" });
-    editor.value = await response.text();
+    let text;
+    try {
+      [text] = await Promise.all([
+        fetch(location.pathname + "?raw", { cache: "no-store" }).then((r) => r.text()),
+        loadEditor(),
+      ]);
+    } catch (e) {
+      opening = false;
+      loading = null;
+      console.error("No se pudo abrir el editor: " + e.message);
+      return;
+    }
     editing = true;
     dirty = false;
     typed = false;
@@ -137,40 +141,36 @@
     // Hides the annotation layer while the source is on screen.
     document.documentElement.dataset.visorEditing = "1";
     say("Editando. Se guarda solo. Ctrl+E para volver a la vista.");
-    editor.focus({ preventScroll: true });
-    if (!anchor) {
-      const caret = atEnd ? editor.value.length : 0;
-      editor.setSelectionRange(caret, caret);
-      return;
-    }
-    // Opens on the block that was at the top of the screen, at the same height.
-    const lines = editor.value.split("\n");
-    const i = Math.max(0, Math.min(anchor.line, lines.length) - 1);
-    const tops = lineTops(lines);
-    editor.scrollTop = tops[i] - (anchor.y - editor.getBoundingClientRect().top);
-    // The caret goes to the first line fully on screen, so typing does not jump.
-    let first = i;
-    while (first + 1 < tops.length && tops[first] < editor.scrollTop) first++;
-    const caret = lines.slice(0, first).reduce((n, line) => n + line.length + 1, 0);
-    const scrolled = editor.scrollTop;
-    editor.setSelectionRange(caret, caret);
-    editor.scrollTop = scrolled;
-    opened = { anchor, scrollTop: editor.scrollTop };
+    editor.replaceChildren();
+    ed = window.__visorEditor.create(editor, text, { input: onInput, save });
+    ed.focus();
+    if (anchor) await ed.place(anchor);
+    else if (atEnd) ed.atEnd();
+    opened = { anchor, scrollTop: ed.scrollTop };
+    opening = false;
+  }
+
+  function onInput() {
+    dirty = typed = true;
+    say("Sin guardar");
+    clearTimeout(timer);
+    timer = setTimeout(save, 800);
   }
 
   function save() {
     clearTimeout(timer);
     if (!dirty) return;
     say("Guardando…");
-    send({ type: "save_note", text: editor.value });
+    send({ type: "save_note", text: ed.text() });
   }
 
   let back = null;
   function close() {
+    if (!ed) return;
     // Untouched, it returns exactly where it was: near the end of the note
     // the editor cannot always scroll as far as the view did.
-    const same = opened && !typed && editor.scrollTop === opened.scrollTop;
-    back = same ? opened.anchor : editAnchor();
+    const same = opened && opened.anchor && !typed && ed.scrollTop === opened.scrollTop;
+    back = same ? opened.anchor : ed.anchor(typed);
     if (dirty) {
       leaving = true;
       save();
@@ -179,22 +179,6 @@
     }
   }
 
-  editor.addEventListener("input", () => {
-    dirty = typed = true;
-    say("Sin guardar");
-    clearTimeout(timer);
-    timer = setTimeout(save, 800);
-  });
-  editor.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-      e.preventDefault();
-      save();
-    } else if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      editor.setRangeText("\t", editor.selectionStart, editor.selectionEnd, "end");
-      editor.dispatchEvent(new Event("input"));
-    }
-  });
   addEventListener("beforeunload", () => { if (dirty) save(); });
 
   // Task checkboxes save on click; Rust checks that a task starts at that offset.

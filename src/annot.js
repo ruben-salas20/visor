@@ -222,10 +222,10 @@
     button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; border-radius: 6px; }
     button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--visor-accent, #1a6cc4); outline-offset: 1px; }
     .pin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
-      display: grid; place-items: center; pointer-events: auto; cursor: pointer;
+      display: grid; place-items: center; padding: 0; pointer-events: auto; cursor: pointer;
       border: 2px solid var(--visor-bg, #fff); box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
     .pin.text { width: 14px; height: 14px; margin: -7px 0 0 -3px; }
-    .pin svg { width: 12px; height: 12px; }
+    .pin svg { display: block; width: 12px; height: 12px; }
     .toolbar { position: fixed; display: flex; gap: 2px; padding: 4px; pointer-events: auto; }
     .toolbar .dot { width: 26px; height: 26px; display: grid; place-items: center; }
     .toolbar .dot span { width: 16px; height: 16px; border-radius: 50%; }
@@ -279,7 +279,8 @@
     .orphan { color: var(--danger); }
     .empty { color: var(--soft); }
   `;
-  const ICON = `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2h8v6H5l-3 2z" fill="currentColor"/></svg>`;
+  // Symmetric bubble with the tail in the middle, so it sits centred in the round marker.
+  const ICON = `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5h7a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H7.2L6 10 4.8 8.5H2.5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z" fill="currentColor"/></svg>`;
 
   function ensureHost() {
     if (host) return;

@@ -1,0 +1,64 @@
+/* Note editor (Ctrl+E). Same type and column as the reading view in note.css,
+   so switching modes does not move the text. */
+#edit { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+#edit[hidden] { display: none; }
+#editor { flex: 1; min-height: 0; }
+/* At the bottom, so the text starts at the same height as in the view. */
+#status { order: 1; padding: 5px 16px; min-height: 28px; font: 12px/1.4 system-ui, sans-serif; color: var(--muted); border-top: 1px solid var(--line); }
+#status.error { color: var(--visor-red, #c0392b); }
+
+#editor .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
+#editor .cm-editor.cm-focused { outline: none; }
+#editor .cm-scroller { font-family: inherit; line-height: inherit; }
+#editor .cm-content { width: 100%; max-width: 74ch; margin: 0 auto; padding: 40px 28px 96px; caret-color: var(--accent); }
+#editor .cm-line { padding: 0; }
+#editor .cm-cursor { border-left: 2px solid var(--accent); }
+#editor .cm-selectionBackground,
+#editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: var(--visor-selection, Highlight); }
+
+/* headings, as h1–h6 in note.css */
+#editor .cm-h1, #editor .cm-h2, #editor .cm-h3, #editor .cm-h4, #editor .cm-h5, #editor .cm-h6 { font-weight: 700; line-height: 1.25; padding-top: .3em; padding-bottom: .2em; }
+#editor .cm-h1 { font-size: 2em; }
+#editor .cm-h2 { font-size: 1.5em; border-bottom: 1px solid var(--line); }
+#editor .cm-h3 { font-size: 1.25em; }
+#editor .cm-setext { font-size: .5em; color: transparent; }
+
+/* inline */
+.md-strong { font-weight: 650; }
+.md-em { font-style: italic; }
+.md-strike { text-decoration: line-through; }
+.md-code { font-family: var(--mono); font-size: .9em; background: var(--soft); border-radius: 4px; padding: .1em 0; }
+.md-link, .md-wiki { color: var(--accent); text-decoration: underline; text-underline-offset: .15em; }
+.md-wiki-new, .md-wiki-new .md-link { color: var(--muted); text-decoration-style: dashed; }
+.md-wiki-sep { color: inherit; }
+.md-url { color: var(--accent); }
+.md-meta, .md-comment { color: var(--muted); }
+.md-mark { color: var(--muted); text-decoration: none; font-weight: normal; font-style: normal; }
+.md-bullet { display: inline-block; width: 1em; color: var(--muted); }
+.md-task { margin: 0 .45em 0 0; }
+.md-math { cursor: text; }
+
+/* blocks. Lines and block widgets take padding, never margins: CodeMirror
+   measures their boxes, and a margin would shift every position below. */
+/* hanging indent: the marker sits left of the text column, as in the view */
+#editor .cm-list { padding-left: 1.6em; text-indent: -1em; }
+#editor .cm-list * { text-indent: 0; }
+#editor .cm-quote { border-left: 3px solid var(--line); padding-left: 1em; color: var(--muted); }
+#editor .cm-hr { background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
+#editor .cm-codeblock { font-family: var(--mono); font-size: .875em; line-height: 1.5; background: var(--soft); padding: 0 16px; }
+#editor .cm-codeblock-first { border-radius: 8px 8px 0 0; padding-top: 6px; }
+#editor .cm-codeblock-last { border-radius: 0 0 8px 8px; padding-bottom: 6px; }
+#editor .cm-codeblock-first.cm-codeblock-last { border-radius: 8px; }
+#editor .cm-codeblock .md-code { background: none; font-size: inherit; padding: 0; }
+.md-lang { float: right; font-size: .85em; color: var(--muted); }
+#editor .cm-mathsrc, #editor .cm-tablesrc { font-family: var(--mono); font-size: .9em; }
+#editor .cm-frontmatter { font-family: var(--mono); font-size: .875em; color: var(--muted); }
+.md-math-block { overflow-x: auto; padding: .4em 0; text-align: center; cursor: text; }
+.md-mermaid { padding: .4em 0; text-align: center; color: var(--muted); cursor: text; }
+.md-mermaid svg { max-width: 100%; height: auto; }
+.md-error { color: var(--visor-red, #c0392b); text-align: left; }
+.md-image { padding: .3em 0; }
+.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.md-table { padding: .3em 0; cursor: text; }
+.md-table table { margin: 0; }
+.md-table a { color: var(--accent); }

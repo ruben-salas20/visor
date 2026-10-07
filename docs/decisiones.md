@@ -20,6 +20,14 @@ Cada punto se midió o se acordó con el usuario. Para cambiar uno, trae datos n
 - **Tema**: se lee de `~/.local/state/omarchy/current/theme/colors.toml` y se vigila esa carpeta. Las páginas reciben `--visor-*` como hoja de estilo de usuario, que su propio CSS siempre puede sobrescribir. `fc-match` (fuente monoespaciada) corre aparte porque tarda ~20 ms. La transparencia de la ventana la decide el usuario en Hyprland.
 - **Anotaciones**: el texto se ancla por cita con contexto (prefijo y sufijo, como Hypothesis) y el elemento por id, selector CSS, etiqueta y texto. Rust es el único que escribe `.visor/anotaciones/`.
 
+## Editor de notas
+
+- **CodeMirror 6 ligero con vista previa en vivo**, como Obsidian, en lugar del `<textarea>`. La lectura no cambia: Ctrl+E alterna con el editor, y CodeMirror solo se descarga al entrar en edición.
+- **Sin `@codemirror/lang-markdown`**: arrastra los analizadores de HTML, CSS y JavaScript (150 KB). El lenguaje se crea con `@lezer/markdown` + GFM y `new Language(...)`; las fórmulas, los `[[enlaces]]` y el front matter son extensiones propias en `src/editor.js`. El código se colorea con highlight.js de `assets/`, no con lenguajes de CodeMirror.
+- **Cifras del prototipo**: 90 KB con brotli. Con el editor abierto, +15 MB con una nota normal y +19 MB con una de 3 240 líneas; sin abrirlo, nada. Listo en 40–52 ms frente a 33–84 ms del textarea en la nota normal, y en 46–58 frente a 79–101 en la larga.
+- **Medido con el editor terminado** (2026-10-07, release, `edicion.md`, 6 rondas): arranque y memoria al leer, iguales; con el editor abierto, 334–335 MB frente a 309–310 MB del textarea (+25 MB). Binario +100 KB (paquete 89 KB y `editor.js`/`editor.css` 10 KB, con brotli).
+- **Regenerar el paquete**: en `tools/codemirror/`, `npm ci && npm run build` escribe `assets/codemirror/codemirror.min.js`. Las versiones están fijadas en `package.json` y `package-lock.json`. `entry.js` exporta en `window.CM` solo lo que usa `src/editor.js`; si este necesita algo más, añádelo allí y vuelve a generar.
+
 ## Compilación y peso
 
 - `panic = "abort"` y `opt-level = 3`. `"s"` ahorraba 380 KB pero renderizaba Markdown un 8–15 % más lento; `"z"`, un 50 %.

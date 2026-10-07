@@ -3,19 +3,30 @@
 //! way; WebKit decodes them. Brotli shrinks Mermaid a quarter more than gzip.
 //! WebKit only advertises gzip over plain HTTP, but decodes Brotli all the same.
 //! Fonts are already compressed and go in as they are.
+//! The note editor's own code lives in `src/` but is packed the same way, as
+//! `visor/…`: it only loads when someone starts editing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+const EDITOR: [&str; 2] = ["editor.js", "editor.css"];
 
 fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let mut files = vec![];
     collect(Path::new("assets"), &mut files);
     files.sort();
+    let mut named: Vec<(String, PathBuf)> = files
+        .into_iter()
+        .map(|path| (path.strip_prefix("assets").unwrap().to_string_lossy().replace('\\', "/"), path))
+        .collect();
+    for file in EDITOR {
+        named.push((format!("visor/{file}"), Path::new("src").join(file)));
+        println!("cargo:rerun-if-changed=src/{file}");
+    }
 
     let mut table = String::from("pub static ASSETS: &[(&str, &[u8], bool)] = &[\n");
-    for (i, path) in files.iter().enumerate() {
-        let name = path.strip_prefix("assets").unwrap().to_string_lossy().replace('\\', "/");
+    for (i, (name, path)) in named.iter().enumerate() {
         let bytes = fs::read(path).unwrap();
         let compressed = !name.ends_with(".woff2");
         let stored = if compressed {

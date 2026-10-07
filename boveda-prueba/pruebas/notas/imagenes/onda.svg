@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="140" viewBox="0 0 480 140">
+  <rect width="480" height="140" rx="10" fill="#e8f1fb"/>
+  <path d="M10 70 C 50 10, 90 10, 130 70 S 210 130, 250 70 S 330 10, 370 70 S 450 130, 470 70" fill="none" stroke="#1a6cc4" stroke-width="4"/>
+  <text x="240" y="130" font-family="sans-serif" font-size="14" text-anchor="middle" fill="#334">Una onda</text>
+</svg>

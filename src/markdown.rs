@@ -185,14 +185,14 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
     }
     let stem = Path::new(rel).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     let dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
-    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir });
+    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets });
     format!(
         "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
 <title>{title}</title><style>{STYLE}</style>{head}</head><body>\
 <main id=\"note\">{body}</main>\
 <div id=\"edit\" hidden data-visor-skip><div id=\"status\" role=\"status\"></div>\
-<textarea id=\"editor\" spellcheck=\"false\" aria-label=\"Texto de la nota\"></textarea></div>\
+<div id=\"editor\"></div></div>\
 <script>window.__visorNoteConfig = {config};\n{SCRIPT}</script></body></html>",
         title = escape(&title.unwrap_or(stem)),
     )
@@ -254,6 +254,12 @@ pub(crate) fn pages(root: &Path) -> Vec<String> {
     let mut out = vec![];
     walk(root, root, &mut out);
     out
+}
+
+/// URL of the `[[target]]` written in the note at `rel`, for the editor, which
+/// sees links as they are typed. `None` if no page matches.
+pub fn wiki_url(target: &str, rel: &str, root: &Path) -> Option<String> {
+    wiki_target(target, rel, &pages(root))
 }
 
 /// Resolves `[[name]]`, `[[folder/name]]` or `[[name#Section]]` like Obsidian:
