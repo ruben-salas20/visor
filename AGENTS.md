@@ -6,10 +6,11 @@ Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo 
 
 - `app.rs`: ventana, los dos webviews (panel lateral y página), eventos, vigilancia de archivos, tema.
 - `http.rs`: servidor local que sirve la bóveda; `vault.rs`: árbol, rutas, configuración.
+- `files.rs`: mover y mandar a la papelera desde el panel; `links.rs`: reescribe los enlaces de las notas al mover.
 - `server.rs` + `cli.rs`: órdenes de agentes por socket Unix.
-- `markdown.rs` + `note.js/css`: notas .md y su editor. `annot.rs` + `annot.js`: anotaciones.
+- `markdown.rs` + `note.js/css`: notas .md en lectura. `editor.js/css`: editor de Ctrl+E (CodeMirror 6 con vista previa), que solo se carga al editar. `annot.rs` + `annot.js`: anotaciones.
 - `bridge.js`: consola y `visor.send` en las páginas. `sidebar.html`: panel. `bar.rs`: barra de direcciones GTK.
-- `build.rs`: empaqueta `assets/` (KaTeX, highlight.js, Mermaid) comprimidos con brotli.
+- `build.rs`: empaqueta `assets/` (KaTeX, highlight.js, Mermaid, CodeMirror) y `editor.js/css` comprimidos con brotli. CodeMirror se regenera en `tools/codemirror/` (ver `docs/decisiones.md`).
 
 ## Reglas
 
@@ -25,4 +26,4 @@ Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo 
 
 ## Pendiente
 
-El usuario está recorriendo `boveda-prueba/`; corrige lo que anote ahí. Después: instalar la app y escribir una skill para agentes. Solo compila en Linux.
+Escribir una skill para agentes. Solo compila en Linux.

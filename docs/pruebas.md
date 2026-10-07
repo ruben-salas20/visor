@@ -27,12 +27,13 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 - Repite cada medida al menos cinco veces; con diferencias de pocos milisegundos, haz rondas alternadas. El ruido supera a menudo el efecto.
 - **El perfil de energía manda**: con el mismo binario, el arranque en frío va de ~280 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Anota `powerprofilesctl get` y si el equipo está enchufado; compara solo en las mismas condiciones.
 
-## Referencia (2026-10-06, enchufado, `performance`)
+## Referencia (2026-10-07, enchufado, `performance`)
 
 | Medida | Valor |
 |---|---|
-| Arranque en frío hasta página cargada | 272–288 ms |
+| Arranque en frío hasta página cargada | 267–283 ms |
 | Cambio de página | ~80 ms |
-| Memoria en reposo, una página | ~310–320 MB |
+| Memoria en reposo, una página | ~307–313 MB |
+| Memoria con el editor abierto (Ctrl+E) | ~334–338 MB |
 | Three.js (2000 nudos instanciados) | 59–60 fps |
-| Binario | 3,66 MB |
+| Binario | 3,86 MiB |
