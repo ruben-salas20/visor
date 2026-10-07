@@ -62,8 +62,9 @@ pub struct Pane {
     annot_tools: gtk::Box,
     pub bar: Bar,
     pub views: gtk::Box,
-    /// Covers the pages while a file is dragged from the sidebar and marks
-    /// where it would go: one half of the side, or all of it.
+    /// Covers the pages while a file is dragged from the sidebar and says
+    /// which zone is under the pointer: one half of the side, or all of it.
+    /// It paints nothing; the page draws the mark (see App::frost).
     drop: gtk::EventBox,
     /// Whether a drop takes the whole side (the window is split) or a half.
     whole: Rc<Cell<bool>>,
@@ -202,16 +203,6 @@ impl Pane {
     }
 
     pub fn css(theme: &Theme) -> String {
-        let drop = format!(
-            ".visor-drop-half {{ margin: 8px; border-radius: 8px; border: 2px solid transparent; }}
-.visor-drop-half.active {{ background: {fill}; border-color: {accent}; }}",
-            fill = theme.accent_tone(18.0),
-            accent = theme.accent,
-        );
-        drop + "\n" + &Self::tab_css(theme)
-    }
-
-    fn tab_css(theme: &Theme) -> String {
         format!(
             ".visor-strip {{ padding: 4px 6px; }}
 .visor-tab {{ border-radius: 6px; padding: 0 2px; }}
@@ -228,49 +219,44 @@ impl Pane {
     }
 }
 
-/// The drop zone over a side's pages: two halves that light up under the
-/// pointer, or both at once when a drop takes the whole side.
+/// The drop zone over a side's pages. It tells the app which zone is under
+/// the pointer, only when it changes: 0 left half, 1 right half, 2 the whole
+/// side (the window is split), or none once the pointer leaves.
 fn drop_zone(pane: u64, proxy: &EventLoopProxy<UserEvent>) -> (gtk::EventBox, Rc<Cell<bool>>) {
     let zone = gtk::EventBox::new();
+    zone.set_visible_window(false);
     zone.set_no_show_all(true);
-    let halves = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    halves.set_homogeneous(true);
-    let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for half in [&left, &right] {
-        half.style_context().add_class("visor-drop-half");
-        halves.pack_start(half, true, true, 0);
-    }
-    halves.show_all();
-    zone.add(&halves);
     let whole = Rc::new(Cell::new(false));
-    // Which half is under the pointer: 0 left, 1 right.
-    let side = move |zone: &gtk::EventBox, x: i32| usize::from(x > zone.allocated_width() / 2);
-    let mark = {
-        let (left, right, whole) = (left.clone(), right.clone(), whole.clone());
-        move |at: Option<usize>| {
-            for (i, half) in [&left, &right].into_iter().enumerate() {
-                let on = at.is_some_and(|s| whole.get() || s == i);
-                let style = half.style_context();
-                if on { style.add_class("active") } else { style.remove_class("active") }
+    let zone_at = {
+        let whole = whole.clone();
+        move |zone: &gtk::EventBox, x: i32| if whole.get() { 2 } else { u8::from(x > zone.allocated_width() / 2) }
+    };
+    let last: Rc<Cell<Option<u8>>> = Rc::new(Cell::new(None));
+    let hover = {
+        let (proxy, last) = (proxy.clone(), last.clone());
+        move |zone: Option<u8>| {
+            if last.replace(zone) != zone {
+                let _ = proxy.send_event(UserEvent::DropHover { pane, zone });
             }
         }
     };
     // No target list: the drag comes from the sidebar's tree, and
     // the app already knows which file it carries.
     zone.drag_dest_set(gtk::DestDefaults::empty(), &[], gtk::gdk::DragAction::MOVE | gtk::gdk::DragAction::COPY);
-    let m = mark.clone();
+    let (h, at) = (hover.clone(), zone_at.clone());
     zone.connect_drag_motion(move |zone, context, x, _, time| {
-        m(Some(side(zone, x)));
+        h(Some(at(zone, x)));
         context.drag_status(gtk::gdk::DragAction::MOVE, time);
         true
     });
-    let m = mark.clone();
-    zone.connect_drag_leave(move |_, _, _| m(None));
-    let (proxy, w) = (proxy.clone(), whole.clone());
+    zone.connect_drag_leave(move |_, _, _| hover(None));
+    let proxy = proxy.clone();
     zone.connect_drag_drop(move |zone, context, x, _, time| {
-        mark(None);
-        let half = (!w.get()).then(|| side(zone, x));
+        last.set(None);
+        let half = match zone_at(zone, x) {
+            2 => None,
+            h => Some(h as usize),
+        };
         let _ = proxy.send_event(UserEvent::Dropped { pane, half });
         context.drag_finish(true, false, time);
         true

@@ -80,6 +80,9 @@ pub enum UserEvent {
     /// A file dragged from the sidebar was dropped on a side: on one half of
     /// it (0 left, 1 right) when the window is not split, or on all of it.
     Dropped { pane: u64, half: Option<usize> },
+    /// The zone of a side under a dragged file changed: 0 left half, 1 right
+    /// half, 2 the whole side, or none when the pointer left it.
+    DropHover { pane: u64, zone: Option<u8> },
     Action(Action),
 }
 
@@ -1113,6 +1116,11 @@ impl App {
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Dropped { pane, half } => self.dropped(pane, half),
+            UserEvent::DropHover { pane, zone } => {
+                if let Some(p) = self.panes.iter().position(|x| x.id == pane) {
+                    self.frost(p, zone);
+                }
+            }
             UserEvent::Position { view, json } => {
                 if let Some((p, i)) = self.find_view(view) {
                     self.panes[p].tabs[i].position = clean_position(&json);
@@ -1264,10 +1272,38 @@ impl App {
     }
 
     fn end_drag(&mut self) {
-        for pane in &self.panes {
-            pane.show_drop(false, false);
+        for p in 0..self.panes.len() {
+            self.panes[p].show_drop(false, false);
+            self.frost(p, None);
         }
         self.dragging = None;
+    }
+
+    /// Marks where a dragged file would land with frosted glass over the page
+    /// of side `p`: a half (0, 1), the whole side (2), or nothing. GTK 3 cannot
+    /// blur what is under a widget, so the page draws it with backdrop-filter.
+    /// The page only receives the mark; nothing is read back from it.
+    fn frost(&self, p: usize, zone: Option<u8>) {
+        let Some((_, view)) = &self.panes[p].tab().view else { return };
+        let accent = self.theme.as_ref().map_or("#3584e4", |t| t.accent.as_str());
+        let (left, right) = match zone {
+            Some(0) => ("8px", "calc(50% + 4px)"),
+            Some(1) => ("calc(50% + 4px)", "8px"),
+            _ => ("8px", "8px"),
+        };
+        let code = format!(
+            r#"(() => {{
+  let d = document.getElementById("__visor_drop");
+  if (!{on}) {{ d?.remove(); return; }}
+  if (!d) {{ d = document.createElement("div"); d.id = "__visor_drop"; document.documentElement.append(d); }}
+  d.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;top:8px;bottom:8px;left:{left};right:{right};"
+    + "border-radius:10px;border:2px solid color-mix(in srgb, {accent} 70%, transparent);"
+    + "background:color-mix(in srgb, {accent} 12%, transparent);"
+    + "backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2)";
+}})()"#,
+            on = zone.is_some(),
+        );
+        let _ = view.evaluate_script(&code);
     }
 
     /// Opens the dragged file where it was dropped. On an unsplit window it
