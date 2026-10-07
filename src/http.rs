@@ -1,10 +1,12 @@
-//! Serves the open vault over plain HTTP on 127.0.0.1. WebKitGTK only plays
-//! video and offers Media Source to network origins, not to custom schemes.
+//! Serves the open vault, and pages opened on their own, over plain HTTP on
+//! 127.0.0.1. WebKitGTK only plays video and offers Media Source to network
+//! origins, not to custom schemes.
 
 use crate::app::SharedRef;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use tiny_http::{Header, ListenAddr, Request, Response, Server, StatusCode};
@@ -41,7 +43,7 @@ fn serve_asset(request: Request, name: &str) {
         return;
     };
     let mut response = Response::from_data(*bytes)
-        .with_header(header("Content-Type", vault::mime(std::path::Path::new(name))))
+        .with_header(header("Content-Type", vault::mime(Path::new(name))))
         .with_header(header("Cache-Control", "max-age=86400"));
     if *brotli {
         response = response.with_header(header("Content-Encoding", "br"));
@@ -90,6 +92,21 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         return;
     }
     let rel = percent_encoding::percent_decode_str(rel).decode_utf8_lossy().into_owned();
+    if vault::is_loose(&rel) {
+        // Only from the folders of pages opened on their own, as plain files.
+        let allowed = shared.lock().unwrap().loose.clone();
+        let path = Path::new(&rel).canonicalize().ok().filter(|p| p.is_file() && allowed.iter().any(|d| p.starts_with(d)));
+        match path {
+            Some(path) => {
+                let range = value("Range");
+                serve_file(request, &path, range);
+            }
+            None => {
+                let _ = request.respond(text(404, &format!("No existe: {rel}")));
+            }
+        }
+        return;
+    }
     let Some(root) = shared.lock().unwrap().vault.clone() else {
         let _ = request.respond(text(404, "No hay ninguna bóveda abierta"));
         return;
@@ -138,17 +155,22 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let _ = request.respond(response);
         return;
     }
-    let Ok(mut file) = File::open(&path) else {
+    let range = value("Range");
+    serve_file(request, &path, range);
+}
+
+fn serve_file(request: Request, path: &Path, range: Option<String>) {
+    let Ok(mut file) = File::open(path) else {
         let _ = request.respond(text(500, "No se pudo leer el archivo"));
         return;
     };
     let len = file.metadata().map_or(0, |m| m.len());
     let mut headers = vec![
-        header("Content-Type", vault::mime(&path)),
+        header("Content-Type", vault::mime(path)),
         header("Cache-Control", "no-store"),
         header("Accept-Ranges", "bytes"),
     ];
-    let range = value("Range").and_then(|r| vault::byte_range(&r, len));
+    let range = range.and_then(|r| vault::byte_range(&r, len));
     let (status, start, size) = match range {
         Some((start, end)) => {
             headers.push(header("Content-Range", &format!("bytes {start}-{end}/{len}")));

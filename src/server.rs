@@ -152,6 +152,9 @@ fn notes(request: &Value, shared: &SharedRef) -> Value {
         Some(found.map_or(raw.trim_start_matches("./").to_string(), |p| crate::vault::rel(&canonical, &p)))
     } else {
         match &current {
+            Some(file) if crate::vault::is_loose(file) => {
+                return fail("Las páginas abiertas fuera de una bóveda no tienen anotaciones.".into());
+            }
             Some(file) => Some(file.clone()),
             None => return fail("No hay ninguna página abierta; indica una ruta o usa --all.".into()),
         }

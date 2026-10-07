@@ -9,6 +9,8 @@ USO
   visor open <ruta|URL> [--tab | --beside]
                              Abre una carpeta como bóveda, muestra un
                              archivo o carga una web (http o https).
+                             Un .html que no está en ninguna bóveda
+                             se abre suelto (ver ARCHIVOS SUELTOS).
                              Abre la app si está cerrada.
                              Espera a que la página cargue y devuelve
                              los errores y avisos que generó.
@@ -18,10 +20,12 @@ USO
                              si hace falta.
   visor status               Bóveda y archivo que la persona está viendo.
                              Si está en una web, "file" es null y "url"
-                             tiene la dirección. "sides" lista las
-                             pestañas de cada lado ("list", de izquierda
-                             a derecha, con "active") y el lado con el
-                             foco ("focused").
+                             tiene la dirección. Si es un archivo
+                             suelto, "file" es su ruta absoluta.
+                             "sides" lista las pestañas de cada lado
+                             ("list", de izquierda a derecha, con
+                             "active") y el lado con el foco
+                             ("focused").
   visor reload               Recarga la página actual y devuelve sus
                              errores y avisos.
   visor console [--errors] [--clear]
@@ -54,6 +58,22 @@ PESTAÑAS Y LADOS
   con el foco: lo que la persona está mirando. Solo 3 páginas siguen
   cargadas a la vez; las demás pestañas se recargan al volver a ellas,
   así que su consola empieza vacía.
+
+ARCHIVOS SUELTOS
+  Para enseñar una muestra rápida no hace falta una bóveda:
+  `visor open /ruta/muestra.html` lo abre suelto si no está dentro
+  de ninguna bóveda que visor conozca.
+  - La carpeta del archivo no se convierte en bóveda ni se añade a la
+    lista. Si la app estaba cerrada, se abre sin panel y sin la última
+    bóveda. Si había una bóveda abierta, el archivo se abre en una
+    pestaña y la bóveda sigue igual.
+  - Funcionan las rutas relativas a archivos de su carpeta y de sus
+    subcarpetas, pero no las que salen de ella (../).
+  - La página se recarga sola si cambian ella o los archivos de su
+    carpeta (no los de las subcarpetas).
+  - Tiene visor.send(), `visor console` y `visor reload`, pero no
+    anotaciones.
+  - Para abrir la carpeta como bóveda, usa `visor open <carpeta>`.
 
 NOTAS EN MARKDOWN
   - Los archivos .md aparecen en el árbol junto a los .html y se
@@ -142,12 +162,14 @@ FLUJO TÍPICO DE UN AGENTE
 ATAJOS EN LA APP
   Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel
   Ctrl+R  recargar la página (también F5)
-  Ctrl+L  ir a la barra de direcciones: acepta una URL, un dominio o
-          una ruta de la bóveda. Escape vuelve a la página.
+  Ctrl+L  ir a la barra de direcciones: acepta una URL, un dominio,
+          una ruta de la bóveda o una ruta absoluta. Escape vuelve a
+          la página.
   Ctrl+E  editar la nota .md abierta, o volver a la vista
   Ctrl+Shift+A  anotar un elemento o un punto de la página
   Ctrl+Shift+L  lista de anotaciones de la página (los dos botones
-          están a la derecha de las pestañas)
+          están a la derecha de las pestañas, solo en las páginas de
+          la bóveda)
   Ctrl+T  pestaña nueva (también el botón «+»)
   Ctrl+W  cerrar la pestaña (también clic central sobre ella)
   Ctrl+Tab  Ctrl+Shift+Tab  pestaña siguiente o anterior

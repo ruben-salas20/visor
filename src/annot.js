@@ -7,6 +7,8 @@
   if (window.top !== window || window.__visorAnnot || !location.href.startsWith(BASE)) return;
 
   const page = decodeURIComponent(location.href.slice(BASE.length).split(/[?#]/)[0]);
+  // A page opened on its own (an absolute path) has no vault to keep notes in.
+  if (page.startsWith("/")) return;
   const storeUrl = BASE + ".visor/anotaciones/" + page.split("/").map(encodeURIComponent).join("/") + ".json";
   const send = (m) => window.ipc.postMessage(JSON.stringify(m));
   const COLORS = { amarillo: "#f2c94c", verde: "#6fcf97", azul: "#56a0f5", rosa: "#f28bb0" };

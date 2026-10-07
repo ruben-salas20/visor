@@ -1,4 +1,4 @@
-use crate::paths;
+use crate::{paths, vault};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -13,7 +13,7 @@ pub fn run(args: &[String]) -> i32 {
     };
     let response = match send(&request) {
         Some(r) => r,
-        None if request["cmd"] == "open" => match start().then(|| send(&request)).flatten() {
+        None if request["cmd"] == "open" => match start(loose(&request)).then(|| send(&request)).flatten() {
             Some(r) => r,
             None => json!({ "ok": false, "error": "No se pudo abrir visor." }),
         },
@@ -93,10 +93,21 @@ fn send(request: &Value) -> Option<Value> {
     serde_json::from_str(&line).ok()
 }
 
+/// Whether `open` asks for an HTML page outside every known vault, which the
+/// app shows on its own. Decided here too, so the app starts without the last vault.
+fn loose(request: &Value) -> bool {
+    let Some(path) = request["path"].as_str().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
+    path.is_file() && vault::is_html(&path) && vault::Config::load().vault_for(&path).is_none()
+}
+
 /// Starts the app detached from this terminal and waits until it answers.
-fn start() -> bool {
+fn start(loose: bool) -> bool {
     let Ok(exe) = std::env::current_exe() else { return false };
-    let spawned = Command::new(exe)
+    let mut command = Command::new(exe);
+    if loose {
+        command.env("VISOR_LOOSE", "1");
+    }
+    let spawned = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

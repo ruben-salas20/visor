@@ -58,6 +58,8 @@ pub struct Pane {
     pub root: gtk::Box,
     pub strip: gtk::Box,
     tab_list: gtk::Box,
+    /// The annotation buttons, shown only on vault pages: elsewhere they do nothing.
+    annot_tools: gtk::Box,
     pub bar: Bar,
     pub views: gtk::Box,
     /// Covers the pages while a file is dragged from the sidebar and marks
@@ -78,6 +80,8 @@ impl Pane {
         strip.style_context().add_class("visor-strip");
         let tab_list = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.pack_start(&tab_list, true, true, 0);
+        let annot_tools = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        strip.pack_end(&annot_tools, false, false, 0);
         for (icon, tip, action) in [
             ("find-location-symbolic", "Anotar un elemento (Ctrl+Shift+A)", (|| Action::PickElement) as fn() -> Action),
             ("view-list-symbolic", "Anotaciones de la página (Ctrl+Shift+L)", || Action::ToggleAnnotations),
@@ -94,7 +98,7 @@ impl Pane {
                 let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(id)));
                 let _ = proxy.send_event(UserEvent::Action(action()));
             });
-            strip.pack_end(&b, false, false, 0);
+            annot_tools.pack_end(&b, false, false, 0);
         }
         let bar = Bar::new(proxy, id);
         let views = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -109,7 +113,7 @@ impl Pane {
         views.show();
         overlay.show();
         root.show();
-        Pane { id, root, strip, tab_list, bar, views, drop, whole, tabs: vec![], active: 0, proxy: proxy.clone() }
+        Pane { id, root, strip, tab_list, annot_tools, bar, views, drop, whole, tabs: vec![], active: 0, proxy: proxy.clone() }
     }
 
     /// Shows or hides the drop zone. `whole`: a drop takes the side, not a half.
@@ -127,6 +131,10 @@ impl Pane {
         for child in self.tab_list.children() {
             self.tab_list.remove(&child);
         }
+        let in_vault = self.tabs.get(self.active).is_some_and(|t| {
+            !t.target.is_empty() && !t.target.contains("://") && !crate::vault::is_loose(&t.target)
+        });
+        self.annot_tools.set_visible(in_vault);
         let style = self.strip.style_context();
         if focused { style.add_class("focused") } else { style.remove_class("focused") }
         for (i, tab) in self.tabs.iter().enumerate() {

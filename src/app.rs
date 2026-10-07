@@ -68,6 +68,7 @@ pub enum UserEvent {
     OpenUrl { url: String, place: Place, reply: Reply },
     Picked(Option<PathBuf>),
     VaultChanged(Vec<PathBuf>),
+    LooseChanged(Vec<PathBuf>),
     ThemeChanged,
     MonoFont(Option<String>),
     Fullscreen { view: u64, on: bool },
@@ -132,6 +133,8 @@ static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0,
 #[derive(Default)]
 pub struct Shared {
     pub vault: Option<PathBuf>,
+    /// Folders of the pages opened on their own, which the server may read.
+    pub loose: Vec<PathBuf>,
     /// Every live page view, by view id.
     pub pages: HashMap<u64, Page>,
     /// The view of the focused side's active tab: the one agents act on.
@@ -172,10 +175,11 @@ impl Shared {
 
     pub fn status(&self) -> Value {
         let page = self.page();
-        let path = match (&self.vault, &page.file) {
-            (Some(v), Some(f)) => Some(v.join(f)),
-            _ => None,
-        };
+        let path = page.file.as_ref().and_then(|f| match &self.vault {
+            _ if vault::is_loose(f) => Some(PathBuf::from(f)),
+            Some(v) => Some(v.join(f)),
+            None => None,
+        });
         let errors = page.console.iter().filter(|e| e["level"] == "error").count();
         json!({
             "ok": true,
@@ -287,6 +291,12 @@ pub fn launch() -> i32 {
     // for cookies and storage, which two contexts on one folder would fight over.
     let context = WebContext::new(None);
     let sidebar = Sidebar::new(&proxy);
+    // Started for a page outside every vault: that page alone, without the
+    // last vault and its tabs. See cli::start.
+    let loose = std::env::var_os("VISOR_LOOSE").is_some();
+    if loose {
+        sidebar.root.hide();
+    }
     paned.pack1(&sidebar.root, false, false);
     paned.pack2(&split, true, true);
     let first = Pane::new(1, &proxy);
@@ -316,11 +326,12 @@ pub fn launch() -> i32 {
         config,
         theme,
         watcher: None,
-        _theme_watcher: theme::dir().and_then(|d| watch(&d, 300, proxy, |_| UserEvent::ThemeChanged)),
+        loose_watchers: Vec::new(),
+        _theme_watcher: theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, proxy, |_| UserEvent::ThemeChanged)),
     };
     app.apply_theme();
     // Load the page now instead of after the sidebar: both webviews start in parallel.
-    let current = app.config.current.clone().filter(|p| p.is_dir());
+    let current = app.config.current.clone().filter(|p| !loose && p.is_dir());
     app.show_vault(current);
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
@@ -492,6 +503,7 @@ fn open_external(url: &str) {
 /// Access events are dropped: serving a page opens it, which would reload it forever.
 fn watch(
     path: &Path,
+    mode: RecursiveMode,
     settle_ms: u64,
     proxy: EventLoopProxy<UserEvent>,
     wrap: fn(Vec<PathBuf>) -> UserEvent,
@@ -505,7 +517,7 @@ fn watch(
         }
     })
     .ok()?;
-    watcher.watch(path, RecursiveMode::Recursive).ok()?;
+    watcher.watch(path, mode).ok()?;
     // Ends on its own when the watcher, and with it the sender, is dropped.
     std::thread::spawn(move || {
         while let Ok(mut batch) = rx.recv() {
@@ -569,6 +581,8 @@ struct App {
     config: Config,
     theme: Option<Theme>,
     watcher: Option<RecommendedWatcher>,
+    /// One per folder of the loose pages in the tabs, without subfolders.
+    loose_watchers: Vec<(PathBuf, RecommendedWatcher)>,
     _theme_watcher: Option<RecommendedWatcher>,
 }
 
@@ -636,6 +650,10 @@ impl App {
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
     fn show_vault(&mut self, root: Option<PathBuf>) {
+        if root.is_some() && self.vault().is_none() {
+            // It was hidden for loose pages.
+            self.sidebar.root.show();
+        }
         self.publish();
         while self.panes.len() > 1 {
             self.remove_pane(1);
@@ -652,7 +670,7 @@ impl App {
         if let Some(root) = &root {
             self.config.add(root);
             self.config.save();
-            self.watcher = watch(root, 150, self.proxy.clone(), UserEvent::VaultChanged);
+            self.watcher = watch(root, RecursiveMode::Recursive, 150, self.proxy.clone(), UserEvent::VaultChanged);
         }
         self.show_sidebar();
 
@@ -713,6 +731,7 @@ impl App {
             shared.focused = focused;
             shared.vault.clone()
         };
+        self.watch_loose();
         let Some(root) = root else { return };
         let workspace = Workspace {
             panes: self
@@ -817,6 +836,14 @@ impl App {
             let _ = view.load_html(&empty_page(self.empty_message(), self.vault().is_none()));
         } else if is_web(target) {
             let _ = view.load_url(target);
+        } else if vault::is_loose(target) {
+            if let Some(dir) = Path::new(target).parent() {
+                let mut shared = self.shared.lock().unwrap();
+                if !shared.loose.iter().any(|d| d == dir) {
+                    shared.loose.push(dir.to_path_buf());
+                }
+            }
+            let _ = view.load_url(&format!("{}{fragment}", vault::url(target)));
         } else {
             let _ = view.load_url(&format!("{}{fragment}", vault::url(target)));
         }
@@ -936,10 +963,17 @@ impl App {
         loading
     }
 
-    /// Resolves what was typed in the address field: a URL, a vault path or a bare domain.
+    /// Resolves what was typed in the address field: a URL, a vault path, an
+    /// absolute path, as the field shows for loose pages, or a bare domain.
     fn go(&mut self, text: &str) {
         let text = text.trim();
         if text.is_empty() {
+            return;
+        }
+        if vault::is_loose(text) {
+            if self.open(PathBuf::from(text), text, Place::Here).is_err() {
+                self.pane().bar.address.style_context().add_class("error");
+            }
             return;
         }
         let in_vault = self.vault().and_then(|root| {
@@ -1074,6 +1108,7 @@ impl App {
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
+            UserEvent::LooseChanged(changed) => self.loose_changed(changed),
             UserEvent::ThemeChanged => self.apply_theme(),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
@@ -1499,10 +1534,13 @@ impl App {
         }
     }
 
-    /// Only vault pages may log or send events; the empty page may only ask for a folder.
+    /// Only vault and loose pages may log or send events; the empty page may only ask for a folder.
     /// A website could otherwise feed instructions to the agents that read them.
     fn on_page(&mut self, view: u64, url: &str, msg: PageMsg) {
-        let trusted = vault::rel_from_url(url).is_some();
+        let served = vault::rel_from_url(url);
+        // Loose pages may log and send events too, but have no vault to write to.
+        let local = served.is_some();
+        let trusted = served.is_some_and(|f| !vault::is_loose(&f));
         let reply = |app: &App, code: String| {
             if let Some(v) = app.view_of(view) {
                 let _ = v.evaluate_script(&code);
@@ -1542,7 +1580,7 @@ impl App {
                     eprintln!("No se pudo crear la nota: {e}");
                 }
             }
-            PageMsg::Console { level, text } if trusted => {
+            PageMsg::Console { level, text } if local => {
                 let mut shared = self.shared.lock().unwrap();
                 let Some(page) = shared.pages.get_mut(&view) else { return };
                 if page.console.len() >= MAX_CONSOLE {
@@ -1552,7 +1590,7 @@ impl App {
                 let text = text.replace(vault::base(), "");
                 page.console.push(json!({ "time": now(), "level": level, "text": text }));
             }
-            PageMsg::Event { data } if trusted => {
+            PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();
                 let event = json!({
                     "id": shared.next_id,
@@ -1648,6 +1686,7 @@ impl App {
     }
 
     /// Opens a folder as vault or a file inside the vault that contains it.
+    /// An HTML page outside every known vault opens on its own.
     fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
         let current = self.vault();
         let path = path
@@ -1658,18 +1697,63 @@ impl App {
             self.show_vault(Some(path));
             return Ok(None);
         }
-        let root = current
-            .filter(|v| path.starts_with(v))
-            .or_else(|| self.config.vault_for(&path))
-            .or_else(|| path.parent().map(Path::to_path_buf))
-            .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
-        let rel = vault::rel(&root, &path);
-        if self.vault().as_ref() != Some(&root) {
-            self.show_vault(Some(root));
-        }
+        let known = current.filter(|v| path.starts_with(v)).or_else(|| self.config.vault_for(&path));
+        let target = match known {
+            None if vault::is_html(&path) => {
+                // Turning its folder into a vault would list and watch all of it, maybe a whole home.
+                if self.vault().is_none() {
+                    self.sidebar.root.hide();
+                }
+                path.to_string_lossy().into_owned()
+            }
+            known => {
+                let root = known
+                    .or_else(|| path.parent().map(Path::to_path_buf))
+                    .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
+                let rel = vault::rel(&root, &path);
+                if self.vault().as_ref() != Some(&root) {
+                    self.show_vault(Some(root));
+                }
+                rel
+            }
+        };
         // A lone empty tab, as in a vault opened for the first time, is used rather than kept.
         let lone_empty = self.panes.len() == 1 && self.pane().tabs.len() == 1 && self.pane().tab().target.is_empty();
-        Ok(self.open_in(rel, if lone_empty { Place::Here } else { place }))
+        Ok(self.open_in(target, if lone_empty { Place::Here } else { place }))
+    }
+
+    /// Watches the folders of the loose pages in the tabs, and stops watching the rest.
+    fn watch_loose(&mut self) {
+        let dirs: Vec<PathBuf> = self
+            .panes
+            .iter()
+            .flat_map(|p| &p.tabs)
+            .filter(|t| vault::is_loose(&t.target))
+            .filter_map(|t| Path::new(&t.target).parent().map(Path::to_path_buf))
+            .collect();
+        self.loose_watchers.retain(|(dir, _)| dirs.contains(dir));
+        for dir in dirs {
+            if self.loose_watchers.iter().any(|(d, _)| *d == dir) {
+                continue;
+            }
+            if let Some(w) = watch(&dir, RecursiveMode::NonRecursive, 150, self.proxy.clone(), UserEvent::LooseChanged) {
+                self.loose_watchers.push((dir, w));
+            }
+        }
+    }
+
+    /// Reloads the loose pages that changed, or whose folder had another file change: it may be their CSS or data.
+    fn loose_changed(&mut self, changed: Vec<PathBuf>) {
+        for tab in self.panes.iter().flat_map(|p| &p.tabs) {
+            let Some((_, view)) = &tab.view else { continue };
+            if !vault::is_loose(&tab.target) {
+                continue;
+            }
+            let page = Path::new(&tab.target);
+            if changed.iter().any(|p| p == page || (p.parent() == page.parent() && !vault::is_page(p))) {
+                let _ = view.reload();
+            }
+        }
     }
 
     fn vault_changed(&mut self, changed: Vec<PathBuf>) {
@@ -1701,7 +1785,7 @@ impl App {
                     self.load_into(view, "", "");
                     continue;
                 }
-                if is_web(&tab.target) {
+                if is_web(&tab.target) || vault::is_loose(&tab.target) {
                     continue;
                 }
                 let current = root.join(&tab.target);

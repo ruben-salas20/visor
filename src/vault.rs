@@ -107,6 +107,12 @@ pub fn is_html(path: &Path) -> bool {
     )
 }
 
+/// A page opened on its own, outside every vault, is kept as its absolute
+/// path; vault paths never start with `/`.
+pub fn is_loose(target: &str) -> bool {
+    target.starts_with('/')
+}
+
 fn hidden(name: &str) -> bool {
     name.starts_with('.') || name == "node_modules"
 }
@@ -267,12 +273,13 @@ pub fn base() -> &'static str {
     BASE.get().map_or("", String::as_str)
 }
 
+/// Also takes a loose page's absolute path, served at `base()` + `/` + path.
 pub fn url(rel: &str) -> String {
     let path: Vec<String> = rel.split('/').map(|seg| utf8_percent_encode(seg, SEGMENT).to_string()).collect();
     format!("{}{}", base(), path.join("/"))
 }
 
-/// Inverse of [`url`]; `None` for pages outside the vault.
+/// Inverse of [`url`]; `None` for pages the server does not serve.
 pub fn rel_from_url(url: &str) -> Option<String> {
     let path = url.strip_prefix(base()).filter(|_| !base().is_empty())?;
     let path = path.split(['?', '#']).next()?;
@@ -308,5 +315,8 @@ mod tests {
         assert_eq!(url, "http://127.0.0.1:1/s/f%C3%ADsica/tema%202/%C2%BFqu%C3%A9%3F%231.html");
         assert_eq!(rel_from_url(&url).as_deref(), Some(rel));
         assert_eq!(rel_from_url("https://example.com/"), None);
+        let loose = "/tmp/muestra rápida.html";
+        assert_eq!(super::url(loose), "http://127.0.0.1:1/s//tmp/muestra%20r%C3%A1pida.html");
+        assert_eq!(rel_from_url(&super::url(loose)).as_deref(), Some(loose));
     }
 }

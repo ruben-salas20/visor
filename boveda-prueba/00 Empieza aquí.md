@@ -138,6 +138,15 @@ El panel ya no es una página web: ahora es GTK nativo y gasta unos 65 MB menos.
 - [ ] **Arrastrar dentro del panel**: arrastra una nota sobre una carpeta: la carpeta se resalta y, si está cerrada, se abre al poco. Al soltarla en el espacio vacío de abajo, va a la raíz de la bóveda.
 - [ ] **Avisos**: al mover o borrar sale un aviso bajo el árbol que desaparece solo.
 
+## 13. Archivos sueltos
+
+Ya probado: `visor open` con un HTML fuera de las bóvedas lo abre sin panel, carga su CSS, se recarga al cambiar y no toca la lista de bóvedas. Los botones de anotaciones solo salen en las páginas de la bóveda. Aquí queda lo que necesita teclado y ratón. Crea antes un archivo fuera de tus bóvedas, por ejemplo `/tmp/muestra.html`.
+
+- [ ] **En frío**: cierra visor y ejecuta `visor open /tmp/muestra.html`. La ventana sale sin panel y con una sola pestaña. Pulsa Ctrl+B: aparece el panel con «Sin bóveda». Elige una bóveda en su menú: se abre con sus pestañas.
+- [ ] **Con una bóveda abierta**: ejecuta `visor open /tmp/muestra.html --tab`. La bóveda y su panel siguen igual y la muestra sale en una pestaña nueva.
+- [ ] **Barra de direcciones**: en la pestaña de la muestra, pulsa Ctrl+L. La barra enseña la ruta absoluta. Pulsa Intro: la página se vuelve a abrir sin error.
+- [ ] **Atajos de anotaciones**: en la muestra, Ctrl+Shift+A y Ctrl+Shift+L no hacen nada.
+
 ## Si algo falla
 
 Anota qué hiciste y qué pasó justo debajo de la casilla. Con eso basta para que lo corrija.
