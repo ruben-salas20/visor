@@ -817,6 +817,7 @@ impl App {
     }
 
     fn drop_view(&mut self, mut tab: Tab) -> Tab {
+        tab.ready = false;
         if let Some((id, _)) = tab.view.take() {
             self.shared.lock().unwrap().pages.remove(&id);
         }
@@ -838,6 +839,7 @@ impl App {
                     return;
                 }
             };
+            view.webview().set_visible(false);
             self.style_view(&view);
             view.webview().set_zoom_level(self.config.zoom.unwrap_or(1.0));
             self.shared.lock().unwrap().pages.insert(id, Page::default());
@@ -865,6 +867,7 @@ impl App {
             let Some((p, i, _)) = oldest else { break };
             let tab = &mut self.panes[p].tabs[i];
             tab.restore = tab.position.take();
+            tab.ready = false;
             if let Some((id, _)) = tab.view.take() {
                 self.shared.lock().unwrap().pages.remove(&id);
             }
@@ -1381,6 +1384,13 @@ impl App {
 
     fn navigated(&mut self, view: u64, url: String) {
         let Some((p, i)) = self.find_view(view) else { return };
+        if !self.panes[p].tabs[i].ready {
+            self.panes[p].tabs[i].ready = true;
+            self.panes[p].show_active();
+            if p == self.focused && self.panes[p].active == i {
+                self.focus_pane(p, true);
+            }
+        }
         let file = vault::rel_from_url(&url);
         {
             let mut shared = self.shared.lock().unwrap();

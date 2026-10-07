@@ -33,6 +33,7 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 |---|---|
 | Arranque en frío hasta página cargada | 267–283 ms |
 | Cambio de página | ~80 ms |
+| Pestaña nueva (`visor open --tab`) | ~130 ms |
 | Memoria en reposo, una página | ~307–313 MB |
 | Memoria con el editor abierto (Ctrl+E) | ~334–338 MB |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js |

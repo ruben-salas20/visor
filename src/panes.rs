@@ -15,6 +15,8 @@ pub struct Tab {
     pub title: Option<String>,
     /// The live view and its id, which tags its messages.
     pub view: Option<(u64, WebView)>,
+    /// Whether the view has started showing its page. Until then it stays hidden.
+    pub ready: bool,
     /// When the tab was last shown, to unload the oldest first.
     pub used: u64,
     /// Reading position, as `{y}` or `{line, y}`, taken when the tab was last hidden.
@@ -27,7 +29,7 @@ pub struct Tab {
 
 impl Tab {
     pub fn new(id: u64, target: String) -> Tab {
-        Tab { id, target, title: None, view: None, used: 0, position: None, restore: None, fragment: String::new() }
+        Tab { id, target, title: None, view: None, ready: false, used: 0, position: None, restore: None, fragment: String::new() }
     }
 
     pub fn view_id(&self) -> Option<u64> {
@@ -159,7 +161,13 @@ impl Pane {
     }
 
     /// Shows the active tab's view and hides the others, which stay loaded.
+    /// A new view stays hidden until its page starts loading: on screen,
+    /// WebKitGTK blocks the app up to 500 ms waiting for its first paint while
+    /// the new process waits for the app, twice per new view.
     pub fn show_active(&self) {
+        if !self.tab().ready {
+            return;
+        }
         for (i, tab) in self.tabs.iter().enumerate() {
             if let Some((_, view)) = &tab.view {
                 view.webview().set_visible(i == self.active);
