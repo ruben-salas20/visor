@@ -117,6 +117,14 @@ Los atajos de teclado, la CLI, la división, el límite de páginas, la posició
 - [x] **Divisor recordado**: divide la ventana, arrastra el divisor hacia un lado, une con Ctrl+| y vuelve a dividir. Debe salir donde lo dejaste, también tras cerrar y abrir visor.
 - [x] **Mover y borrar con pestañas**: abre una nota de prueba en una pestaña que no esté a la vista. Muévela a otra carpeta arrastrándola en el panel y vuelve a esa pestaña: debe mostrar la nota en su nueva ruta. Si la mandas a la papelera, la pestaña pasa a estar vacía.
 
+## 11. Arrastrar para dividir
+
+Ya probado: al soltar, la ventana se divide, el archivo va al lado correcto y las páginas se ven bien. Aquí queda el arrastre con el ratón.
+
+- [ ] **Sin dividir**: arrastra una nota del panel sobre la página. Mientras la arrastras se marca la mitad que hay bajo el puntero. Suéltala en la derecha: la ventana se divide y la nota sale a la derecha. Une con Ctrl+| y repite soltando en la izquierda: la nota sale a la izquierda y lo que veías pasa a la derecha.
+- [ ] **Con la ventana dividida**: arrastra un HTML sobre un lado. Se marca el lado entero y, al soltar, se abre en una pestaña nueva de ese lado.
+- [ ] **Dentro del panel**: mover una nota a una carpeta sigue funcionando igual. Al soltarla en el panel, la marca de las páginas desaparece.
+
 ## Si algo falla
 
 Anota qué hiciste y qué pasó justo debajo de la casilla. Con eso basta para que lo corrija.
