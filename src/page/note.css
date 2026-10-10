@@ -86,3 +86,9 @@ th { background: var(--soft); font-weight: 600; }
 .hljs-meta, .hljs-deletion { color: var(--visor-red, #b00000); }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 650; }
+#aviso { position: fixed; z-index: 10; left: 50%; bottom: 44px; translate: -50% 0; width: max-content; max-width: min(480px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 10px; font: 13px/1.45 system-ui, sans-serif;
+  background: color-mix(in srgb, var(--fg) 4%, var(--bg)); color: color-mix(in srgb, var(--red) 60%, var(--fg));
+  box-shadow: 0 0 0 1px var(--line), 0 6px 24px rgb(0 0 0 / .25); }
+#aviso span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#aviso button { flex: none; font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; cursor: pointer; }

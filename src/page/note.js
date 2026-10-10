@@ -148,6 +148,7 @@
       opening = false;
       loading = null;
       console.error("No se pudo abrir el editor: " + e.message);
+      notify("No se pudo abrir el editor. Prueba otra vez con Ctrl+E.");
       return;
     }
     editing = true;
@@ -213,8 +214,28 @@
     send({ type: "create_note", dir: config.dir, name });
   });
 
+  // A message about something done outside the editor, which has its own status line.
+  // It stays until dismissed: the person may not be looking when it appears.
+  function notify(text) {
+    document.getElementById("aviso")?.remove();
+    const box = document.createElement("div");
+    box.id = "aviso";
+    box.setAttribute("role", "alert");
+    box.dataset.visorSkip = "";
+    const message = document.createElement("span");
+    message.textContent = text;
+    const close = document.createElement("button");
+    close.textContent = "Cerrar";
+    close.onclick = () => box.remove();
+    box.append(message, close);
+    document.body.append(box);
+  }
+
   window.__visorNote = {
     get editing() { return editing; },
+    createFailed(error) {
+      notify(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`);
+    },
     dark,
     // Before visor hides the tab, which it may unload later: saves pending
     // text and returns the reading position for place().

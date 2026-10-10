@@ -1124,12 +1124,16 @@ impl App {
                         self.note_annotation(&file, id, "comment", text);
                     }
                     Ok(false) => {}
-                    Err(e) => eprintln!("No se pudo guardar la anotación: {e}"),
+                    Err(e) => {
+                        eprintln!("No se pudo guardar la anotación: {e}");
+                        reply(self, page_calls::annot_save_failed(annotation["id"].as_str().unwrap_or_default(), &e));
+                    }
                 }
             }
             PageMsg::AnnotDelete { id } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::delete(root, page, &id)) {
                     eprintln!("No se pudo borrar la anotación: {e}");
+                    reply(self, page_calls::annot_delete_failed(&id, &e));
                 }
             }
             PageMsg::AnnotReply { id, text } if trusted => {
@@ -1148,6 +1152,7 @@ impl App {
             PageMsg::CreateNote { dir, name } if trusted => {
                 if let Err(e) = self.create_note(&dir, &name) {
                     eprintln!("No se pudo crear la nota: {e}");
+                    reply(self, page_calls::note_create_failed(&e));
                 }
             }
             PageMsg::Console { level, text } if local => {

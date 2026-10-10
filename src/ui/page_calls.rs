@@ -58,6 +58,21 @@ pub fn annot_reply_failed(id: &str, text: &str, error: &str) -> String {
     )
 }
 
+/// The annotation could not be saved: the page keeps the person's text and shows why.
+pub fn annot_save_failed(id: &str, error: &str) -> String {
+    format!("window.__visorAnnot && window.__visorAnnot.saveFailed({}, {})", json!(id), json!(error))
+}
+
+/// The annotation could not be deleted: the page puts it back and shows why.
+pub fn annot_delete_failed(id: &str, error: &str) -> String {
+    format!("window.__visorAnnot && window.__visorAnnot.deleteFailed({}, {})", json!(id), json!(error))
+}
+
+/// The note a `[[link]]` pointed at could not be created: the page says why.
+pub fn note_create_failed(error: &str) -> String {
+    format!("window.__visorNote && window.__visorNote.createFailed({})", json!(error))
+}
+
 /// Frosted glass over a page to mark where a dragged file would land: a half
 /// (0 left, 1 right), the whole page (any other zone), or nothing (`None`).
 /// `accent` is a CSS colour from the theme.
@@ -100,6 +115,16 @@ mod tests {
             annot_reply_failed("a1", "hola\n</script>", "error"),
             r#"window.__visorAnnot && window.__visorAnnot.replyFailed("a1", "hola\n</script>", "error")"#
         );
+    }
+
+    #[test]
+    fn failures_escape_what_they_carry() {
+        assert_eq!(
+            annot_save_failed("a1", "no \"va\"\n</script>"),
+            r#"window.__visorAnnot && window.__visorAnnot.saveFailed("a1", "no \"va\"\n</script>")"#
+        );
+        assert_eq!(annot_delete_failed("a1", "x"), r#"window.__visorAnnot && window.__visorAnnot.deleteFailed("a1", "x")"#);
+        assert_eq!(note_create_failed("Ya existe a.md"), r#"window.__visorNote && window.__visorNote.createFailed("Ya existe a.md")"#);
     }
 
     #[test]

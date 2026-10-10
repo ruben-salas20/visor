@@ -316,6 +316,10 @@
     .actions .danger:hover { box-shadow: 0 0 0 1px var(--danger); }
     .hover { position: fixed; pointer-events: none; border: 2px solid var(--visor-accent, #1a6cc4); border-radius: 4px;
       background: color-mix(in srgb, var(--visor-accent, #1a6cc4) 12%, transparent); }
+    .toast { position: fixed; bottom: 16px; left: 50%; translate: -50% 0; width: max-content; max-width: min(480px, calc(100vw - 24px));
+      padding: 8px 12px; pointer-events: auto; display: flex; align-items: center; gap: 12px; color: var(--danger); }
+    .toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .toast button { flex: none; padding: 4px 8px; box-shadow: var(--ring); }
     .banner { position: fixed; top: 12px; left: 50%; translate: -50% 0; padding: 8px 14px; pointer-events: auto; }
     .panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(330px, calc(100vw - 24px)); padding: 12px; border-radius: 18px; pointer-events: auto;
       display: flex; flex-direction: column; gap: 8px; }
@@ -466,6 +470,9 @@
   // ---------- popover ----------
 
   let pop = null, popNote = null, conv = null, warned = false;
+  // The last save failed: the text in the popover exists nowhere else.
+  let failedSave = false;
+  const MAX_COMMENT = 20000;
   const UNSAVED = "Tienes texto sin guardar. ";
   const ESCAPE_AGAIN = "Pulsa Escape otra vez para descartarlo.";
   // A new note that was never saved goes with its popover, whatever closed it.
@@ -474,7 +481,7 @@
     if (popNote && !notes.find((n) => n.id === popNote.id)?.saved) dropLocal(popNote.id);
     pop?.remove();
     pop = popNote = conv = null;
-    warned = false;
+    warned = failedSave = false;
   }
 
   // Closing throws the typed text away, so the first try only warns when there is
@@ -491,7 +498,7 @@
   }
 
   function hasUnsaved() {
-    return conv.box.value.trim() !== "" || conv.area.value !== (popNote.comment || "");
+    return failedSave || conv.box.value.trim() !== "" || conv.area.value !== (popNote.comment || "");
   }
 
   // Typing again or sending the reply makes the next Escape warn again.
@@ -581,6 +588,8 @@
     const area = document.createElement("textarea");
     area.placeholder = "Escribe una nota…";
     area.value = note.comment || "";
+    area.maxLength = MAX_COMMENT;
+    area.setAttribute("aria-label", "Comentario");
     pop.append(header, area);
     const list = document.createElement("div");
     list.className = "replies";
@@ -589,6 +598,7 @@
     const box = document.createElement("textarea");
     box.placeholder = "Escribe una respuesta…";
     box.setAttribute("aria-label", "Respuesta");
+    box.maxLength = MAX_COMMENT;
     const err = document.createElement("p");
     err.className = "reply-err";
     err.setAttribute("role", "alert");
@@ -608,6 +618,10 @@
     box.addEventListener("input", hideWarn);
     box.addEventListener("input", markFilled);
     area.addEventListener("input", hideWarn);
+    // After hideWarn, which clears the line this one writes. The field stops at the limit, so say so.
+    const full = "Has llegado al máximo de 20 000 caracteres. No cabe más texto.";
+    area.addEventListener("input", () => { if (area.value.length >= MAX_COMMENT) conv.warn.textContent = full; });
+    box.addEventListener("input", () => { if (box.value.length >= MAX_COMMENT) err.textContent = full; else if (err.textContent === full) err.textContent = ""; });
     const warn = document.createElement("p");
     warn.className = "unsaved";
     warn.setAttribute("role", "alert");
@@ -722,7 +736,13 @@
 
   const newId = () => crypto.randomUUID().slice(0, 8);
 
+  // What a failed save or delete needs to undo: the note as it was, and whether
+  // the person was editing it in the popover.
+  const pending = new Map();
+  const removed = new Map();
+
   function save(note) {
+    pending.set(note.id, { before: notes.find((n) => n.id === note.id) || null, edited: popNote?.id === note.id });
     note.saved = true;
     const i = notes.findIndex((n) => n.id === note.id);
     if (i === -1) notes.push(note); else notes[i] = note;
@@ -738,8 +758,61 @@
   }
 
   function remove(id) {
+    const note = notes.find((n) => n.id === id);
+    if (note?.saved) removed.set(id, note);
     dropLocal(id);
     send({ type: "annot_delete", id });
+  }
+
+  const sentence = (s) => (/[.!?]$/.test(s) ? s : s + ".");
+
+  // The app could not store the note. The text must not be lost: if the person was
+  // editing it, the popover comes back with their text; otherwise the note goes
+  // back to how it was on disk.
+  function saveFailed(id, error) {
+    const job = pending.get(id);
+    pending.delete(id);
+    const mine = notes.find((n) => n.id === id);
+    if (!mine) return;
+    const i = notes.indexOf(mine);
+    if (job?.before) notes[i] = job.before; else mine.saved = false;
+    if (job?.edited && !pop) {
+      paint();
+      openNote(mine, !job.before);
+      failedSave = true;
+      conv.warn.textContent = `No se pudo guardar: ${sentence(error)} Tu texto sigue aquí; pulsa Guardar para intentarlo otra vez.`;
+      return;
+    }
+    if (!job?.before) dropLocal(id); else paint();
+    showToast(`No se pudo guardar la anotación. ${sentence(error)}`);
+  }
+
+  function deleteFailed(id, error) {
+    const note = removed.get(id);
+    removed.delete(id);
+    if (note && !notes.some((n) => n.id === id)) {
+      notes.push(note);
+      resolve();
+    }
+    showToast(`No se pudo borrar la anotación. ${sentence(error)} Sigue en la página.`);
+  }
+
+  // An error that does not belong to an open popover. It stays until dismissed.
+  let toast = null;
+  function closeToast() { toast?.remove(); toast = null; }
+  function showToast(text) {
+    ensureHost();
+    closeToast();
+    toast = document.createElement("div");
+    toast.className = "card toast";
+    toast.setAttribute("role", "alert");
+    const message = document.createElement("span");
+    message.textContent = text;
+    const close = document.createElement("button");
+    close.textContent = "Cerrar";
+    close.onclick = closeToast;
+    toast.append(message, close);
+    ui.append(toast);
   }
 
   // ---------- selection toolbar ----------
@@ -896,6 +969,7 @@
     if (picking) stopPicking();
     else if (pop) closePopSafely(closePop, ESCAPE_AGAIN);
     else if (panel) closePanel();
+    else closeToast();
     hideToolbar();
   });
 
@@ -1021,6 +1095,8 @@
     togglePanel,
     reload: load,
     replyFailed,
+    saveFailed,
+    deleteFailed,
   });
 
   if (document.readyState === "complete") load();
