@@ -37,7 +37,9 @@ USO
   visor console [--errors] [--clear]
                              Consola de la página actual: console.log,
                              errores de JavaScript, recursos que no
-                             cargaron y promesas rechazadas.
+                             cargaron y promesas rechazadas. Guarda
+                             hasta 100 mensajes por segundo; si hay más,
+                             una línea dice cuántos se omitieron.
   visor events [--after ID] [--wait SEG] [--limit N]
                              Datos que las páginas enviaron con
                              visor.send() y mensajes que la persona

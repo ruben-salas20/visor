@@ -9,12 +9,27 @@
     }
     return String(v);
   };
-  const log = (level, text) => post({ type: "console", level, text });
+  // A page that logs every frame would flood visor's main thread. Past the limit
+  // lines are dropped before being formatted, and the agent learns how many.
+  const LIMIT = 100;
+  let since = 0, count = 0, dropped = 0;
+  const flush = () => {
+    post({ type: "console", level: "warn", text: `Se omitieron ${dropped} mensajes de consola: la página escribió más de ${LIMIT} por segundo.` });
+    dropped = 0;
+  };
+  const allow = () => {
+    const now = performance.now();
+    if (now - since >= 1000) { since = now; count = 0; }
+    if (count++ < LIMIT) return true;
+    if (!dropped++) setTimeout(flush, since + 1000 - now);
+    return false;
+  };
+  const log = (level, text) => allow() && post({ type: "console", level, text });
 
   for (const level of ["log", "info", "warn", "error", "debug"]) {
     const original = console[level];
     console[level] = (...args) => {
-      log(level, args.map(show).join(" "));
+      if (allow()) post({ type: "console", level, text: args.map(show).join(" ") });
       original.apply(console, args);
     };
   }
