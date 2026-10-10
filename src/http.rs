@@ -107,11 +107,11 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         }
         return;
     }
-    let Some(root) = shared.lock().unwrap().vault.clone() else {
+    let Some(vault) = shared.lock().unwrap().vault.clone() else {
         let _ = request.respond(text(404, "No hay ninguna bóveda abierta"));
         return;
     };
-    let Some(path) = vault::resolve(&root, &rel) else {
+    let Some(path) = vault.resolve(&rel) else {
         let _ = request.respond(text(404, &format!("No existe: {rel}")));
         return;
     };
@@ -121,8 +121,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         // `![[image]]` in the editor: the image file, wherever it is in the vault.
         if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
-            let root = root.canonicalize().unwrap_or(root);
-            let response = match crate::markdown::embed_url(&name, &vault::rel(&root, &path), &root) {
+            let response = match crate::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
                 Some(url) => text(302, "").with_header(header("Location", &url)),
                 None => text(404, "No existe"),
             };
@@ -131,8 +130,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         }
         if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
-            let root = root.canonicalize().unwrap_or(root);
-            let response = match crate::markdown::wiki_url(&target, &vault::rel(&root, &path), &root) {
+            let response = match crate::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
                 Some(url) => text(200, &url),
                 None => text(404, "No existe"),
             };
@@ -146,8 +144,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
             (source, "text/plain; charset=utf-8")
         } else {
-            let root = root.canonicalize().unwrap_or(root);
-            (crate::markdown::page(&source, &vault::rel(&root, &path), &root), "text/html; charset=utf-8")
+            (crate::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
         };
         let response = Response::from_string(body)
             .with_header(header("Content-Type", mime))

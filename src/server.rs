@@ -95,11 +95,11 @@ fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent
         "events" => events(request, shared),
         "notes" => notes(request, shared),
         "notes_reply" => {
-            let Some(root) = shared.lock().unwrap().vault.clone() else {
+            let Some(vault) = shared.lock().unwrap().vault.clone() else {
                 return fail("No hay ninguna bóveda abierta.".into());
             };
             let (id, text) = (request["id"].as_str().unwrap_or(""), request["text"].as_str().unwrap_or(""));
-            match crate::annot::reply(&root, id, text) {
+            match crate::annot::reply(vault.path(), id, text) {
                 Ok(page) => json!({ "ok": true, "page": page }),
                 Err(e) => fail(e),
             }
@@ -137,19 +137,18 @@ fn wait_for_load(shared: &SharedRef, view: u64, before: u64) -> Value {
 /// Annotations of the current page, of a given page, or of the whole vault.
 /// For the page on screen it also says which ones could not be placed.
 fn notes(request: &Value, shared: &SharedRef) -> Value {
-    let (root, current, orphans) = {
+    let (vault, current, orphans) = {
         let s = shared.lock().unwrap();
         (s.vault.clone(), s.page().file.clone(), s.page().orphans.clone())
     };
-    let Some(root) = root else { return fail("No hay ninguna bóveda abierta.".into()) };
+    let Some(vault) = vault else { return fail("No hay ninguna bóveda abierta.".into()) };
     let page = if request["all"].as_bool().unwrap_or(false) {
         None
     } else if let Some(path) = request["path"].as_str() {
         let path = PathBuf::from(path);
-        let canonical = root.canonicalize().unwrap_or(root.clone());
-        let found = path.canonicalize().ok().filter(|p| p.starts_with(&canonical));
+        let found = path.canonicalize().ok().filter(|p| p.starts_with(vault.root()));
         let raw = request["raw"].as_str().unwrap_or("");
-        Some(found.map_or(raw.trim_start_matches("./").to_string(), |p| crate::vault::rel(&canonical, &p)))
+        Some(found.map_or(raw.trim_start_matches("./").to_string(), |p| vault.rel(&p)))
     } else {
         match &current {
             Some(file) if crate::vault::is_loose(file) => {
@@ -159,7 +158,7 @@ fn notes(request: &Value, shared: &SharedRef) -> Value {
             None => return fail("No hay ninguna página abierta; indica una ruta o usa --all.".into()),
         }
     };
-    let mut list = crate::annot::list(&root, page.as_deref());
+    let mut list = crate::annot::list(vault.path(), page.as_deref());
     for note in &mut list {
         if note["page"].as_str() == current.as_deref()
             && let Some(orphans) = &orphans
@@ -167,7 +166,7 @@ fn notes(request: &Value, shared: &SharedRef) -> Value {
             note["anchored"] = json!(!orphans.iter().any(|o| note["id"] == *o.as_str()));
         }
     }
-    json!({ "ok": true, "vault": root, "notes": list })
+    json!({ "ok": true, "vault": vault.path(), "notes": list })
 }
 
 fn events(request: &Value, shared: &SharedRef) -> Value {

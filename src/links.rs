@@ -39,7 +39,7 @@ pub fn relink(root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>, String>
         let Ok(source) = fs::read_to_string(&path) else { continue };
         let old = swap(note, to, from).unwrap_or_else(|| note.clone());
         let Some(text) = relinker.rewrite(&source, &old, note) else { continue };
-        match crate::app::write_atomic(&path, &text) {
+        match crate::vault::write_atomic(&path, &text) {
             Ok(()) => changed.push(path),
             Err(e) => failed.push(format!("{note} ({e})")),
         }
@@ -344,7 +344,7 @@ mod tests {
     }
 
     fn moved(root: &Path, rel: &str, dir: &str) -> Vec<String> {
-        let to = move_to(root, rel, dir).unwrap().unwrap();
+        let to = move_to(&vault::Vault::open(root), rel, dir).unwrap().unwrap();
         let mut changed: Vec<String> = relink(root, rel, &to).unwrap().iter().map(|p| vault::rel(root, p)).collect();
         changed.sort();
         changed

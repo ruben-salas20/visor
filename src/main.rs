@@ -2,6 +2,7 @@ mod annot;
 mod app;
 mod bar;
 mod cli;
+mod config;
 mod files;
 mod http;
 mod icons;
