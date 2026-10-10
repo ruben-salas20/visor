@@ -148,7 +148,7 @@ pub struct Sidebar {
     scroll: gtk::ScrolledWindow,
     tree: gtk::TreeView,
     store: gtk::TreeStore,
-    menu: gtk::Menu,
+    menu: gtk::Popover,
     folder_items: Vec<gtk::Widget>,
     notice: gtk::Label,
     state: Rc<RefCell<State>>,
@@ -228,19 +228,38 @@ impl Sidebar {
         scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
         scroll.add(&tree);
 
-        let menu = gtk::Menu::new();
+        // A popover, not a gtk::Menu: a Menu is its own Wayland popup window, which Hyprland
+        // makes see-through without blurring the tree behind it.
+        let menu = gtk::Popover::new(Some(&tree));
         menu.style_context().add_class("visor-menu");
-        let note_here = gtk::MenuItem::with_label("Nueva nota aquí");
-        let folder_here = gtk::MenuItem::with_label("Nueva carpeta aquí");
-        let separator = gtk::SeparatorMenuItem::new();
-        let trash = gtk::MenuItem::with_label("Mover a la papelera");
-        if let Some(label) = trash.child().and_then(|c| c.downcast::<gtk::AccelLabel>().ok()) {
-            label.set_accel(*gdk::keys::constants::Delete, gdk::ModifierType::empty());
+        menu.set_position(gtk::PositionType::Bottom);
+        menu.set_modal(true);
+        let menu_button = |label: &str, accel: &str| {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            let text = gtk::Label::new(Some(label));
+            text.set_xalign(0.0);
+            text.set_hexpand(true);
+            row.pack_start(&text, true, true, 0);
+            if !accel.is_empty() {
+                let key = gtk::Label::new(Some(accel));
+                key.style_context().add_class("visor-accel");
+                row.pack_end(&key, false, false, 0);
+            }
+            let button = gtk::Button::new();
+            button.set_relief(gtk::ReliefStyle::None);
+            button.add(&row);
+            button
+        };
+        let note_here = menu_button("Nueva nota aquí", "");
+        let folder_here = menu_button("Nueva carpeta aquí", "");
+        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        let trash = menu_button("Mover a la papelera", "Supr");
+        let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        for item in [note_here.clone().upcast::<gtk::Widget>(), folder_here.clone().upcast(), separator.clone().upcast(), trash.clone().upcast()] {
+            menu_box.pack_start(&item, false, false, 0);
         }
-        for item in [&note_here, &folder_here, separator.upcast_ref(), &trash] {
-            menu.append(item);
-        }
-        menu.show_all();
+        menu_box.show_all();
+        menu.add(&menu_box);
 
         let notice = gtk::Label::new(None);
         notice.set_xalign(0.0);
@@ -297,11 +316,18 @@ impl Sidebar {
         sidebar.connect_folders();
         sidebar.connect_drag();
         let s = sidebar.clone();
-        note_here.connect_activate(move |_| s.new_note_at_menu(false));
+        note_here.connect_clicked(move |_| {
+            s.menu.popdown();
+            s.new_note_at_menu(false)
+        });
         let s = sidebar.clone();
-        folder_here.connect_activate(move |_| s.new_note_at_menu(true));
+        folder_here.connect_clicked(move |_| {
+            s.menu.popdown();
+            s.new_note_at_menu(true)
+        });
         let s = sidebar.clone();
-        trash.connect_activate(move |_| {
+        trash.connect_clicked(move |_| {
+            s.menu.popdown();
             if let Some(path) = s.state.borrow_mut().menu_path.take() {
                 s.send(SidebarMsg::Trash { path });
             }
@@ -507,7 +533,11 @@ impl Sidebar {
             item.set_visible(is_dir);
         }
         self.state.borrow_mut().menu_path = Some(rel_path(&self.store, &iter));
-        self.menu.popup_at_pointer(Some(event));
+        // The event is in the tree's bin window; the popover is positioned against the tree widget.
+        let (x, y) = event.position();
+        let (x, y) = self.tree.convert_bin_window_to_widget_coords(x as i32, y as i32);
+        self.menu.set_pointing_to(&gdk::Rectangle::new(x, y, 1, 1));
+        self.menu.popup();
     }
 
     /// Keeps `opened` in step with the tree. Opening a folder also reopens
@@ -842,11 +872,11 @@ impl Sidebar {
 .visor-new entry:focus {{ border-color: {accent}; }}
 .visor-new .error, .visor-notice.error {{ color: {red}; }}
 .visor-notice {{ margin: 0 8px 8px; padding: 8px 10px; border-radius: 8px; background: {hover}; font-size: smaller; }}
-menu.visor-menu {{ background: {bg}; color: {fg}; border: 1px solid {line}; padding: 4px; }}
-menu.visor-menu menuitem {{ border-radius: 6px; padding: 6px 8px; }}
-menu.visor-menu menuitem:hover {{ background: {hover}; color: {fg}; }}
-menu.visor-menu menuitem accelerator {{ color: {muted}; }}
-menu.visor-menu separator {{ background: {line}; min-height: 1px; margin: 4px 0; }}",
+.visor-menu {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 10px; padding: 4px; }}
+.visor-menu button {{ background: none; border: none; box-shadow: none; color: {fg}; border-radius: 6px; padding: 6px 8px; min-height: 0; }}
+.visor-menu button:hover {{ background: {hover}; }}
+.visor-menu .visor-accel {{ color: {muted}; margin-left: 24px; }}
+.visor-menu separator {{ background: {line}; min-height: 1px; margin: 4px 0; }}",
             bg = theme.bg,
             fg = theme.fg,
             muted = theme.muted,
