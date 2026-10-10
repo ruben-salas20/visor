@@ -562,7 +562,8 @@
       name.setAttribute("aria-label", "Título de la anotación");
       name.title = "Título de la anotación. Haz clic para cambiarlo.";
       name.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); area.focus(); }
+        // Stopped here: the handler of the whole popover would take this Enter as "save".
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); area.focus(); }
       });
       header.append(name);
     }
@@ -1078,7 +1079,7 @@
     new MutationObserver((records) => {
       if (records.every((r) => host && (r.target === host || host.contains(r.target)))) return;
       later();
-    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-visor-editing"] });
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     new ResizeObserver(() => placePins()).observe(document.body);
     // Resize events can come several times a frame; one pass per frame is enough.
     // The body observer may still run in the same frame, which only reads rects now.
@@ -1089,6 +1090,19 @@
       requestAnimationFrame(() => { pinsQueued = false; placePins(); });
     });
   }
+
+  // Ctrl+E (note.js) marks the page while the source is on screen. Own observer,
+  // without the one-second delay of the mutation one: the markers must not sit on the editor.
+  new MutationObserver(() => {
+    const editing = !!document.documentElement.dataset.visorEditing;
+    if (host) host.style.display = editing ? "none" : "";
+    if (!editing) return placePins();
+    if (picking) stopPicking();
+    closePop();
+    closePanel();
+    closeToast();
+    hideToolbar();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-visor-editing"] });
 
   window.__visorAnnot = Object.freeze({
     pickElement: startPicking,
