@@ -15,6 +15,15 @@
   const SKIP = "script,style,noscript,textarea,template,[data-visor-skip]";
   const CONTEXT = 32;
 
+  // Cuts by code points, not UTF-16 units: a cut inside an emoji leaves a lone
+  // surrogate, and visor refuses the whole message that carries one.
+  const cut = (s, max) => {
+    const chars = Array.from(s);
+    return chars.length > max ? chars.slice(0, max).join("") : s;
+  };
+  // A slice of the page text may start or end inside a pair: drop the stray half.
+  const whole = (s) => s.replace(/^[\uDC00-\uDFFF]/, "").replace(/[\uD800-\uDBFF]$/, "").toWellFormed();
+
   let notes = [];
   const anchors = new Map(); // id -> Range (text) or { el, point } (element)
   let host = null;
@@ -87,9 +96,9 @@
     const end = offsetOf(index, range.endContainer, range.endOffset);
     const exact = index.text.slice(start, end);
     return {
-      exact,
-      prefix: index.text.slice(Math.max(0, start - CONTEXT), start),
-      suffix: index.text.slice(end, end + CONTEXT),
+      exact: exact.toWellFormed(),
+      prefix: whole(index.text.slice(Math.max(0, start - CONTEXT), start)),
+      suffix: whole(index.text.slice(end, end + CONTEXT)),
       start,
     };
   }
@@ -104,7 +113,7 @@
     for (let n; (n = walk.nextNode()) && text.length < 400; ) {
       if (!n.parentElement?.closest("style,script")) text += n.data + " ";
     }
-    return text.replace(/\s+/g, " ").trim().slice(0, 80);
+    return cut(text.replace(/\s+/g, " ").trim(), 80);
   }
 
   // Ids built from a timestamp, like Mermaid's "mermaid-1791323458942", change on
@@ -158,7 +167,7 @@
   // ---------- titles for element notes ----------
 
   const TITLE_MAX = 120;
-  const clip = (s) => (s.length > TITLE_MAX ? s.slice(0, TITLE_MAX - 1).trimEnd() + "…" : s);
+  const clip = (s) => (Array.from(s).length > TITLE_MAX ? cut(s, TITLE_MAX - 1).trimEnd() + "…" : s);
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
 
   // What a person would call the element, never its tag name.
@@ -529,7 +538,7 @@
     const header = document.createElement("header");
     let name = null;
     if (note.target.kind === "text") {
-      const exact = clean(note.target.quote?.exact).slice(0, 300);
+      const exact = cut(clean(note.target.quote?.exact), 300);
       const quote = document.createElement("span");
       quote.className = "quote";
       quote.title = exact;

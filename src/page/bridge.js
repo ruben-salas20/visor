@@ -6,30 +6,47 @@
   // which can post to the handler but not read this scope, cannot speak for the page.
   const handler = window.webkit.messageHandlers.ipc;
   const KEY = "__VISOR_KEY__";
-  const post = (m) => handler.postMessage(JSON.stringify({ ...m, key: KEY }));
+  // A lone surrogate (a clipped emoji) is valid for JSON.stringify, which writes it
+  // as an escape, but serde_json rejects it and the whole message would be lost.
+  // Strings are repaired before they are serialized; the escape cannot be fixed after.
+  const wellFormed = (_, v) => {
+    if (typeof v === "string") return v.toWellFormed();
+    if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).some((k) => !k.isWellFormed())) {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k.toWellFormed(), x]));
+    }
+    return v;
+  };
+  const stringify = (v) => JSON.stringify(v, wellFormed);
+  const post = (m) => handler.postMessage(stringify({ ...m, key: KEY }));
   Object.defineProperty(window, "__visorPost", { value: post });
   const show = (v) => {
     if (v instanceof Error) return v.stack || String(v);
     if (typeof v === "object" && v !== null) {
-      try { return JSON.stringify(v); } catch { return String(v); }
+      try { return stringify(v); } catch { return String(v); }
     }
     return String(v);
   };
   // A page that logs every frame would flood visor's main thread. Past the limit
   // lines are dropped before being formatted, and the agent learns how many.
+  // visor.send has its own counter, so a chatty page cannot starve its console.
   const LIMIT = 100;
-  let since = 0, count = 0, dropped = 0;
-  const flush = () => {
-    post({ type: "console", level: "warn", text: `Se omitieron ${dropped} mensajes de consola: la página escribió más de ${LIMIT} por segundo.` });
-    dropped = 0;
+  const limiter = (notice) => {
+    let since = 0, count = 0, dropped = 0;
+    const flush = () => {
+      post({ type: "console", level: "warn", text: notice(dropped) });
+      dropped = 0;
+    };
+    return () => {
+      const now = performance.now();
+      if (now - since >= 1000) { since = now; count = 0; }
+      if (count++ < LIMIT) return true;
+      if (!dropped++) setTimeout(flush, since + 1000 - now);
+      return false;
+    };
   };
-  const allow = () => {
-    const now = performance.now();
-    if (now - since >= 1000) { since = now; count = 0; }
-    if (count++ < LIMIT) return true;
-    if (!dropped++) setTimeout(flush, since + 1000 - now);
-    return false;
-  };
+  const allow = limiter((n) => `Se omitieron ${n} mensajes de consola: la página escribió más de ${LIMIT} por segundo.`);
+  const allowEvent = limiter((n) => `Se omitieron ${n} eventos de visor.send: la página envió más de ${LIMIT} por segundo.`);
+  const MAX_EVENT = 16 * 1024;
   const log = (level, text) => allow() && post({ type: "console", level, text });
 
   for (const level of ["log", "info", "warn", "error", "debug"]) {
@@ -52,6 +69,15 @@
   addEventListener("unhandledrejection", (e) => log("error", `Promesa rechazada: ${show(e.reason)}`));
 
   window.visor = Object.freeze({
-    send: (data) => post({ type: "event", data: data ?? null }),
+    send: (data) => {
+      if (!allowEvent()) return;
+      const json = stringify(data ?? null);
+      // Same measure as visor: bytes of the serialized data. Short strings cannot reach it.
+      if (json !== undefined && json.length * 3 > MAX_EVENT && new TextEncoder().encode(json).length > MAX_EVENT) {
+        log("warn", `Un evento de visor.send se descartó: pasa de ${MAX_EVENT / 1024} KB.`);
+        return;
+      }
+      post({ type: "event", data: data ?? null });
+    },
   });
 })();
