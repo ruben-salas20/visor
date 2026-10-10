@@ -35,15 +35,23 @@
 .md-meta, .md-comment { color: var(--muted); }
 .md-mark { color: var(--muted); text-decoration: none; font-weight: normal; font-style: normal; }
 .md-bullet { display: inline-block; width: 1em; color: var(--muted); }
-.md-task { margin: 0 .45em 0 0; }
+/* The text column starts 1.6em in. With the line's -1em text-indent the number's box starts at .6em,
+   so the margin brings it to 0; the box ends at 1.6em, where wrapped lines start. */
+.md-ordinal { display: inline-block; width: 1.6em; margin-left: -.6em; padding-right: .4em; box-sizing: border-box; text-align: right; }
+.md-task { margin: 0 .5em 0 0; }
+/* Hung 1.4em like the reading view's checkboxes; after a number it follows it, as there. */
+#editor .cm-list .md-task { margin-left: -.4em; }
+/* :has, not "+": CodeMirror puts a buffer element between adjacent widgets. */
+#editor .cm-line:has(.md-ordinal) .md-task { margin-left: 0; }
 .md-math { cursor: text; }
 
 /* blocks. Lines and block widgets take padding, never margins: CodeMirror
    measures their boxes, and a margin would shift every position below. */
 /* hanging indent: the marker sits left of the text column, as in the view */
-#editor .cm-list { padding-left: 1.6em; text-indent: -1em; }
+#editor .cm-list { padding-left: calc(1.6em * var(--depth, 1)); text-indent: -1em; }
 #editor .cm-list * { text-indent: 0; }
 #editor .cm-quote { border-left: 3px solid var(--line); padding-left: 1em; color: var(--muted); }
+#editor .cm-quote.cm-list { padding-left: calc(1em + 1.6em * var(--depth, 1)); }
 #editor .cm-hr { background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
 #editor .cm-codeblock { font-family: var(--mono); font-size: .875em; line-height: 1.5; background: var(--soft); padding: 0 16px; }
 #editor .cm-codeblock-first { border-radius: 8px 8px 0 0; padding-top: 6px; }

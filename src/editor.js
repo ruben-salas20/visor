@@ -760,13 +760,19 @@
               break;
             }
             case "ListMark": {
+              // Set before the cursor check: the indent must stay when the cursor is on the marker.
+              let depth = 0;
+              for (let p = node.parent; p; p = p.parent) if (p.name === "BulletList" || p.name === "OrderedList") depth++;
+              if (depth > 1) out.push(Decoration.line({ attributes: { style: "--depth: " + depth } }).range(doc.lineAt(ref.from).from));
               if (on(ref.from)) break;
               const list = node.parent?.parent;
-              if (list?.name !== "BulletList") break;
-              const task = node.parent.getChild("Task");
+              if (list?.name !== "BulletList" && list?.name !== "OrderedList") break;
+              // Nested markers also hide the indent spaces before them: the line's padding gives the depth.
+              const start = depth > 1 ? doc.lineAt(ref.from).from : ref.from;
               const end = Math.min(ref.to + 1, doc.lineAt(ref.from).to);
-              if (task) conceal(ref.from, end);
-              else conceal(ref.from, end, Decoration.replace({ widget: new Label("•", "md-bullet") }));
+              if (list.name === "OrderedList") conceal(start, end, Decoration.replace({ widget: new Label(state.sliceDoc(ref.from, ref.to), "md-ordinal") }));
+              else if (node.parent.getChild("Task")) conceal(start, end);
+              else conceal(start, end, Decoration.replace({ widget: new Label("•", "md-bullet") }));
               break;
             }
             case "BulletList": case "OrderedList":
