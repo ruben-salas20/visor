@@ -659,7 +659,11 @@ impl App {
         }
         let css = self.theme.as_ref().map_or(String::new(), |t| {
             format!(
-                "paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}\n{}",
+                // GTK3 repaints the window background under the page on every
+                // frame of an animation; the page covers it, so it costs ~2% CPU
+                // for nothing. The bars and the sidebar paint their own.
+                "window.background {{ background: none; }}\n\
+                 paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}\n{}",
                 t.tone(14.0),
                 Bar::css(t),
                 Pane::css(t),
