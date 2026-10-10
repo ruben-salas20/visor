@@ -11,9 +11,14 @@ pub fn run(args: &[String]) -> i32 {
         Ok(r) => r,
         Err(e) => return print(&json!({ "ok": false, "error": e })),
     };
-    let response = match send(&request) {
+    print(&call(&request))
+}
+
+/// Sends one request to the app. `open` starts the app when it is closed.
+pub(crate) fn call(request: &Value) -> Value {
+    match send(request) {
         Some(r) => r,
-        None if request["cmd"] == "open" => match start(loose(&request)).then(|| send(&request)).flatten() {
+        None if request["cmd"] == "open" => match start(loose(request)).then(|| send(request)).flatten() {
             Some(r) => r,
             None => json!({ "ok": false, "error": "No se pudo abrir visor." }),
         },
@@ -21,8 +26,7 @@ pub fn run(args: &[String]) -> i32 {
             "ok": false,
             "error": "visor no está abierto. Ábrelo con `visor` o con `visor open <ruta>`.",
         }),
-    };
-    print(&response)
+    }
 }
 
 fn parse(args: &[String]) -> Result<Value, String> {

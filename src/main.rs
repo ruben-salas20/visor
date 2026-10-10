@@ -6,6 +6,7 @@ mod files;
 mod http;
 mod links;
 mod markdown;
+mod mcp;
 mod panes;
 mod paths;
 mod server;
@@ -21,6 +22,7 @@ fn main() {
             print!("{}", include_str!("help.txt"));
             0
         }
+        Some("mcp") => mcp::run(),
         Some(_) => cli::run(&args),
     };
     std::process::exit(code);

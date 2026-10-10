@@ -45,12 +45,24 @@ USO
   visor notes reply <id> <texto>
                              Responde a una anotación. La persona ve
                              la respuesta al momento en su nota.
+  visor mcp                  Servidor MCP por stdio: las mismas órdenes
+                             como herramientas para modelos (ver MCP).
   visor help                 Esta ayuda.
 
 Todas las órdenes responden en JSON. "ok": false indica un error, y la
 orden termina con código 1.
 
 <ruta> puede ser relativa a la carpeta actual o a la bóveda abierta.
+
+MCP
+  `visor mcp` habla el Model Context Protocol por stdio. Regístralo con:
+
+      claude mcp add visor -- visor mcp
+
+  Cada herramienta equivale a una orden de esta ayuda: open, status,
+  reload, console, events, notes y notes_reply. Las rutas relativas de
+  open y notes se buscan en la bóveda abierta. La herramienta guide
+  devuelve este texto.
 
 PESTAÑAS Y LADOS
   La ventana puede dividirse en dos lados, cada uno con sus pestañas.
