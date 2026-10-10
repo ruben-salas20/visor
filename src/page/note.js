@@ -154,6 +154,7 @@
     editing = true;
     dirty = false;
     typed = false;
+    sent.length = 0;
     edit.hidden = false;
     // Hides the annotation layer while the source is on screen.
     document.documentElement.dataset.visorEditing = "1";
@@ -178,8 +179,14 @@
     clearTimeout(timer);
     if (!dirty) return;
     say("Guardando…");
-    send({ type: "save_note", text: ed.text() });
+    const text = ed.text();
+    sent.push(text);
+    send({ type: "save_note", text });
   }
+
+  // Texts sent and not yet confirmed, oldest first; visor answers in order. Typing
+  // while a save is in flight must not count as saved when its answer arrives.
+  const sent = [];
 
   let back = null;
   function close() {
@@ -246,7 +253,13 @@
     place(target) { place(target); },
     toggle() { editing ? close() : open(); },
     saved(ok, error) {
+      const confirmed = sent.shift();
       if (!ok) return say("No se pudo guardar: " + error, true);
+      // The text may have changed since this save was sent; those changes are still pending.
+      if (confirmed !== undefined && ed && ed.text() !== confirmed) {
+        say(sent.length ? "Guardando…" : "Sin guardar");
+        return;
+      }
       dirty = false;
       if (leaving) return reload(back);
       say("Guardado");
