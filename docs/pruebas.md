@@ -32,12 +32,12 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 
 | Medida | Valor |
 |---|---|
-| Arranque en frío hasta página cargada | 269–277 ms |
+| Arranque en frío hasta página cargada | 216–226 ms (2026-10-09, sin glycin; antes 269–277) |
 | Arranque en frío con un HTML suelto (sin bóveda ni panel) | 268–275 ms |
 | Cambio de página | ~80 ms |
 | Pestaña nueva (`visor open --tab`) | ~130 ms |
 | Memoria en reposo, una página | ~245–247 MB (no consta qué página; usa las dos filas siguientes) |
-| Memoria en reposo, nota mínima (un párrafo), 2026-10-09 | 222–236 MB |
+| Memoria en reposo, nota mínima (un párrafo), 2026-10-09 | 215–222 MB (sin glycin; antes 222–236) |
 | Memoria en reposo, `estudio/física/ondas.md` (Mermaid, KaTeX, código), 2026-10-09 | 333–339 MB |
 | Memoria en reposo, un HTML suelto | ~238–239 MB |
 | Memoria con el editor abierto (Ctrl+E) | ~286–287 MB |
