@@ -12,7 +12,7 @@ Solo lo que el código no dice por sí mismo.
 - `src/ui/icons.rs`: iconos con cairo, ninguno del tema (ADR 0004).
 - `src/vault.rs`: frontera de confianza. Toda ruta o URL que llega de una página, del panel o de la CLI se valida aquí (`resolve`, `page`, `note`, `entry`, `new_in`, `access`). Escribe con `write_atomic` (sigue enlaces y conserva permisos). Todo recorrido de carpetas pasa por `Walk`/`files` (ocultos, bucles y enlaces hacia fuera, en un solo sitio). Un archivo ilegible (`config.json`, anotaciones) nunca se trata como vacío: el primero se copia a `.bak`, las segundas dan error. `vault/annot.rs`: solo Rust escribe `.visor/anotaciones/`.
 - `src/agent/command.rs`: cada orden se define una vez (`Command`); CLI, socket y MCP salen de ahí (esquemas MCP en `command/tools.rs`). Una orden nueva se añade solo allí y en `help.txt`.
-- `src/http.rs`: sirve la bóveda, `assets/` y las carpetas de los HTML sueltos. `src/paths.rs`: socket, configuración, registro de eventos.  `agent/socket.rs`: una sola instancia posee el socket (bloqueo de archivo).
+- `src/http.rs`: sirve la bóveda, `assets/` y las carpetas de los HTML sueltos. `src/paths.rs`: socket, configuración, registro de eventos. `agent/socket.rs`: una sola instancia posee el socket (bloqueo de archivo).
 - `src/page/`: JavaScript y CSS de las páginas. `editor.js/css` solo se carga al editar.
 - `build.rs`: comprime con brotli `assets/` y `editor.js/css`. CodeMirror se regenera en `tools/codemirror/` (ADR 0028). Medidas: `tools/medir/medir.py`.
 
