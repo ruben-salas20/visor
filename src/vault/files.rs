@@ -53,6 +53,11 @@ pub fn trash(vault: &Vault, rel: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The note a `[[name#Section|alias]]` link names: without the section or the alias.
+pub fn wiki_note_name(target: &str) -> &str {
+    target.split(['#', '|']).next().unwrap_or_default().trim()
+}
+
 /// Folder and file name for a new note called `name`. A plain name goes in `dir`.
 /// A name with «/» is a path from the vault root, as in Obsidian's `[[carpeta/nota]]`:
 /// missing folders are created, and none of it may leave the vault.
@@ -156,6 +161,15 @@ mod tests {
         assert!(!root.join("n").exists());
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(out).unwrap();
+    }
+
+    #[test]
+    fn wiki_note_name_drops_section_and_alias() {
+        assert_eq!(wiki_note_name("nota#Sección"), "nota");
+        assert_eq!(wiki_note_name("a/nota|texto"), "a/nota");
+        assert_eq!(wiki_note_name(" nota#S|t "), "nota");
+        assert_eq!(wiki_note_name("nota"), "nota");
+        assert_eq!(wiki_note_name("#Sección"), "");
     }
 
     #[test]

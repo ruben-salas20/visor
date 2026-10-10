@@ -1150,7 +1150,7 @@ impl App {
                 }
             }
             PageMsg::CreateNote { dir, name } if trusted => {
-                if let Err(e) = self.create_note(&dir, &name) {
+                if let Err(e) = self.create_note(&dir, files::wiki_note_name(&name)) {
                     eprintln!("No se pudo crear la nota: {e}");
                     reply(self, page_calls::note_create_failed(&e));
                 }
