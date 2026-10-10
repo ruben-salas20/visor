@@ -391,7 +391,14 @@
   let pop = null, popNote = null, conv = null, warned = false;
   const UNSAVED = "Tienes texto sin guardar. ";
   const ESCAPE_AGAIN = "Pulsa Escape otra vez para descartarlo.";
-  function closePop() { pop?.remove(); pop = popNote = conv = null; warned = false; }
+  // A new note that was never saved goes with its popover, whatever closed it.
+  // Look it up in `notes`: after saving, `popNote` is still the unsaved copy.
+  function closePop() {
+    if (popNote && !notes.find((n) => n.id === popNote.id)?.saved) dropLocal(popNote.id);
+    pop?.remove();
+    pop = popNote = conv = null;
+    warned = false;
+  }
 
   // Closing throws the typed text away, so the first try only warns when there is
   // text to lose. The second try always goes through.
@@ -527,7 +534,7 @@
     del.onclick = () => { remove(note.id); closePop(); };
     const cancel = document.createElement("button");
     cancel.textContent = "Cancelar";
-    cancel.onclick = () => { if (isNew && !note.saved) dropLocal(note.id); closePop(); };
+    cancel.onclick = closePop;
     const ok = document.createElement("button");
     ok.className = "primary";
     ok.textContent = "Guardar";
