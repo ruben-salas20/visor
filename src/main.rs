@@ -9,7 +9,11 @@ use agent::{cli, mcp};
 use ui::app;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // std::env::args() aborts on an argument that is not UTF-8.
+    let Ok(args) = std::env::args_os().skip(1).map(|a| a.into_string()).collect::<Result<Vec<String>, _>>() else {
+        println!("{{\n  \"error\": \"visor no admite rutas con caracteres que no son UTF-8.\",\n  \"ok\": false\n}}");
+        std::process::exit(1);
+    };
     let code = match args.first().map(String::as_str) {
         None => app::launch(),
         Some("help" | "--help" | "-h") => {
