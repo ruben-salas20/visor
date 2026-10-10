@@ -445,6 +445,10 @@
     else el.style.top = Math.max(8, innerHeight - height - 8) + "px";
   }
 
+  // Enter sends or saves; Shift+Enter breaks the line. Not while an input method
+  // is still composing a character.
+  const submits = (e) => e.key === "Enter" && !e.shiftKey && !e.isComposing;
+
   function openNote(note, isNew = false) {
     if (!closePopSafely()) return;
     ensureHost();
@@ -515,7 +519,7 @@
     answer.textContent = "Responder";
     answer.onclick = sendReply;
     box.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); }
+      if (submits(e)) { e.preventDefault(); sendReply(); }
     });
     box.addEventListener("input", hideWarn);
     area.addEventListener("input", hideWarn);
@@ -547,9 +551,10 @@
     if (!isNew || note.saved) actions.append(del);
     actions.append(cancel, ok);
     pop.append(warn, actions);
-    // Ctrl+Enter in the reply box sends the reply; it must not also save the note.
+    // Enter in the reply box sends the reply; it must not also save the note.
+    // On a focused button, Enter presses that button instead.
     pop.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target !== box) ok.click();
+      if (submits(e) && e.target !== box && e.target.matches("textarea, input")) { e.preventDefault(); ok.click(); }
       if (e.key === "Escape") { e.stopPropagation(); closePopSafely(() => cancel.click(), ESCAPE_AGAIN); }
     });
     ui.append(pop);
