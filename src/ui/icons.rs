@@ -53,6 +53,22 @@ pub fn draw_new_folder(cr: &gtk::cairo::Context) {
     cr.line_to(10.0, 9.0);
 }
 
+/// A cog. Thin spokes read as a sun, so the teeth are thick and touch the ring.
+pub fn draw_gear(cr: &gtk::cairo::Context) {
+    cr.set_line_width(1.5);
+    cr.arc(8.0, 8.0, 4.25, 0.0, 2.0 * PI);
+    cr.new_sub_path();
+    cr.arc(8.0, 8.0, 1.75, 0.0, 2.0 * PI);
+    let _ = cr.stroke();
+    cr.set_line_width(2.75);
+    cr.set_line_cap(gtk::cairo::LineCap::Butt);
+    for i in 0..6 {
+        let (sin, cos) = (i as f64 * PI / 3.0).sin_cos();
+        cr.move_to(8.0 + 4.25 * cos, 8.0 + 4.25 * sin);
+        cr.line_to(8.0 + 6.75 * cos, 8.0 + 6.75 * sin);
+    }
+}
+
 pub fn draw_chevron(cr: &gtk::cairo::Context) {
     cr.set_line_width(1.5);
     cr.move_to(2.0, 3.5);

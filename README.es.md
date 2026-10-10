@@ -25,6 +25,8 @@ Escribe estas órdenes en una terminal, dentro de la carpeta de visor.
 
 2. Copia el archivo `target/release/visor` a una carpeta donde tu sistema busque programas, por ejemplo `~/.local/bin`.
 
+Desde ese momento visor se actualiza solo: al arrancar, como mucho una vez al día, busca una versión nueva en GitHub Releases y la instala para el siguiente arranque. Lo puedes desactivar en Ajustes (Ctrl+,). El binario dentro de `target/` nunca se actualiza.
+
 El paquete de CodeMirror ya está en `assets/`. Solo hace falta regenerarlo con `npm ci && npm run build` en `tools/codemirror/`.
 
 ## Abrir una bóveda
@@ -49,6 +51,7 @@ visor recuerda las pestañas de cada bóveda y la reabre como la dejaste. Si un 
 | Ctrl+Shift+A | Anotar un elemento o un punto de la página |
 | Ctrl+Shift+L | Ver la lista de anotaciones de la página |
 | Ctrl+L | Escribir una dirección web o una ruta |
+| Ctrl+, | Ajustes: tema, tamaño del texto y actualizaciones |
 
 `visor help` lista todos los atajos.
 

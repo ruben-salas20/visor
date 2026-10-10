@@ -25,6 +25,8 @@ Type these commands in a terminal, inside the visor folder.
 
 2. Copy the file `target/release/visor` to a folder where your system looks for programs, for example `~/.local/bin`.
 
+From then on visor updates itself: when it starts, at most once a day, it looks for a new version on GitHub Releases and installs it for the next start. You can turn this off in Settings (Ctrl+,). The binary inside `target/` is never updated.
+
 The CodeMirror bundle is already in `assets/`. Regenerate it only when needed, with `npm ci && npm run build` in `tools/codemirror/`.
 
 ## Open a vault
@@ -49,6 +51,7 @@ visor remembers the tabs of each vault and reopens it as you left it. If a file 
 | Ctrl+Shift+A | Annotate an element or a point on the page |
 | Ctrl+Shift+L | See the list of annotations on the page |
 | Ctrl+L | Type a web address or a path |
+| Ctrl+, | Settings: theme, text size and updates |
 
 `visor help` lists every shortcut.
 

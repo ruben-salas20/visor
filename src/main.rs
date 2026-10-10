@@ -2,6 +2,7 @@ mod agent;
 mod http;
 mod paths;
 mod session;
+mod update;
 mod ui;
 mod vault;
 

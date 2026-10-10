@@ -21,6 +21,10 @@ pub struct Config {
     pub port: Option<u16>,
     pub bar_shown: bool,
     pub zoom: Option<f64>,
+    /// «claro» or «oscuro» to fix the palette; `None`, or any other value, follows the system.
+    pub theme: Option<String>,
+    /// `None` means on; `Some(false)` is the only stored off.
+    pub auto_update: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]

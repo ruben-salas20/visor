@@ -92,7 +92,7 @@ pub fn launch() -> i32 {
         config.port = Some(port);
         config.save();
     }
-    let theme = Theme::load(None);
+    let theme = Theme::load(None, config.theme.as_deref());
     let p = proxy.clone();
     std::thread::spawn(move || {
         let _ = p.send_event(UserEvent::MonoFont(theme::monospace_font()));
@@ -136,6 +136,7 @@ pub fn launch() -> i32 {
     // reload slower and fail offline; the disk cache does not slow startup).
     let context = WebContext::new(None);
     let sidebar = Sidebar::new(&proxy);
+    sidebar.set_settings(config.theme.as_deref(), config.zoom.unwrap_or(1.0), config.auto_update != Some(false));
     // Started for a page outside every vault: that page alone, without the
     // last vault and its tabs. See cli::start.
     let loose = std::env::var_os("VISOR_LOOSE").is_some();
@@ -177,6 +178,10 @@ pub fn launch() -> i32 {
         _theme_watcher: theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, proxy, |_| UserEvent::ThemeChanged)),
     };
     app.apply_theme();
+    // Once the window and the first page exist, so the check never delays them.
+    if app.config.auto_update != Some(false) {
+        crate::update::spawn();
+    }
     // Load the page now instead of after the sidebar: both webviews start in parallel.
     let current = app.config.current.clone().filter(|p| !loose && p.is_dir());
     app.show_vault(current);
@@ -214,6 +219,7 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::Zoom(1),
             _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::Zoom(-1),
             _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::Zoom(0),
+            _ if ctrl && k == key::comma => Action::Settings,
             _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
             _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
             _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
@@ -644,7 +650,7 @@ impl App {
     }
 
     fn apply_theme(&mut self) {
-        self.theme = Theme::load(self.mono.clone());
+        self.theme = Theme::load(self.mono.clone(), self.config.theme.as_deref());
         if let Some(theme) = &self.theme {
             self.background = theme.rgba();
         }
@@ -826,7 +832,24 @@ impl App {
                     view.webview().set_zoom_level(zoom);
                 }
                 self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
+                self.sidebar.set_zoom(zoom);
                 self.save_config_soon();
+            }
+            Action::SetTheme(choice) => {
+                self.config.theme = choice;
+                self.save_config_soon();
+                self.apply_theme();
+            }
+            Action::SetAutoUpdate(on) => {
+                self.config.auto_update = Some(on).filter(|on| !on);
+                self.save_config_soon();
+            }
+            Action::Settings => {
+                let side = self.sidebar.root.clone();
+                if !side.is_visible() {
+                    side.set_visible(true);
+                }
+                self.sidebar.popup_settings();
             }
             Action::LeaveAddress => {
                 if let Some(view) = self.view() {

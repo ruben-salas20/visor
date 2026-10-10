@@ -1,14 +1,14 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/adr/0003.
-use crate::ui::action::{SidebarMsg, UserEvent};
-use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_new_folder, draw_plus, drawn_icon, icon_button};
+use crate::ui::action::{Action, SidebarMsg, UserEvent};
+use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_plus, drawn_icon, icon_button};
 use crate::ui::theme::Theme;
 use crate::vault::Dir;
 use gtk::cairo::{Context, Format, ImageSurface};
 use gtk::gdk;
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -123,6 +123,12 @@ pub struct Sidebar {
     vault_list: gtk::Box,
     new_button: gtk::Button,
     folder_button: gtk::Button,
+    settings: gtk::Popover,
+    theme_buttons: ThemeButtons,
+    zoom_label: gtk::Label,
+    auto_update: gtk::CheckButton,
+    /// Set while the settings are filled in, so that is not sent as a change.
+    syncing: Rc<Cell<bool>>,
     form: gtk::Box,
     form_label: gtk::Label,
     entry: gtk::Entry,
@@ -164,6 +170,15 @@ impl Sidebar {
         head.pack_start(&vault_button, true, true, 0);
         head.pack_start(&new_button, false, false, 0);
         head.pack_start(&folder_button, false, false, 0);
+        let gear = gtk::MenuButton::new();
+        gear.add(&drawn_icon(16, draw_gear));
+        gear.set_tooltip_text(Some("Ajustes (Ctrl+,)"));
+        let foot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        foot.style_context().add_class("visor-side-foot");
+        foot.pack_start(&gear, false, false, 0);
+        let syncing = Rc::new(Cell::new(false));
+        let (settings, theme_buttons, zoom_label, auto_update) = settings_popover(&gear, proxy, &syncing);
+        gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
         form.style_context().add_class("visor-new");
@@ -254,6 +269,7 @@ impl Sidebar {
         root.pack_start(&form, false, false, 0);
         root.pack_start(&scroll, true, true, 0);
         root.pack_start(&notice, false, false, 0);
+        root.pack_start(&foot, false, false, 0);
         root.show_all();
 
         let sidebar = Sidebar {
@@ -263,6 +279,11 @@ impl Sidebar {
             vault_list,
             new_button,
             folder_button,
+            settings,
+            theme_buttons,
+            zoom_label,
+            auto_update,
+            syncing,
             form,
             form_label,
             entry,
@@ -319,6 +340,31 @@ impl Sidebar {
 
     fn send(&self, msg: SidebarMsg) {
         let _ = self.proxy.send_event(UserEvent::Sidebar(msg));
+    }
+
+    /// Fills in the settings without reporting them as changes. Theme names
+    /// other than «claro» and «oscuro» show as «Sistema», as the app treats them.
+    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool) {
+        let theme = match theme {
+            Some(t @ ("claro" | "oscuro")) => Some(t),
+            _ => None,
+        };
+        self.syncing.set(true);
+        for (choice, button) in &self.theme_buttons {
+            button.set_active(*choice == theme);
+        }
+        self.auto_update.set_active(auto_update);
+        self.syncing.set(false);
+        self.set_zoom(zoom);
+    }
+
+    pub fn set_zoom(&self, zoom: f64) {
+        // A non-breaking space keeps «100 %» on one line, as Spanish typesetting does.
+        self.zoom_label.set_text(&format!("{}\u{a0}%", (zoom * 100.0).round() as i32));
+    }
+
+    pub fn popup_settings(&self) {
+        self.settings.popup();
     }
 
     /// Folders in the muted color; the open file and a drop target, highlighted.
@@ -838,6 +884,8 @@ impl Sidebar {
             ".visor-sidebar, .visor-sidebar treeview.view {{ background: {side}; color: {fg}; }}
 .visor-sidebar .drop-root treeview.view {{ background: {active}; }}
 .visor-side-head {{ padding: 10px 8px 6px; }}
+.visor-side-foot {{ padding: 6px 8px 8px; }}
+.visor-side-foot button {{ color: {muted}; }}
 .visor-sidebar button, .visor-vaults button {{ background: none; border: none; box-shadow: none;
   color: {fg}; border-radius: 6px; padding: 4px 8px; min-height: 0; }}
 .visor-sidebar button:hover, .visor-vaults button:hover {{ background: {hover}; }}
@@ -858,7 +906,12 @@ impl Sidebar {
 .visor-menu button {{ background: none; border: none; box-shadow: none; color: {fg}; border-radius: 6px; padding: 6px 8px; min-height: 0; }}
 .visor-menu button:hover {{ background: {hover}; }}
 .visor-menu .visor-accel {{ color: {muted}; margin-left: 24px; }}
-.visor-menu separator {{ background: {line}; min-height: 1px; margin: 4px 0; }}",
+.visor-menu separator {{ background: {line}; min-height: 1px; margin: 4px 0; }}
+.visor-settings {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 10px; padding: 10px; }}
+.visor-settings button {{ background: none; border: none; box-shadow: none; color: {fg}; border-radius: 6px; padding: 4px 8px; min-height: 0; }}
+.visor-settings button:hover {{ background: {hover}; }}
+.visor-settings button:checked {{ background: {active}; color: {fg}; font-weight: 600; }}
+.visor-settings .visor-zoom {{ min-width: 4em; }}",
             bg = theme.bg,
             fg = theme.fg,
             muted = theme.muted,
@@ -870,6 +923,104 @@ impl Sidebar {
             active = theme.accent_tone(20.0),
         )
     }
+}
+
+/// Theme choices as the settings popover holds them: `None` is «Sistema».
+type ThemeButtons = Vec<(Option<&'static str>, gtk::ToggleButton)>;
+
+/// The gear's popover: a theme choice, the text size and the update switch.
+/// Its controls send actions; `Sidebar::set_settings` fills them in silently.
+fn settings_popover(
+    gear: &gtk::MenuButton,
+    proxy: &EventLoopProxy<UserEvent>,
+    syncing: &Rc<Cell<bool>>,
+) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton) {
+    let caption = |text: &str| {
+        let label = gtk::Label::new(Some(text));
+        label.set_xalign(0.0);
+        label.style_context().add_class("visor-muted");
+        label
+    };
+
+    let themes: ThemeButtons =
+        [(None, "Sistema"), (Some("claro"), "Claro"), (Some("oscuro"), "Oscuro")]
+            .into_iter()
+            .map(|(choice, label)| (choice, gtk::ToggleButton::with_label(label)))
+            .collect();
+    let all: Vec<gtk::ToggleButton> = themes.iter().map(|(_, b)| b.clone()).collect();
+    let theme_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    for (choice, button) in &themes {
+        theme_row.pack_start(button, true, true, 0);
+        let (all, syncing, choice) = (all.clone(), syncing.clone(), *choice);
+        let proxy = proxy.clone();
+        button.connect_toggled(move |b| {
+            if syncing.get() {
+                return;
+            }
+            // Clicking the active choice would clear it, and one choice always stays on.
+            if !b.is_active() {
+                syncing.set(true);
+                b.set_active(true);
+                syncing.set(false);
+                return;
+            }
+            syncing.set(true);
+            for other in all.iter().filter(|o| *o != b) {
+                other.set_active(false);
+            }
+            syncing.set(false);
+            let _ = proxy.send_event(UserEvent::Action(Action::SetTheme(choice.map(String::from))));
+        });
+    }
+
+    let zoom_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let smaller = gtk::Button::with_label("−");
+    smaller.set_tooltip_text(Some("Reducir (Ctrl+-)"));
+    let zoom_label = gtk::Label::new(None);
+    zoom_label.style_context().add_class("visor-zoom");
+    let reset = gtk::Button::new();
+    reset.set_relief(gtk::ReliefStyle::None);
+    reset.add(&zoom_label);
+    reset.set_tooltip_text(Some("Restablecer (Ctrl+0)"));
+    let bigger = gtk::Button::with_label("+");
+    bigger.set_tooltip_text(Some("Aumentar (Ctrl++)"));
+    zoom_row.pack_start(&smaller, false, false, 0);
+    zoom_row.pack_start(&reset, true, true, 0);
+    zoom_row.pack_start(&bigger, false, false, 0);
+    let p = proxy.clone();
+    smaller.connect_clicked(move |_| {
+        let _ = p.send_event(UserEvent::Action(Action::Zoom(-1)));
+    });
+    let p = proxy.clone();
+    reset.connect_clicked(move |_| {
+        let _ = p.send_event(UserEvent::Action(Action::Zoom(0)));
+    });
+    let p = proxy.clone();
+    bigger.connect_clicked(move |_| {
+        let _ = p.send_event(UserEvent::Action(Action::Zoom(1)));
+    });
+
+    let auto_update = gtk::CheckButton::with_label("Buscar e instalar actualizaciones");
+    let (syncing_flag, p) = (syncing.clone(), proxy.clone());
+    auto_update.connect_toggled(move |c| {
+        if !syncing_flag.get() {
+            let _ = p.send_event(UserEvent::Action(Action::SetAutoUpdate(c.is_active())));
+        }
+    });
+
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    column.pack_start(&caption("Tema"), false, false, 0);
+    column.pack_start(&theme_row, false, false, 0);
+    column.pack_start(&caption("Tamaño del texto"), false, false, 0);
+    column.pack_start(&zoom_row, false, false, 0);
+    column.pack_start(&auto_update, false, false, 4);
+    column.show_all();
+
+    let settings = gtk::Popover::new(Some(gear));
+    settings.style_context().add_class("visor-settings");
+    settings.set_position(gtk::PositionType::Top);
+    settings.add(&column);
+    (settings, themes, zoom_label, auto_update)
 }
 
 /// The open file and a drop target get the accent color and a background.

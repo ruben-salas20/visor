@@ -187,6 +187,11 @@ FLUJO TÍPICO DE UN AGENTE
   4. Con un evento "annotation": lee la conversación con `visor notes`,
      responde con `visor notes reply <id> <texto>` y vuelve a esperar.
 
+ACTUALIZACIONES
+  visor busca una versión nueva al arrancar, como mucho una vez al día,
+  y la instala sola para el siguiente arranque. Se desactiva en Ajustes
+  (Ctrl+,). Un binario compilado con cargo no se toca.
+
 ATAJOS EN LA APP
   Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel
   Ctrl+R / F5  recargar
@@ -205,6 +210,7 @@ ATAJOS EN LA APP
   Ctrl+Alt+←  Ctrl+Alt+→  lado izquierdo o derecho
   Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño (se
           recuerda)
+  Ctrl+,  ajustes: tema, tamaño del texto y actualizaciones
   Alt+←  atrás    Alt+→  adelante (también los botones laterales del
           ratón)
   Panel:

@@ -20,6 +20,13 @@ pub fn config() -> PathBuf {
         .join("visor/config.json")
 }
 
+/// Empty file whose time is the last check for a new version.
+pub fn update_check() -> PathBuf {
+    dirs::state_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("visor/actualizacion")
+}
+
 pub fn events() -> PathBuf {
     dirs::state_dir()
         .unwrap_or_else(std::env::temp_dir)

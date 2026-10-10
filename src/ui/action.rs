@@ -83,4 +83,9 @@ pub enum Action {
     FocusPane(u64),
     /// Moves the keyboard focus to the left (0) or right (1) side.
     FocusSide(usize),
+    /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
+    SetTheme(Option<String>),
+    SetAutoUpdate(bool),
+    /// Shows the sidebar if hidden and opens its settings popover.
+    Settings,
 }
