@@ -1,5 +1,6 @@
 use crate::app::{Action, UserEvent};
 use crate::bar::Bar;
+use crate::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
 use crate::theme::Theme;
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -83,15 +84,14 @@ impl Pane {
         strip.pack_start(&tab_list, true, true, 0);
         let annot_tools = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.pack_end(&annot_tools, false, false, 0);
-        for (icon, tip, action) in [
-            ("find-location-symbolic", "Anotar un elemento (Ctrl+Shift+A)", (|| Action::PickElement) as fn() -> Action),
-            ("view-list-symbolic", "Anotaciones de la página (Ctrl+Shift+L)", || Action::ToggleAnnotations),
+        for (draw, tip, action) in [
+            (draw_target as fn(&gtk::cairo::Context), "Anotar un elemento (Ctrl+Shift+A)", (|| Action::PickElement) as fn() -> Action),
+            (draw_list, "Anotaciones de la página (Ctrl+Shift+L)", || Action::ToggleAnnotations),
         ]
         .into_iter()
         .rev()
         {
-            let b = gtk::Button::from_icon_name(Some(icon), gtk::IconSize::Button);
-            b.set_tooltip_text(Some(tip));
+            let b = icon_button(tip, draw);
             b.set_can_focus(false);
             b.set_valign(gtk::Align::Center);
             let proxy = proxy.clone();
@@ -163,7 +163,8 @@ impl Pane {
                 let _ = proxy.send_event(UserEvent::Action(Action::CloseTab(Some(id))));
                 gtk::glib::Propagation::Stop
             });
-            let close = gtk::Button::from_icon_name(Some("window-close-symbolic"), gtk::IconSize::Menu);
+            let close = gtk::Button::new();
+            close.add(&drawn_icon(14, draw_close));
             close.set_can_focus(false);
             close.set_tooltip_text(Some("Cerrar pestaña (Ctrl+W)"));
             let proxy = self.proxy.clone();
@@ -174,10 +175,9 @@ impl Pane {
             item.pack_start(&close, false, false, 0);
             self.tab_list.pack_start(&item, false, true, 0);
         }
-        let add = gtk::Button::from_icon_name(Some("list-add-symbolic"), gtk::IconSize::Menu);
+        let add = icon_button("Nueva pestaña (Ctrl+T)", draw_plus);
         add.set_can_focus(false);
         add.set_valign(gtk::Align::Center);
-        add.set_tooltip_text(Some("Nueva pestaña (Ctrl+T)"));
         let (proxy, pane) = (self.proxy.clone(), self.id);
         add.connect_clicked(move |_| {
             let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(pane)));

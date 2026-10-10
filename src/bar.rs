@@ -1,4 +1,5 @@
 use crate::app::{Action, UserEvent};
+use crate::icons::{draw_back, draw_forward, draw_reload, icon_button};
 use crate::theme::Theme;
 use gtk::prelude::*;
 use tao::event_loop::EventLoopProxy;
@@ -17,9 +18,8 @@ impl Bar {
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         root.style_context().add_class("visor-bar");
 
-        let button = |icon: &str, tooltip: &str, action: fn() -> Action| {
-            let b = gtk::Button::from_icon_name(Some(icon), gtk::IconSize::Button);
-            b.set_tooltip_text(Some(tooltip));
+        let button = |draw: fn(&gtk::cairo::Context), tooltip: &str, action: fn() -> Action| {
+            let b = icon_button(tooltip, draw);
             b.set_can_focus(false);
             let proxy = proxy.clone();
             b.connect_clicked(move |_| {
@@ -29,9 +29,9 @@ impl Bar {
             root.pack_start(&b, false, false, 0);
             b
         };
-        let back = button("go-previous-symbolic", "Atrás (Alt+←)", || Action::Back);
-        let forward = button("go-next-symbolic", "Adelante (Alt+→)", || Action::Forward);
-        button("view-refresh-symbolic", "Recargar (Ctrl+R)", || Action::Reload);
+        let back = button(draw_back, "Atrás (Alt+←)", || Action::Back);
+        let forward = button(draw_forward, "Adelante (Alt+→)", || Action::Forward);
+        button(draw_reload, "Recargar (Ctrl+R)", || Action::Reload);
 
         let address = gtk::Entry::new();
         address.set_hexpand(true);

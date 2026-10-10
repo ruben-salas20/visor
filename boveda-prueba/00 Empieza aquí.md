@@ -147,6 +147,15 @@ Ya probado: `visor open` con un HTML fuera de las bóvedas lo abre sin panel, ca
 - [ ] **Barra de direcciones**: en la pestaña de la muestra, pulsa Ctrl+L. La barra enseña la ruta absoluta. Pulsa Intro: la página se vuelve a abrir sin error.
 - [ ] **Atajos de anotaciones**: en la muestra, Ctrl+Shift+A y Ctrl+Shift+L no hacen nada.
 
+## 14. Iconos propios
+
+Los iconos de la barra, las pestañas y las flechas de las carpetas ahora los dibuja visor. Antes salían del tema, y cargarlos costaba un proceso aparte, unos 15 MB y unos 50 ms al abrir. Ya probado: los iconos se ven nítidos y en su sitio, y la sangría del panel es igual que antes.
+
+- [ ] **Flecha de las carpetas**: un clic justo en la flecha abre y cierra la carpeta, igual que un clic en el nombre. La flecha apunta a la derecha si la carpeta está cerrada y hacia abajo si está abierta.
+- [ ] **Teclado en el panel**: haz clic en el panel y abre y cierra una carpeta con Intro. La flecha cambia al momento.
+- [ ] **Botones**: atrás, adelante, recargar, anotar, lista de anotaciones, cerrar pestaña («×») y nueva pestaña («+») hacen lo mismo que antes. Al pasar el ratón por encima sale su descripción.
+- [ ] **Tema**: cambia de tema en Omarchy. Los iconos y las flechas cambian de color con él.
+
 ## Si algo falla
 
 Anota qué hiciste y qué pasó justo debajo de la casilla. Con eso basta para que lo corrija.

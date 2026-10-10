@@ -10,6 +10,7 @@ Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo 
 - `files.rs`: mover y mandar a la papelera desde el panel; `links.rs`: reescribe los enlaces de las notas al mover.
 - `server.rs` + `cli.rs`: órdenes de agentes por socket Unix. `mcp.rs`: servidor MCP por stdio (`visor mcp`), puente a esas mismas órdenes.
 - `markdown.rs` + `note.js/css`: notas .md en lectura. `editor.js/css`: editor de Ctrl+E (CodeMirror 6 con vista previa), que solo se carga al editar. `annot.rs` + `annot.js`: anotaciones.
+- `icons.rs`: iconos dibujados con cairo (sin temas: cargarlos cuesta ~50 ms en arranque en frío).
 - `bridge.js`: consola y `visor.send` en las páginas. `sidebar.rs`: panel lateral en GTK nativo. `bar.rs`: barra de direcciones GTK.
 - `build.rs`: empaqueta `assets/` (KaTeX, highlight.js, Mermaid, CodeMirror) y `editor.js/css` comprimidos con brotli. CodeMirror se regenera en `tools/codemirror/` (ver `docs/decisiones.md`).
 

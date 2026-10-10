@@ -1,8 +1,10 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/decisiones.md.
 use crate::app::UserEvent;
+use crate::icons::{draw_chevron, draw_new_folder, draw_plus, drawn_icon, icon_button};
 use crate::theme::Theme;
 use crate::vault::Dir;
+use gtk::cairo::{Context, Format, ImageSurface};
 use gtk::gdk;
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
@@ -53,6 +55,60 @@ impl Colors {
     }
 }
 
+/// Size of the folder arrow cell, in logical px. The names start 4 px after it
+/// (the text cell's padding); each level adds `LEVEL_STEP`, as GTK's expander did.
+const ARROW_W: f64 = 18.0;
+const ARROW_H: f64 = 16.0;
+const LEVEL_STEP: i32 = 18;
+
+/// Folder arrows as surfaces for the tree's pixbuf cell, in the muted color.
+/// Drawn here because GTK's own expander is a theme icon, and loading one
+/// costs a sandboxed SVG load (see icons.rs). Rebuilt when the theme or the
+/// screen scale changes.
+struct Arrows {
+    scale: i32,
+    right: ImageSurface,
+    down: ImageSurface,
+    blank: ImageSurface,
+}
+
+impl Arrows {
+    fn new(muted: &str, scale: i32) -> Arrows {
+        let rgba = gdk::RGBA::parse(muted).unwrap_or(gdk::RGBA::new(0.43, 0.43, 0.46, 1.0));
+        Arrows {
+            scale,
+            right: arrow(&rgba, scale, Some(-std::f64::consts::FRAC_PI_2)),
+            down: arrow(&rgba, scale, Some(0.0)),
+            blank: arrow(&rgba, scale, None),
+        }
+    }
+}
+
+/// One arrow pointing down, turned by `turn` radians; `None` gives an empty surface.
+fn arrow(rgba: &gdk::RGBA, scale: i32, turn: Option<f64>) -> ImageSurface {
+    let px = |v: f64| (v * scale as f64).round() as i32;
+    let surface = ImageSurface::create(Format::ARgb32, px(ARROW_W), px(ARROW_H)).expect("arrow surface");
+    // The device scale also scales the new context, so no cr.scale here.
+    surface.set_device_scale(scale as f64, scale as f64);
+    let cr = Context::new(&surface).expect("arrow context");
+    let Some(turn) = turn else { return surface };
+    cr.set_source_rgba(rgba.red(), rgba.green(), rgba.blue(), rgba.alpha());
+    cr.set_line_cap(gtk::cairo::LineCap::Round);
+    cr.set_line_join(gtk::cairo::LineJoin::Round);
+    // The glyph is drawn on the 16-unit grid and enlarged to about 10 px;
+    // its line width is set after the path, in grid units, to stay at 1.4 px.
+    // The 1.4 px nudge puts it where GTK's expander was, measured on screen.
+    const GROW: f64 = 1.7;
+    cr.translate(ARROW_W / 2.0 - 1.4, ARROW_H / 2.0);
+    cr.rotate(turn);
+    cr.scale(GROW, GROW);
+    cr.translate(-5.0, -5.0);
+    draw_chevron(&cr);
+    cr.set_line_width(1.4 / GROW);
+    let _ = cr.stroke();
+    surface
+}
+
 struct State {
     has_vault: bool,
     /// The file on the focused side, marked in the tree.
@@ -73,6 +129,7 @@ struct State {
     /// The row the context menu was opened on.
     menu_path: Option<String>,
     colors: Colors,
+    arrows: Arrows,
 }
 
 #[derive(Clone)]
@@ -95,60 +152,6 @@ pub struct Sidebar {
     notice: gtk::Label,
     state: Rc<RefCell<State>>,
     proxy: EventLoopProxy<UserEvent>,
-}
-
-/// A small line icon drawn in the text color. Loading theme icons instead
-/// adds ~50 ms to most cold starts: each SVG goes through a sandboxed loader.
-fn drawn_icon(size: i32, draw: fn(&gtk::cairo::Context)) -> gtk::DrawingArea {
-    let area = gtk::DrawingArea::new();
-    area.set_size_request(size, size);
-    area.set_valign(gtk::Align::Center);
-    area.connect_draw(move |area, cr| {
-        let style = area.style_context();
-        let c = style.color(style.state());
-        cr.set_source_rgba(c.red(), c.green(), c.blue(), c.alpha());
-        cr.set_line_cap(gtk::cairo::LineCap::Round);
-        cr.set_line_join(gtk::cairo::LineJoin::Round);
-        draw(cr);
-        let _ = cr.stroke();
-        Propagation::Stop
-    });
-    area
-}
-
-fn icon_button(tip: &str, draw: fn(&gtk::cairo::Context)) -> gtk::Button {
-    let b = gtk::Button::new();
-    b.add(&drawn_icon(16, draw));
-    b.set_tooltip_text(Some(tip));
-    b
-}
-
-fn draw_plus(cr: &gtk::cairo::Context) {
-    cr.set_line_width(1.6);
-    cr.move_to(8.0, 3.0);
-    cr.line_to(8.0, 13.0);
-    cr.move_to(3.0, 8.0);
-    cr.line_to(13.0, 8.0);
-}
-
-fn draw_new_folder(cr: &gtk::cairo::Context) {
-    cr.set_line_width(1.4);
-    cr.move_to(1.75, 3.25);
-    for (x, y) in [(1.75, 12.75), (14.25, 12.75), (14.25, 5.25), (7.75, 5.25), (6.25, 3.25)] {
-        cr.line_to(x, y);
-    }
-    cr.close_path();
-    cr.move_to(8.0, 7.0);
-    cr.line_to(8.0, 11.0);
-    cr.move_to(6.0, 9.0);
-    cr.line_to(10.0, 9.0);
-}
-
-fn draw_chevron(cr: &gtk::cairo::Context) {
-    cr.set_line_width(1.5);
-    cr.move_to(2.0, 3.5);
-    cr.line_to(5.0, 6.5);
-    cr.line_to(8.0, 3.5);
 }
 
 impl Sidebar {
@@ -204,13 +207,19 @@ impl Sidebar {
             String::static_type(),
         ]);
         let tree = gtk::TreeView::with_model(&store);
+        let scale = tree.scale_factor();
         tree.set_headers_visible(false);
+        tree.set_show_expanders(false);
+        tree.set_level_indentation(LEVEL_STEP);
         tree.selection().set_mode(gtk::SelectionMode::None);
         tree.set_tooltip_column(TIP as i32);
         let cell = gtk::CellRendererText::new();
         cell.set_property("ellipsize", gtk::pango::EllipsizeMode::End);
         cell.set_padding(4, 3);
+        let arrow = gtk::CellRendererPixbuf::new();
+        arrow.set_padding(0, 0);
         let column = gtk::TreeViewColumn::new();
+        CellLayoutExt::pack_start(&column, &arrow, false);
         CellLayoutExt::pack_start(&column, &cell, true);
         CellLayoutExt::add_attribute(&column, &cell, "text", NAME as i32);
         tree.append_column(&column);
@@ -276,10 +285,11 @@ impl Sidebar {
                 notice_gen: 0,
                 menu_path: None,
                 colors: Colors::new(None),
+                arrows: Arrows::new("#6e6e76", scale),
             })),
             proxy: proxy.clone(),
         };
-        sidebar.style_rows(&column, &cell);
+        sidebar.style_rows(&column, &cell, &arrow);
         sidebar.connect_header();
         sidebar.connect_form();
         sidebar.connect_clicks();
@@ -303,7 +313,36 @@ impl Sidebar {
     }
 
     /// Folders in the muted color; the open file and a drop target, highlighted.
-    fn style_rows(&self, column: &gtk::TreeViewColumn, cell: &gtk::CellRendererText) {
+    fn style_rows(&self, column: &gtk::TreeViewColumn, cell: &gtk::CellRendererText, arrow: &gtk::CellRendererPixbuf) {
+        let (state, tree) = (self.state.clone(), self.tree.clone());
+        CellLayoutExt::set_cell_data_func(
+            column,
+            arrow,
+            Some(Box::new(move |_, cell, model, iter| {
+                let scale = tree.scale_factor();
+                if state.borrow().arrows.scale != scale {
+                    let mut st = state.borrow_mut();
+                    let muted = st.colors.muted.clone();
+                    st.arrows = Arrows::new(&muted, scale);
+                }
+                let st = state.borrow();
+                let dir = is_dir(model, iter);
+                let surface = if !dir {
+                    &st.arrows.blank
+                } else if model.path(iter).is_some_and(|p| tree.row_expanded(&p)) {
+                    &st.arrows.down
+                } else {
+                    &st.arrows.right
+                };
+                cell.set_property("surface", surface);
+                // The highlight covers the arrow too, so it reads as one row.
+                let marked = highlighted(&st, &rel_path(model, iter), dir);
+                cell.set_property("cell-background-set", marked);
+                if marked {
+                    cell.set_property("cell-background", &st.colors.active);
+                }
+            })),
+        );
         let state = self.state.clone();
         CellLayoutExt::set_cell_data_func(
             column,
@@ -314,15 +353,15 @@ impl Sidebar {
                 let state = state.borrow();
                 let c = &state.colors;
                 let active = !is_dir && state.file.as_deref() == Some(path.as_str());
-                let drop = is_dir && state.drop_target.as_deref() == Some(path.as_str());
-                let fg = if active || drop { Some(&c.accent) } else if is_dir { Some(&c.muted) } else { c.fg.as_ref() };
+                let marked = highlighted(&state, &path, is_dir);
+                let fg = if marked { Some(&c.accent) } else if is_dir { Some(&c.muted) } else { c.fg.as_ref() };
                 cell.set_property("foreground-set", fg.is_some());
                 if let Some(fg) = fg {
                     cell.set_property("foreground", fg);
                 }
                 cell.set_property("weight", if active || is_dir { 500 } else { 400 });
-                cell.set_property("cell-background-set", active || drop);
-                if active || drop {
+                cell.set_property("cell-background-set", marked);
+                if marked {
                     cell.set_property("cell-background", &c.active);
                 }
             })),
@@ -389,8 +428,7 @@ impl Sidebar {
         });
     }
 
-    /// Clicks act on release, so that pressing to drag opens nothing. The
-    /// expander arrow is left to the tree.
+    /// Clicks act on release, so that pressing to drag opens nothing.
     fn connect_clicks(&self) {
         let s = self.clone();
         self.tree.connect_button_press_event(move |tree, event| {
@@ -476,6 +514,7 @@ impl Sidebar {
     fn connect_folders(&self) {
         let s = self.clone();
         self.tree.connect_row_expanded(move |tree, iter, _| {
+            tree.queue_draw();
             let path: String = rel_path(&s.store, iter);
             let report = {
                 let mut state = s.state.borrow_mut();
@@ -496,7 +535,8 @@ impl Sidebar {
             }
         });
         let s = self.clone();
-        self.tree.connect_row_collapsed(move |_, iter, _| {
+        self.tree.connect_row_collapsed(move |tree, iter, _| {
+            tree.queue_draw();
             let path: String = rel_path(&s.store, iter);
             let report = {
                 let mut state = s.state.borrow_mut();
@@ -773,15 +813,16 @@ impl Sidebar {
     }
 
     pub fn set_theme(&self, theme: Option<&Theme>) {
-        self.state.borrow_mut().colors = Colors::new(theme);
+        let mut st = self.state.borrow_mut();
+        let st = &mut *st;
+        st.colors = Colors::new(theme);
+        st.arrows = Arrows::new(&st.colors.muted, st.arrows.scale);
         self.tree.queue_draw();
     }
 
     pub fn css(theme: &Theme) -> String {
         format!(
             ".visor-sidebar, .visor-sidebar treeview.view {{ background: {side}; color: {fg}; }}
-.visor-sidebar treeview.view.expander {{ color: {muted}; }}
-.visor-sidebar treeview.view.expander:hover {{ color: {fg}; }}
 .visor-sidebar .drop-root treeview.view {{ background: {active}; }}
 .visor-side-head {{ padding: 10px 8px 6px; }}
 .visor-sidebar button, .visor-vaults button {{ background: none; border: none; box-shadow: none;
@@ -816,6 +857,13 @@ menu.visor-menu separator {{ background: {line}; min-height: 1px; margin: 4px 0;
             active = theme.accent_tone(20.0),
         )
     }
+}
+
+/// The open file and a drop target get the accent color and a background.
+fn highlighted(state: &State, path: &str, is_dir: bool) -> bool {
+    let active = !is_dir && state.file.as_deref() == Some(path);
+    let drop = is_dir && state.drop_target.as_deref() == Some(path);
+    active || drop
 }
 
 fn rel_path(model: &impl IsA<gtk::TreeModel>, iter: &gtk::TreeIter) -> String {

@@ -4,6 +4,7 @@ mod bar;
 mod cli;
 mod files;
 mod http;
+mod icons;
 mod links;
 mod markdown;
 mod mcp;
