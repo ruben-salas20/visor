@@ -388,12 +388,16 @@
     report();
   }
 
+  // Markers are kept per note id and touched only when they change: rebuilding them
+  // on every pass recreated every node each second on pages whose DOM churns.
+  const pins = new Map(); // note id -> { button, cls, left, top, color, title }
+
   function placePins() {
     const needPins = notes.some((n) => anchors.has(n.id) && (n.target.kind === "element" || n.comment || n.replies?.length));
     if (!needPins && !host) return;
     ensureHost();
-    for (const pin of ui.querySelectorAll(".pin")) pin.remove();
     host.style.display = document.documentElement.dataset.visorEditing ? "none" : "";
+    const placed = new Set();
     for (const note of notes) {
       const anchor = anchors.get(note.id);
       if (!anchor) continue;
@@ -409,15 +413,45 @@
         if (!r.width && !r.height) continue;
         x = r.left + anchor.point.x * r.width; y = r.top + anchor.point.y * r.height; cls = "pin";
       }
-      const pin = document.createElement("button");
-      pin.className = cls;
-      pin.style.cssText = `left:${x + scrollX}px;top:${y + scrollY}px;background:${COLORS[note.color] || COLORS.amarillo};color:#222`;
-      pin.title = note.comment || note.title || "Anotación";
-      pin.setAttribute("aria-label", "Abrir anotación");
-      if (cls === "pin") pin.innerHTML = ICON;
-      pin.onclick = (e) => { e.stopPropagation(); openNote(note); };
-      ui.append(pin);
+      placed.add(note.id);
+      placePin(note, cls, x + scrollX, y + scrollY);
     }
+    for (const [id, pin] of pins) {
+      if (placed.has(id)) continue;
+      pin.button.remove();
+      pins.delete(id);
+    }
+  }
+
+  function placePin(note, cls, left, top) {
+    const color = COLORS[note.color] || COLORS.amarillo;
+    const title = note.comment || note.title || "Anotación";
+    let pin = pins.get(note.id);
+    if (!pin) {
+      const button = document.createElement("button");
+      button.style.color = "#222";
+      button.setAttribute("aria-label", "Abrir anotación");
+      const id = note.id;
+      // Looked up at click time: a save or a reload replaces the note objects.
+      button.onclick = (e) => {
+        e.stopPropagation();
+        const current = notes.find((n) => n.id === id);
+        if (current) openNote(current);
+      };
+      pin = { button, cls: null, left: null, top: null, color: null, title: null };
+      pins.set(id, pin);
+      ui.append(button);
+    }
+    const { button } = pin;
+    if (pin.cls !== cls) {
+      button.className = cls;
+      button.innerHTML = cls === "pin" ? ICON : "";
+      pin.cls = cls;
+    }
+    if (pin.left !== left) { button.style.left = left + "px"; pin.left = left; }
+    if (pin.top !== top) { button.style.top = top + "px"; pin.top = top; }
+    if (pin.color !== color) { button.style.background = color; pin.color = color; }
+    if (pin.title !== title) { button.title = title; pin.title = title; }
   }
 
   // ---------- popover ----------
@@ -963,7 +997,14 @@
       later();
     }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-visor-editing"] });
     new ResizeObserver(() => placePins()).observe(document.body);
-    addEventListener("resize", placePins);
+    // Resize events can come several times a frame; one pass per frame is enough.
+    // The body observer may still run in the same frame, which only reads rects now.
+    let pinsQueued = false;
+    addEventListener("resize", () => {
+      if (pinsQueued) return;
+      pinsQueued = true;
+      requestAnimationFrame(() => { pinsQueued = false; placePins(); });
+    });
   }
 
   window.__visorAnnot = Object.freeze({
