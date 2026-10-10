@@ -24,6 +24,7 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 
 - **Arranque en frío**: tiempo de `visor open <archivo>` con la app cerrada; ya espera a que la página cargue.
 - **Memoria**: suma de `Pss` (`/proc/<pid>/smaps_rollup`) del proceso y de sus hijos y nietos (WebKitNetworkProcess, WebKitWebProcess, bwrap). El RSS cuenta doble.
+- **CPU en reposo**: con la página cargada (espera 10 s), suma `utime + stime` (campos 14 y 15 de `/proc/<pid>/stat`) del proceso y de sus hijos y nietos al empezar y tras 30 s sin tocar nada. CPU = diferencia / `getconf CLK_TCK` / 30. La ventana debe estar visible en el escritorio activo (`hyprctl clients -j`): WebKit frena las páginas ocultas. Descarta las rondas en las que alguien usa el equipo: cambiar de escritorio o mover el ratón sobre la ventana la hace redibujar y la sube a ~2 %.
 - **La página manda en la memoria**: una nota con Mermaid y KaTeX ocupa unos 100 MB más que una nota de un párrafo con el mismo binario. Compara siempre con la misma página y anota cuál es.
 - Repite cada medida al menos cinco veces; con diferencias de pocos milisegundos, haz rondas alternadas. El ruido supera a menudo el efecto.
 - **El perfil de energía manda**: con el mismo binario, el arranque en frío va de ~280 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Anota `powerprofilesctl get` y si el equipo está enchufado; compara solo en las mismas condiciones.
@@ -39,6 +40,7 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 | Memoria en reposo, una página | ~245–247 MB (no consta qué página; usa las dos filas siguientes) |
 | Memoria en reposo, nota mínima (un párrafo), 2026-10-09 | 215–222 MB (sin glycin; antes 222–236) |
 | Memoria en reposo, `estudio/física/ondas.md` (Mermaid, KaTeX, código), 2026-10-09 | 333–339 MB |
+| CPU en reposo, nota mínima u `ondas.md`, 2026-10-09 | 0,03–0,07 % (1–2 ticks en 30 s) |
 | Memoria en reposo, un HTML suelto | ~238–239 MB |
 | Memoria con el editor abierto (Ctrl+E) | ~286–287 MB |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js |
