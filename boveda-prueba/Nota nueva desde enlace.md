@@ -1,2 +1,0 @@
-# Nota nueva desde enlace
-
