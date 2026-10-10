@@ -13,7 +13,9 @@ USO
                              se abre suelto (ver ARCHIVOS SUELTOS).
                              Abre la app si está cerrada.
                              Espera a que la página cargue y devuelve
-                             los errores y avisos que generó.
+                             lo mismo que status, más "problems": los
+                             errores y avisos que generó. Si no termina
+                             de cargar en 10 s, añade "warning".
                              Sin opciones sustituye la pestaña activa.
                              --tab abre una pestaña nueva; --beside la
                              abre en el otro lado y divide la ventana
@@ -25,9 +27,13 @@ USO
                              "sides" lista las pestañas de cada lado
                              ("list", de izquierda a derecha, con
                              "active") y el lado con el foco
-                             ("focused").
-  visor reload               Recarga la página actual y devuelve sus
-                             errores y avisos.
+                             ("focused"). "path" es la ruta absoluta
+                             del archivo, "loaded" dice si terminó de
+                             cargar, "errors" cuenta los errores de su
+                             consola y "last_event_id" sirve para
+                             events --after.
+  visor reload               Recarga la página actual. Devuelve lo
+                             mismo que open.
   visor console [--errors] [--clear]
                              Consola de la página actual: console.log,
                              errores de JavaScript, recursos que no
@@ -40,7 +46,7 @@ USO
                              hasta SEG segundos a que llegue uno nuevo.
   visor notes [ruta|--all]   Anotaciones de la persona: de la página
                              abierta, de otra página o de toda la
-                             bóveda. Cada una es una conversación;
+                             bóveda (con una ruta, --all no cuenta). Cada una es una conversación;
                              "pending" dice si espera tu respuesta. En
                              la página abierta, "anchored" dice si cada
                              una sigue encontrando su texto o elemento.
@@ -61,10 +67,17 @@ MCP
 
       claude mcp add visor -- visor mcp
 
-  Cada herramienta equivale a una orden de esta ayuda: open, status,
-  reload, console, events, notes y notes_reply. Las rutas relativas de
-  open y notes se buscan en la bóveda abierta. La herramienta guide
-  devuelve este texto.
+  Cada herramienta equivale a una orden de esta ayuda. Sus argumentos:
+
+      open         target (ruta o URL), place ("here", "tab" o "beside")
+      status, reload
+      console      errors_only (= --errors), clear
+      events       after, wait (hasta 600 s), limit
+      notes        page (una ruta) o all, no los dos
+      notes_reply  id, text
+      guide        devuelve este texto
+
+  Las rutas relativas de open y notes se buscan en la bóveda abierta.
 
 PESTAÑAS Y LADOS
   La ventana puede dividirse en dos lados, cada uno con sus pestañas.
