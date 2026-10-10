@@ -1,24 +1,25 @@
+use crate::command::{Command, Target};
 use crate::{config, paths, vault};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub fn run(args: &[String]) -> i32 {
-    let request = match parse(args) {
-        Ok(r) => r,
+    let command = match Command::from_args(args) {
+        Ok(command) => command,
         Err(e) => return print(&json!({ "ok": false, "error": e })),
     };
-    print(&call(&request))
+    print(&call(&command))
 }
 
 /// Sends one request to the app. `open` starts the app when it is closed.
-pub(crate) fn call(request: &Value) -> Value {
-    match send(request) {
+pub(crate) fn call(command: &Command) -> Value {
+    match send(command) {
         Some(r) => r,
-        None if request["cmd"] == "open" => match start(loose(request)).then(|| send(request)).flatten() {
+        None if matches!(command, Command::Open { .. }) => match start(loose(command)).then(|| send(command)).flatten() {
             Some(r) => r,
             None => json!({ "ok": false, "error": "No se pudo abrir visor." }),
         },
@@ -29,69 +30,9 @@ pub(crate) fn call(request: &Value) -> Value {
     }
 }
 
-fn parse(args: &[String]) -> Result<Value, String> {
-    let cmd = args[0].as_str();
-    let rest = &args[1..];
-    let flag = |name: &str| rest.iter().any(|a| a == name);
-    let value = |name: &str| -> Result<Option<f64>, String> {
-        match rest.iter().position(|a| a == name) {
-            None => Ok(None),
-            Some(i) => rest
-                .get(i + 1)
-                .and_then(|v| v.parse().ok())
-                .map(Some)
-                .ok_or_else(|| format!("{name} necesita un número.")),
-        }
-    };
-    match cmd {
-        "open" => {
-            let usage = "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]";
-            let raw = rest.iter().find(|a| !a.starts_with("--")).ok_or(usage)?;
-            if let Some(unknown) = rest.iter().find(|a| a.starts_with("--") && *a != "--tab" && *a != "--beside") {
-                return Err(format!("Opción desconocida: {unknown}. {usage}"));
-            }
-            let place = if flag("--beside") { Some("beside") } else if flag("--tab") { Some("tab") } else { None };
-            if raw.starts_with("http://") || raw.starts_with("https://") {
-                return Ok(json!({ "cmd": "open", "url": raw, "place": place }));
-            }
-            let path = std::env::current_dir().map_err(|e| e.to_string())?.join(raw);
-            Ok(json!({ "cmd": "open", "path": path, "raw": raw, "place": place }))
-        }
-        "status" | "reload" => Ok(json!({ "cmd": cmd })),
-        "console" => Ok(json!({
-            "cmd": "console",
-            "level": flag("--errors").then_some("error"),
-            "clear": flag("--clear"),
-        })),
-        "events" => Ok(json!({
-            "cmd": "events",
-            "after": value("--after")?.map(|v| v as u64),
-            "wait": value("--wait")?,
-            "limit": value("--limit")?.map(|v| v as u64),
-        })),
-        "notes" => match rest.first().map(String::as_str) {
-            Some("reply") => {
-                let id = rest.get(1).ok_or("Uso: visor notes reply <id> <texto>")?;
-                let text = rest[2..].join(" ");
-                if text.is_empty() {
-                    return Err("Uso: visor notes reply <id> <texto>".into());
-                }
-                Ok(json!({ "cmd": "notes_reply", "id": id, "text": text }))
-            }
-            Some("--all") => Ok(json!({ "cmd": "notes", "all": true })),
-            Some(raw) => {
-                let path = std::env::current_dir().map_err(|e| e.to_string())?.join(raw);
-                Ok(json!({ "cmd": "notes", "path": path, "raw": raw }))
-            }
-            None => Ok(json!({ "cmd": "notes" })),
-        },
-        other => Err(format!("Comando desconocido: {other}. Usa `visor help`.")),
-    }
-}
-
-fn send(request: &Value) -> Option<Value> {
+fn send(command: &Command) -> Option<Value> {
     let mut stream = UnixStream::connect(paths::socket()).ok()?;
-    writeln!(stream, "{request}").ok()?;
+    writeln!(stream, "{}", command.to_wire()).ok()?;
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).ok()?;
     serde_json::from_str(&line).ok()
@@ -99,8 +40,9 @@ fn send(request: &Value) -> Option<Value> {
 
 /// Whether `open` asks for an HTML page outside every known vault, which the
 /// app shows on its own. Decided here too, so the app starts without the last vault.
-fn loose(request: &Value) -> bool {
-    let Some(path) = request["path"].as_str().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
+fn loose(command: &Command) -> bool {
+    let Command::Open { target: Target::Path(page), .. } = command else { return false };
+    let Some(path) = page.path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
     path.is_file() && vault::is_html(&path) && config::Config::load().vault_for(&path).is_none()
 }
 
@@ -112,11 +54,11 @@ fn start(loose: bool) -> bool {
     if let Some(path) = exe.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
         exe = path.into();
     }
-    let mut command = Command::new(exe);
+    let mut process = std::process::Command::new(exe);
     if loose {
-        command.env("VISOR_LOOSE", "1");
+        process.env("VISOR_LOOSE", "1");
     }
-    let spawned = command
+    let spawned = process
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -127,7 +69,7 @@ fn start(loose: bool) -> bool {
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if send(&json!({ "cmd": "ping" })).is_some() {
+        if send(&Command::Ping).is_some() {
             return true;
         }
         std::thread::sleep(Duration::from_millis(50));

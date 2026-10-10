@@ -1,8 +1,8 @@
 use crate::app::{Action, Place, SharedRef, UserEvent};
+use crate::command::{Command, Level, NotesScope, OpenPlace, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -26,7 +26,10 @@ fn handle(stream: UnixStream, shared: &SharedRef, proxy: &EventLoopProxy<UserEve
         return;
     }
     let response = match serde_json::from_str::<Value>(&line) {
-        Ok(request) => respond(&request, shared, proxy),
+        Ok(request) => match Command::from_wire(&request) {
+            Ok(command) => respond(command, shared, proxy),
+            Err(e) => fail(e),
+        },
         Err(e) => fail(format!("Petición no válida: {e}")),
     };
     let _ = writeln!(&stream, "{response}");
@@ -36,25 +39,20 @@ fn fail(error: String) -> Value {
     json!({ "ok": false, "error": error })
 }
 
-fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent>) -> Value {
-    match request["cmd"].as_str().unwrap_or("") {
-        "ping" => json!({ "ok": true }),
-        "status" => shared.lock().unwrap().status(),
-        "open" => {
-            let place = match request["place"].as_str() {
-                Some("tab") => Place::NewTab,
-                Some("beside") => Place::Beside,
-                _ => Place::Here,
+fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent>) -> Value {
+    match command {
+        Command::Ping => json!({ "ok": true }),
+        Command::Status => shared.lock().unwrap().status(),
+        Command::Open { target, place } => {
+            let place = match place {
+                Some(OpenPlace::Tab) => Place::NewTab,
+                Some(OpenPlace::Beside) => Place::Beside,
+                Some(OpenPlace::Here) | None => Place::Here,
             };
             let (reply, answer) = mpsc::channel();
-            let event = match request["url"].as_str() {
-                Some(url) => UserEvent::OpenUrl { url: url.to_string(), place, reply },
-                None => UserEvent::Open {
-                    path: PathBuf::from(request["path"].as_str().unwrap_or("")),
-                    raw: request["raw"].as_str().unwrap_or("").to_string(),
-                    place,
-                    reply,
-                },
+            let event = match target {
+                Target::Url { url } => UserEvent::OpenUrl { url, place, reply },
+                Target::Path(page) => UserEvent::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, reply },
             };
             let _ = proxy.send_event(event);
             match answer.recv_timeout(Duration::from_secs(15)) {
@@ -64,7 +62,7 @@ fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent
                 Err(_) => fail("La app no respondió.".into()),
             }
         }
-        "reload" => {
+        Command::Reload => {
             let (view, before, showing) = {
                 let s = shared.lock().unwrap();
                 let page = s.page();
@@ -76,35 +74,35 @@ fn respond(request: &Value, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent
             let _ = proxy.send_event(UserEvent::Action(Action::Reload));
             wait_for_load(shared, view, before)
         }
-        "console" => {
+        Command::Console { level, clear } => {
             let mut s = shared.lock().unwrap();
             let focused = s.focused;
             let Some(page) = s.pages.get_mut(&focused) else {
                 return json!({ "ok": true, "file": null, "console": [] });
             };
-            let entries: Vec<Value> = match request["level"].as_str() {
-                Some(level) => page.console.iter().filter(|e| e["level"] == level).cloned().collect(),
+            let entries: Vec<Value> = match level {
+                Some(Level::Error) => page.console.iter().filter(|e| e["level"] == "error").cloned().collect(),
                 None => page.console.clone(),
             };
             let out = json!({ "ok": true, "file": page.file, "console": entries });
-            if request["clear"].as_bool().unwrap_or(false) {
+            if clear {
                 page.console.clear();
             }
             out
         }
-        "events" => events(request, shared),
-        "notes" => notes(request, shared),
-        "notes_reply" => {
+        Command::Events { after, wait, limit } => events(after, wait, limit, shared),
+        Command::Notes { scope } => notes(&scope, shared),
+        Command::NotesReply { id, text } => {
             let Some(vault) = shared.lock().unwrap().vault.clone() else {
                 return fail("No hay ninguna bóveda abierta.".into());
             };
-            let (id, text) = (request["id"].as_str().unwrap_or(""), request["text"].as_str().unwrap_or(""));
-            match crate::annot::reply(vault.path(), id, text) {
+            match crate::annot::reply(vault.path(), &id, &text) {
                 Ok(page) => json!({ "ok": true, "page": page }),
                 Err(e) => fail(e),
             }
         }
-        other => fail(format!("Comando desconocido: {other}")),
+        // `visor mcp` answers the guide itself.
+        Command::Guide => fail("Comando desconocido: guide".into()),
     }
 }
 
@@ -136,27 +134,25 @@ fn wait_for_load(shared: &SharedRef, view: u64, before: u64) -> Value {
 
 /// Annotations of the current page, of a given page, or of the whole vault.
 /// For the page on screen it also says which ones could not be placed.
-fn notes(request: &Value, shared: &SharedRef) -> Value {
+fn notes(scope: &NotesScope, shared: &SharedRef) -> Value {
     let (vault, current, orphans) = {
         let s = shared.lock().unwrap();
         (s.vault.clone(), s.page().file.clone(), s.page().orphans.clone())
     };
     let Some(vault) = vault else { return fail("No hay ninguna bóveda abierta.".into()) };
-    let page = if request["all"].as_bool().unwrap_or(false) {
-        None
-    } else if let Some(path) = request["path"].as_str() {
-        let path = PathBuf::from(path);
-        let found = path.canonicalize().ok().filter(|p| p.starts_with(vault.root()));
-        let raw = request["raw"].as_str().unwrap_or("");
-        Some(found.map_or(raw.trim_start_matches("./").to_string(), |p| vault.rel(&p)))
-    } else {
-        match &current {
+    let page = match scope {
+        NotesScope::All => None,
+        NotesScope::Page(page) => {
+            let found = page.path.as_ref().and_then(|p| p.canonicalize().ok()).filter(|p| p.starts_with(vault.root()));
+            Some(found.map_or(page.raw.trim_start_matches("./").to_string(), |p| vault.rel(&p)))
+        }
+        NotesScope::Current => match &current {
             Some(file) if crate::vault::is_loose(file) => {
                 return fail("Las páginas abiertas fuera de una bóveda no tienen anotaciones.".into());
             }
             Some(file) => Some(file.clone()),
             None => return fail("No hay ninguna página abierta; indica una ruta o usa --all.".into()),
-        }
+        },
     };
     let mut list = crate::annot::list(vault.path(), page.as_deref());
     for note in &mut list {
@@ -169,12 +165,11 @@ fn notes(request: &Value, shared: &SharedRef) -> Value {
     json!({ "ok": true, "vault": vault.path(), "notes": list })
 }
 
-fn events(request: &Value, shared: &SharedRef) -> Value {
-    let wait = request["wait"].as_f64().map(Duration::from_secs_f64);
-    let limit = request["limit"].as_u64().unwrap_or(20) as usize;
-    let after = request["after"]
-        .as_u64()
-        .or_else(|| wait.map(|_| shared.lock().unwrap().next_id - 1));
+fn events(after: Option<u64>, wait: Option<f64>, limit: Option<u64>, shared: &SharedRef) -> Value {
+    // An older client may send what Duration refuses (negative, NaN); wait nothing then.
+    let wait = wait.map(|w| Duration::try_from_secs_f64(w).unwrap_or_default());
+    let limit = limit.unwrap_or(20) as usize;
+    let after = after.or_else(|| wait.map(|_| shared.lock().unwrap().next_id - 1));
     let deadline = Instant::now() + wait.unwrap_or_default();
     loop {
         {
