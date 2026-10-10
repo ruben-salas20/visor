@@ -4,3 +4,4 @@ pub mod cli;
 pub mod command;
 pub mod mcp;
 pub mod server;
+pub mod socket;

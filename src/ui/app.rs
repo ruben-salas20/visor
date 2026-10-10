@@ -9,6 +9,7 @@ use crate::ui::page_calls;
 use crate::ui::page_view::{build_page, clean_position, is_web};
 use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
+use crate::agent::socket::{ClaimError, claim};
 use crate::paths;
 use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
@@ -21,7 +22,6 @@ use serde_json::{Value, json};
 use std::cell::Cell;
 use std::fs;
 
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -60,19 +60,18 @@ enum PageMsg {
 }
 
 pub fn launch() -> i32 {
-    let socket = paths::socket();
-    if UnixStream::connect(&socket).is_ok() {
-        eprintln!("visor ya está abierto.");
-        return 0;
-    }
-    let _ = fs::remove_file(&socket);
-    let listener = match UnixListener::bind(&socket) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("No se pudo crear {}: {e}", socket.display());
+    let (listener, claim) = match claim(&paths::socket()) {
+        Ok(claimed) => claimed,
+        Err(ClaimError::Running) => {
+            eprintln!("visor ya está abierto.");
+            return 0;
+        }
+        Err(ClaimError::Failed(e)) => {
+            eprintln!("{e}");
             return 1;
         }
     };
+    let mut claim = Some(claim);
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -182,7 +181,9 @@ pub fn launch() -> i32 {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 app.save_layout();
                 app.flush_config();
-                let _ = fs::remove_file(paths::socket());
+                if let Some(claim) = claim.take() {
+                    claim.release();
+                }
                 *flow = ControlFlow::Exit;
             }
             Event::UserEvent(event) => app.handle(event),

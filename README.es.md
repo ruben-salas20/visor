@@ -9,7 +9,7 @@ visor funciona solo en Linux con Wayland.
 ## Qué necesitas
 
 - Linux con Wayland, GTK 3 y WebKitGTK 4.1 (versión 2.38 o posterior).
-- Rust 1.88 o posterior. Sirve para compilar visor; no hay versión ya compilada.
+- Rust 1.89 o posterior. Sirve para compilar visor; no hay versión ya compilada.
 - Un agente de IA que sepa usar herramientas, como Claude Code.
 - Para ver vídeo de la web, estos paquetes de tu distribución: `gst-libav` y `gst-plugins-bad`. También conviene instalar `gst-plugin-va` (usa la tarjeta gráfica) y `gst-plugin-dav1d`.
 
