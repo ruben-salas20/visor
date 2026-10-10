@@ -1,76 +1,30 @@
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::bar::Bar;
 use crate::ui::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
+use crate::ui::tabs::Side;
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
 use tao::event_loop::EventLoopProxy;
-use wry::{WebView, WebViewExtUnix};
 
-/// A document open in a pane. Only a few tabs keep a live view, because each
-/// one costs a WebKit process; the rest load `target` again when shown.
-pub struct Tab {
-    pub id: u64,
-    /// Vault-relative path, web address, or empty for the start page.
-    pub target: String,
-    /// The page title, for websites once they load.
-    pub title: Option<String>,
-    /// The live view and its id, which tags its messages.
-    pub view: Option<(u64, WebView)>,
-    /// Whether the view has started showing its page. Until then it stays hidden.
-    pub ready: bool,
-    /// When the tab was last shown, to unload the oldest first.
-    pub used: u64,
-    /// Reading position, as `{y}` or `{line, y}`, taken when the tab was last hidden.
-    pub position: Option<String>,
-    /// Position to put back once the reloaded page finishes loading.
-    pub restore: Option<String>,
-    /// Section to scroll to on the first load, from a link with `#`.
-    pub fragment: String,
-}
-
-impl Tab {
-    pub fn new(id: u64, target: String) -> Tab {
-        Tab { id, target, title: None, view: None, ready: false, used: 0, position: None, restore: None, fragment: String::new() }
-    }
-
-    pub fn view_id(&self) -> Option<u64> {
-        self.view.as_ref().map(|(id, _)| *id)
-    }
-
-    fn label(&self) -> String {
-        if let Some(title) = self.title.as_ref().filter(|t| !t.trim().is_empty()) {
-            return title.clone();
-        }
-        if self.target.is_empty() {
-            return "Nueva pestaña".into();
-        }
-        if let Some(rest) = self.target.split_once("://").map(|(_, r)| r) {
-            return rest.split('/').next().unwrap_or(rest).to_string();
-        }
-        self.target.rsplit('/').next().unwrap_or(&self.target).to_string()
-    }
-}
-
-/// One side of the window: its tab strip, address bar and page views.
+/// The widgets of one side of the window: its tab strip, address bar and
+/// container of page views. What the tabs are lives in `tabs::Tabs`.
 pub struct Pane {
-    pub id: u64,
-    pub root: gtk::Box,
-    pub strip: gtk::Box,
+    id: u64,
+    root: gtk::Box,
+    strip: gtk::Box,
     tab_list: gtk::Box,
     /// The annotation buttons, shown only on vault pages: elsewhere they do nothing.
     annot_tools: gtk::Box,
-    pub bar: Bar,
-    pub views: gtk::Box,
+    bar: Bar,
+    views: gtk::Box,
     /// Covers the pages while a file is dragged from the sidebar and says
     /// which zone is under the pointer: one half of the side, or all of it.
     /// It paints nothing; the page draws the mark (see App::frost).
     drop: gtk::EventBox,
     /// Whether a drop takes the whole side (the window is split) or a half.
     whole: Rc<Cell<bool>>,
-    pub tabs: Vec<Tab>,
-    pub active: usize,
     proxy: EventLoopProxy<UserEvent>,
 }
 
@@ -108,13 +62,13 @@ impl Pane {
         let (drop, whole) = drop_zone(id, proxy);
         overlay.add_overlay(&drop);
         root.pack_start(&strip, false, false, 0);
-        root.pack_start(&bar.root, false, false, 0);
+        root.pack_start(bar.widget(), false, false, 0);
         root.pack_start(&overlay, true, true, 0);
         strip.show_all();
         views.show();
         overlay.show();
         root.show();
-        Pane { id, root, strip, tab_list, annot_tools, bar, views, drop, whole, tabs: vec![], active: 0, proxy: proxy.clone() }
+        Pane { id, root, strip, tab_list, annot_tools, bar, views, drop, whole, proxy: proxy.clone() }
     }
 
     /// Shows or hides the drop zone. `whole`: a drop takes the side, not a half.
@@ -123,25 +77,50 @@ impl Pane {
         self.drop.set_visible(on);
     }
 
-    pub fn tab(&self) -> &Tab {
-        &self.tabs[self.active]
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
-    /// Rebuilds the tab strip. `focused` marks the pane that keys and agents act on.
-    pub fn render(&self, focused: bool) {
+    pub fn root(&self) -> &gtk::Box {
+        &self.root
+    }
+
+    /// Where the views of this side's pages go.
+    pub fn views(&self) -> &gtk::Box {
+        &self.views
+    }
+
+    pub fn bar(&self) -> &Bar {
+        &self.bar
+    }
+
+    /// Fullscreen: only the side with the page shows, and without its chrome.
+    pub fn fullscreen(&self, holder: bool) {
+        self.strip.hide();
+        self.bar.set_visible(false);
+        self.root.set_visible(holder);
+    }
+
+    pub fn windowed(&self, bar_shown: bool) {
+        self.strip.show();
+        self.bar.set_visible(bar_shown);
+        self.root.show();
+    }
+
+    /// Rebuilds the tab strip from `side`. `focused` marks the pane that keys and agents act on.
+    pub fn render(&self, side: &Side, focused: bool) {
         for child in self.tab_list.children() {
             self.tab_list.remove(&child);
         }
-        let in_vault = self.tabs.get(self.active).is_some_and(|t| {
-            !t.target.is_empty() && !t.target.contains("://") && !crate::vault::is_loose(&t.target)
-        });
+        let target = side.tab().target();
+        let in_vault = !target.is_empty() && !target.contains("://") && !crate::vault::is_loose(target);
         self.annot_tools.set_visible(in_vault);
         let style = self.strip.style_context();
         if focused { style.add_class("focused") } else { style.remove_class("focused") }
-        for (i, tab) in self.tabs.iter().enumerate() {
+        for (i, tab) in side.tabs().iter().enumerate() {
             let item = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             item.style_context().add_class("visor-tab");
-            if i == self.active {
+            if i == side.active() {
                 item.style_context().add_class("active");
             }
             let label = gtk::Label::new(Some(&tab.label()));
@@ -151,8 +130,8 @@ impl Pane {
             select.add(&label);
             select.set_can_focus(false);
             select.style_context().add_class("visor-tab-name");
-            select.set_tooltip_text(Some(if tab.target.is_empty() { "Nueva pestaña" } else { &tab.target }));
-            let (proxy, id) = (self.proxy.clone(), tab.id);
+            select.set_tooltip_text(Some(if tab.target().is_empty() { "Nueva pestaña" } else { tab.target() }));
+            let (proxy, id) = (self.proxy.clone(), tab.id());
             select.connect_clicked(move |_| {
                 let _ = proxy.send_event(UserEvent::Action(Action::SelectTab(id)));
             });
@@ -187,21 +166,6 @@ impl Pane {
         });
         self.tab_list.pack_start(&add, false, false, 0);
         self.tab_list.show_all();
-    }
-
-    /// Shows the active tab's view and hides the others, which stay loaded.
-    /// A new view stays hidden until its page starts loading: on screen,
-    /// WebKitGTK blocks the app up to 500 ms waiting for its first paint while
-    /// the new process waits for the app, twice per new view.
-    pub fn show_active(&self) {
-        if !self.tab().ready {
-            return;
-        }
-        for (i, tab) in self.tabs.iter().enumerate() {
-            if let Some((_, view)) = &tab.view {
-                view.webview().set_visible(i == self.active);
-            }
-        }
     }
 
     pub fn css(theme: &Theme) -> String {

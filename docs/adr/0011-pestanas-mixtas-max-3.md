@@ -10,7 +10,7 @@ Cada página viva es un proceso de WebKit. Había tres opciones: todas vivas, so
 
 ## Decisión
 
-Hay pestañas mixtas, con un máximo de 3 páginas vivas en toda la ventana (`MAX_LIVE` en `app.rs`). Las páginas a la vista siempre cuentan. Al pasar de 3 se descarga la pestaña oculta que lleva más tiempo sin usarse, y se recarga al volver a ella.
+Hay pestañas mixtas, con un máximo de 3 páginas vivas en toda la ventana (`MAX_LIVE` en `ui/tabs.rs`). Las páginas a la vista siempre cuentan. Al pasar de 3 se descarga la pestaña oculta que lleva más tiempo sin usarse, y se recarga al volver a ella.
 
 ## Consecuencias
 

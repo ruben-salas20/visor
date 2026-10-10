@@ -21,9 +21,9 @@ Los términos de la interfaz y de la ayuda van en español. El código usa nombr
 ## Ventana
 
 - **Panel** (`sidebar`, `sidebar.rs`): árbol lateral de la bóveda, en GTK nativo.
-- **Lado** (`pane`, `panes.rs`): cada mitad de la vista dividida. Tiene su fila de pestañas, sus botones de anotaciones y su barra. Las órdenes de la CLI actúan sobre el lado con el foco.
+- **Lado** (`pane`; modelo en `tabs.rs`, widgets en `panes.rs`): cada mitad de la vista dividida. Tiene su fila de pestañas, sus botones de anotaciones y su barra. Las órdenes de la CLI actúan sobre el lado con el foco.
 - **Pestaña** (`Tab`): un documento abierto en un lado.
-- **Pestaña viva** (con `view` en `Tab`, `live_views`): pestaña con su webview cargado. Solo puede haber 3 en toda la ventana (`MAX_LIVE`).
+- **Pestaña viva** (con `view` en `Tab`, `tabs.rs`): pestaña con su webview cargado. Solo puede haber 3 en toda la ventana (`MAX_LIVE`).
 - **Pestaña descargada** (sin `view`; en inglés, «unload»): pestaña sin webview. Se recarga al volver a ella.
 - **Barra** (`bar`, `bar.rs`): barra de direcciones. Empieza oculta (`bar_shown`).
 - **Espacio de trabajo** (`workspace`): pestañas, división y lado con el foco de una bóveda. Se guarda en `workspaces` de la configuración.
