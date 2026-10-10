@@ -160,7 +160,10 @@ ESCRIBIR PÁGINAS PARA VISOR
 
       visor.send({ tipo: "respuesta", pregunta: 3, elegida: "b" });
 
-    Si los datos serializados pasan de 16 KB, el evento se descarta.
+    Cada página puede enviar como mucho 100 eventos por segundo y cada
+    uno hasta 16 KB serializado. Lo que pase se descarta, y una línea
+    de `visor console` dice cuántos eventos se omitieron o que uno era
+    demasiado grande.
 
   - Con Omarchy, cada página recibe los colores del tema como variables
     CSS, actualizadas al cambiar de tema:
