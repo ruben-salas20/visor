@@ -1,10 +1,36 @@
-# visor
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo/logotipo-oscuro.svg">
+    <img alt="visor" src="docs/img/logo/logotipo.svg" width="240">
+  </picture>
+</h1>
 
 [English](README.md)
 
 visor es una aplicación para estudiar con inteligencia artificial (IA), al estilo de Obsidian. Muestra una **bóveda**: una carpeta con páginas HTML y notas Markdown. También abre un archivo HTML suelto, sin bóveda. Tú lees, subrayas y comentas. Tu agente de IA controla visor por la terminal o por MCP, lee tus anotaciones y te responde en la misma página.
 
 visor está hecho en Rust con tao, wry y WebKitGTK. Funciona solo en Linux con Wayland.
+
+![visor: subrayas una frase y preguntas; el agente responde en la página y abre una nota al lado](docs/img/demo.es.gif)
+
+## Rendimiento
+
+Con una nota o página sencilla, visor usa más o menos la mitad de memoria que Obsidian o Chromium; con una nota pesada (Mermaid, KaTeX, código), alrededor de una cuarta parte menos que Obsidian. Abre su ventana en menos de la mitad de tiempo.
+
+![Cifras clave: visor frente a Obsidian y Chromium](docs/img/graficas/resumen.es.svg)
+
+<details>
+<summary>Gráficas de memoria, arranque y espacio en disco</summary>
+
+![Memoria en reposo](docs/img/graficas/memoria.es.svg)
+
+![Arranque en frío](docs/img/graficas/arranque.es.svg)
+
+![Espacio en disco](docs/img/graficas/tamano.es.svg)
+
+</details>
+
+Cómo se midió: la misma bóveda en el mismo portátil, 5 rondas alternadas, cada app con su configuración por defecto, sin extensiones y con el perfil ya creado por un primer arranque que no cuenta. La memoria es el PSS de todo el árbol de procesos, 10 segundos después de aparecer la ventana. El arranque es el tiempo desde que se lanza la app hasta que aparece su ventana; no incluye dibujar la página. El espacio en disco cuenta el motor web de cada app; el de visor (WebKitGTK) es una biblioteca del sistema que comparten otras apps. El script es `tools/medir/comparar.py` y los datos están en `docs/img/cifras.json`.
 
 ## Qué necesitas
 
@@ -94,7 +120,7 @@ Después pide a tu agente que use la herramienta `guide`. Esa herramienta devuel
 - `src/agent/`: terminal, servidor del socket y MCP. `help.txt` es el texto de `visor help`.
 - `src/page/`: JavaScript y CSS que se ejecutan dentro de las páginas.
 - `assets/`, `build.rs`: bibliotecas incluidas (KaTeX, highlight.js, Mermaid, CodeMirror), comprimidas con brotli al compilar.
-- `tools/`: generador del paquete de CodeMirror y script de medidas.
+- `tools/`: generador del paquete de CodeMirror, scripts de medidas (`tools/medir/`) y los que hacen el GIF del README (`tools/video/`).
 
 ## Más documentación
 

@@ -2,3 +2,5 @@
 node_modules/
 /boveda-prueba/
 __pycache__/
+/docs/img/intro.*.gif
+/docs/img/demo-captura.*.gif

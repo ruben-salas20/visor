@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Superposition of waves</title>
+<style>
+  :root { color-scheme: dark; --bg: var(--visor-bg, #1b1d23); --fg: var(--visor-fg, #e6e6e6);
+    --a: #5fa8ff; --b: #e27ad8; --s: #f5c542;
+    --muted: color-mix(in srgb, var(--fg) 65%, var(--bg)); }
+  html { background: var(--bg); color: var(--fg); }
+  body { margin: 0; font: 17px/1.6 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 12px 28px 60px; }
+  h1 { font-size: 1.7em; margin: 0 0 .3em; line-height: 1.2; }
+  .tema { color: var(--muted); font-size: .85em; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+  p { margin: 0 0 .8em; }
+  figure { margin: .4em 0 0; padding: 10px 14px 8px; border-radius: 12px;
+    background: color-mix(in srgb, var(--fg) 5%, var(--bg)); }
+  svg { display: block; width: 100%; height: auto; }
+  figcaption { display: flex; gap: 18px; font-size: .85em; color: var(--muted); }
+  figcaption span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+    vertical-align: middle; margin-right: 6px; background: currentColor; }
+  .a { color: var(--a); } .b { color: var(--b); } .s { color: var(--s); }
+</style>
+</head>
+<body>
+<main>
+  <p class="tema">Physics · Waves</p>
+  <h1>Superposition of waves</h1>
+  <p>When two waves meet, <strong>their amplitudes add up point by point</strong>. In phase, the resulting wave grows; in opposition, they cancel out.</p>
+  <figure aria-label="Two waves and their sum">
+    <svg viewBox="0 0 700 170" role="img" aria-label="Two waves and their sum">
+      <line x1="0" y1="85" x2="700" y2="85" stroke="currentColor" stroke-opacity=".15"/>
+      <path id="o1" fill="none" stroke="var(--a)" stroke-width="2.5" stroke-opacity=".8"/>
+      <path id="o2" fill="none" stroke="var(--b)" stroke-width="2.5" stroke-opacity=".8"/>
+      <path id="os" fill="none" stroke="var(--s)" stroke-width="3.5"/>
+    </svg>
+    <figcaption><span class="a">Wave 1</span><span class="b">Wave 2</span><span class="s">Sum</span></figcaption>
+  </figure>
+</main>
+<script>
+  // Two waves with a slowly drifting phase difference, and their sum.
+  const p = (id) => document.getElementById(id);
+  function wave(f, amp, k, phase) {
+    let d = "";
+    for (let x = 0; x <= 700; x += 7) d += (x ? "L" : "M") + x + " " + (85 - amp * Math.sin(k * x + phase) * f).toFixed(1);
+    return d;
+  }
+  function frame(t) {
+    const s = t / 1000, k = 2 * Math.PI / 230, fase = 1.2 + 1.1 * Math.sin(s * 0.5);
+    p("o1").setAttribute("d", wave(1, 26, k, -s * 2));
+    p("o2").setAttribute("d", wave(1, 26, k, -s * 2 + fase));
+    let d = "";
+    for (let x = 0; x <= 700; x += 7) d += (x ? "L" : "M") + x + " " + (85 - 26 * (Math.sin(k * x - s * 2) + Math.sin(k * x - s * 2 + fase))).toFixed(1);
+    p("os").setAttribute("d", d);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+<script src="gestos.js" data-frase="their amplitudes add up point by point" data-pregunta="Does the energy add up too?"></script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+{
+  "fecha": "2026-10-10",
+  "condiciones": "enchufado, perfil performance, 5 rondas, 13th Gen Intel(R) Core(TM) i7-13620H, 23.1 GiB",
+  "versiones": {
+    "visor": "7b7db2b",
+    "obsidian": "1.14.4",
+    "chromium": "152.0.7977.82"
+  },
+  "medidas": {
+    "visor": {
+      "minima": {
+        "arranque_ms": {
+          "mediana": 148,
+          "min": 147,
+          "max": 149
+        },
+        "arranque_carga_ms": {
+          "mediana": 211,
+          "min": 209,
+          "max": 212
+        },
+        "memoria_mb": {
+          "mediana": 215.5,
+          "min": 215.3,
+          "max": 215.6
+        },
+        "cpu_pct": {
+          "mediana": 0.067,
+          "min": 0.033,
+          "max": 0.1
+        }
+      },
+      "ondas": {
+        "arranque_ms": {
+          "mediana": 149,
+          "min": 148,
+          "max": 162
+        },
+        "arranque_carga_ms": {
+          "mediana": 677,
+          "min": 671,
+          "max": 683
+        },
+        "memoria_mb": {
+          "mediana": 320.4,
+          "min": 319.7,
+          "max": 321.4
+        },
+        "cpu_pct": {
+          "mediana": 0.033,
+          "min": 0.0,
+          "max": 0.067
+        }
+      },
+      "suelto": {
+        "arranque_ms": {
+          "mediana": 144,
+          "min": 139,
+          "max": 152
+        },
+        "arranque_carga_ms": {
+          "mediana": 199,
+          "min": 196,
+          "max": 204
+        },
+        "memoria_mb": {
+          "mediana": 183.9,
+          "min": 183.8,
+          "max": 184.0
+        },
+        "cpu_pct": {
+          "mediana": 0.067,
+          "min": 0.033,
+          "max": 0.067
+        }
+      }
+    },
+    "obsidian": {
+      "minima": {
+        "arranque_ms": {
+          "mediana": 360,
+          "min": 357,
+          "max": 371
+        },
+        "memoria_mb": {
+          "mediana": 412.5,
+          "min": 409.6,
+          "max": 413.9
+        },
+        "cpu_pct": {
+          "mediana": 1.133,
+          "min": 1.033,
+          "max": 1.2
+        }
+      },
+      "ondas": {
+        "arranque_ms": {
+          "mediana": 368,
+          "min": 356,
+          "max": 383
+        },
+        "memoria_mb": {
+          "mediana": 418.4,
+          "min": 417.2,
+          "max": 419.4
+        },
+        "cpu_pct": {
+          "mediana": 1.2,
+          "min": 1.167,
+          "max": 1.233
+        }
+      }
+    },
+    "chromium": {
+      "suelto": {
+        "arranque_ms": {
+          "mediana": 328,
+          "min": 316,
+          "max": 336
+        },
+        "memoria_mb": {
+          "mediana": 405.6,
+          "min": 398.0,
+          "max": 410.9
+        },
+        "cpu_pct": {
+          "mediana": 0.567,
+          "min": 0.533,
+          "max": 0.633
+        }
+      }
+    }
+  },
+  "tamano_mb": {
+    "visor": {
+      "app": 4.1,
+      "motor": 133.6,
+      "motor_nombre": "webkit2gtk-4.1 (compartido del sistema)"
+    },
+    "obsidian": {
+      "app": 26.8,
+      "motor": 335.8,
+      "motor_nombre": "electron43"
+    },
+    "chromium": {
+      "app": 416.7,
+      "motor": 0,
+      "motor_nombre": ""
+    }
+  }
+}

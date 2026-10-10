@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="507" viewBox="0 0 720 507" role="img" aria-labelledby="t d">
+<title id="t">visor usa entre 1,3× y 2,2× menos memoria que las otras apps</title>
+<desc id="d">Nota de un párrafo, visor: 216 MB; Nota de un párrafo, Obsidian: 413 MB; Nota con Mermaid, KaTeX y código, visor: 320 MB; Nota con Mermaid, KaTeX y código, Obsidian: 418 MB; Página HTML suelta, visor: 184 MB; Página HTML suelta, Chromium: 406 MB. Memoria en reposo (PSS, MB) · Menos es mejor</desc>
+<style>
+text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
+.fondo{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.rej{stroke:#e1e0d9;stroke-width:1}.eje{stroke:#c3c2b7;stroke-width:1}.acento{fill:#2a78d6}.neutro{fill:#898781}.neutro-claro{fill:#52514e}.trama{stroke:#1c5cab}.trama-fondo{fill:#9ec5f4}.bigote{stroke:#0b0b0b;stroke-width:1.5}.halo{stroke:#fcfcfb;stroke-width:5}.knock{stroke:#fcfcfb;stroke-width:4px;stroke-linejoin:round;paint-order:stroke}.tarjeta{fill:none;stroke:#e1e0d9;stroke-width:1}
+@media (prefers-color-scheme: dark){.fondo{fill:#1a1a19}.t1{fill:#ffffff}.t2{fill:#c3c2b7}.rej{stroke:#2c2c2a;stroke-width:1}.eje{stroke:#383835;stroke-width:1}.acento{fill:#3987e5}.neutro{fill:#898781}.neutro-claro{fill:#c3c2b7}.trama{stroke:#86b6ef}.trama-fondo{fill:#184f95}.bigote{stroke:#ffffff;stroke-width:1.5}.halo{stroke:#1a1a19;stroke-width:5}.knock{stroke:#1a1a19;stroke-width:4px;stroke-linejoin:round;paint-order:stroke}.tarjeta{fill:none;stroke:#2c2c2a;stroke-width:1}}
+</style>
+<defs><pattern id="trama" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect class="trama-fondo" width="6" height="6"/><line class="trama" x1="0" y1="0" x2="0" y2="6" stroke-width="2.5"/></pattern></defs>
+<rect class="fondo" x="0" y="0" width="720" height="507" rx="8"/>
+<line x1="190.0" y1="100.0" x2="190.0" y2="382.0" class="rej"/>
+<text x="190.0" y="398.0" class="t2" font-size="12" text-anchor="middle">0</text>
+<line x1="310.0" y1="100.0" x2="310.0" y2="382.0" class="rej"/>
+<text x="310.0" y="398.0" class="t2" font-size="12" text-anchor="middle">200</text>
+<line x1="430.0" y1="100.0" x2="430.0" y2="382.0" class="rej"/>
+<text x="430.0" y="398.0" class="t2" font-size="12" text-anchor="middle">400</text>
+<line x1="550.0" y1="100.0" x2="550.0" y2="382.0" class="rej"/>
+<text x="550.0" y="398.0" class="t2" font-size="12" text-anchor="middle">600</text>
+<line x1="190.0" y1="382.0" x2="550.0" y2="382.0" class="eje"/>
+<text x="190.0" y="416.0" class="t2" font-size="12">MB</text>
+<text x="24.0" y="32.0" class="t1" font-size="18" font-weight="600">visor usa entre 1,3× y 2,2× menos memoria que las otras apps</text>
+<text x="24.0" y="54.0" class="t2" font-size="13">Memoria en reposo (PSS, MB) · Menos es mejor</text>
+<rect x="24" y="70" width="14" height="14" rx="2" class="acento"/>
+<text x="44.0" y="81.0" class="t2" font-size="12">visor</text>
+<rect x="99.0" y="70" width="14" height="14" rx="2" class="neutro"/>
+<text x="119.0" y="81.0" class="t2" font-size="12">Obsidian o Chromium</text>
+<text x="24.0" y="116.0" class="t1 knock" font-size="13" font-weight="600">Nota de un párrafo</text>
+<text x="40.0" y="147.5" class="t1" font-size="13" font-weight="600">visor</text>
+<path d="M190.0,135.0 H315.3 A4,4 0 0 1 319.3,139.0 V147.0 A4,4 0 0 1 315.3,151.0 H190.0 Z" class="acento"/>
+<line x1="319.2" y1="143.0" x2="319.4" y2="143.0" class="halo"/>
+<line x1="319.2" y1="143.0" x2="319.4" y2="143.0" class="bigote"/>
+<line x1="319.2" y1="137.0" x2="319.2" y2="149.0" class="bigote"/>
+<line x1="319.4" y1="137.0" x2="319.4" y2="149.0" class="bigote"/>
+<text xml:space="preserve" x="329.4" y="147.5" class="t1 knock" font-size="13"><tspan font-weight="600">216 MB </tspan><tspan class="t2">(215–216)</tspan></text>
+<text x="40.0" y="177.5" class="t1" font-size="13">Obsidian</text>
+<path d="M190.0,165.0 H433.5 A4,4 0 0 1 437.5,169.0 V177.0 A4,4 0 0 1 433.5,181.0 H190.0 Z" class="neutro"/>
+<line x1="435.8" y1="173.0" x2="438.3" y2="173.0" class="halo"/>
+<line x1="435.8" y1="173.0" x2="438.3" y2="173.0" class="bigote"/>
+<line x1="435.8" y1="167.0" x2="435.8" y2="179.0" class="bigote"/>
+<line x1="438.3" y1="167.0" x2="438.3" y2="179.0" class="bigote"/>
+<text xml:space="preserve" x="448.3" y="177.5" class="t1 knock" font-size="13"><tspan font-weight="600">413 MB </tspan><tspan class="t2">(410–414)</tspan></text>
+<text x="24.0" y="208.0" class="t1 knock" font-size="13" font-weight="600">Nota con Mermaid, KaTeX y código</text>
+<text x="40.0" y="239.5" class="t1" font-size="13" font-weight="600">visor</text>
+<path d="M190.0,227.0 H378.2 A4,4 0 0 1 382.2,231.0 V239.0 A4,4 0 0 1 378.2,243.0 H190.0 Z" class="acento"/>
+<line x1="381.8" y1="235.0" x2="382.8" y2="235.0" class="halo"/>
+<line x1="381.8" y1="235.0" x2="382.8" y2="235.0" class="bigote"/>
+<line x1="381.8" y1="229.0" x2="381.8" y2="241.0" class="bigote"/>
+<line x1="382.8" y1="229.0" x2="382.8" y2="241.0" class="bigote"/>
+<text xml:space="preserve" x="392.8" y="239.5" class="t1 knock" font-size="13"><tspan font-weight="600">320 MB </tspan><tspan class="t2">(320–321)</tspan></text>
+<text x="40.0" y="269.5" class="t1" font-size="13">Obsidian</text>
+<path d="M190.0,257.0 H437.0 A4,4 0 0 1 441.0,261.0 V269.0 A4,4 0 0 1 437.0,273.0 H190.0 Z" class="neutro"/>
+<line x1="440.3" y1="265.0" x2="441.6" y2="265.0" class="halo"/>
+<line x1="440.3" y1="265.0" x2="441.6" y2="265.0" class="bigote"/>
+<line x1="440.3" y1="259.0" x2="440.3" y2="271.0" class="bigote"/>
+<line x1="441.6" y1="259.0" x2="441.6" y2="271.0" class="bigote"/>
+<text xml:space="preserve" x="451.6" y="269.5" class="t1 knock" font-size="13"><tspan font-weight="600">418 MB </tspan><tspan class="t2">(417–419)</tspan></text>
+<text x="24.0" y="300.0" class="t1 knock" font-size="13" font-weight="600">Página HTML suelta</text>
+<text x="40.0" y="331.5" class="t1" font-size="13" font-weight="600">visor</text>
+<path d="M190.0,319.0 H296.3 A4,4 0 0 1 300.3,323.0 V331.0 A4,4 0 0 1 296.3,335.0 H190.0 Z" class="acento"/>
+<line x1="300.3" y1="327.0" x2="300.4" y2="327.0" class="halo"/>
+<line x1="300.3" y1="327.0" x2="300.4" y2="327.0" class="bigote"/>
+<line x1="300.3" y1="321.0" x2="300.3" y2="333.0" class="bigote"/>
+<line x1="300.4" y1="321.0" x2="300.4" y2="333.0" class="bigote"/>
+<text xml:space="preserve" x="310.4" y="331.5" class="t1 knock" font-size="13"><tspan font-weight="600">184 MB </tspan><tspan class="t2">(184–184)</tspan></text>
+<text x="40.0" y="361.5" class="t1" font-size="13">Chromium</text>
+<path d="M190.0,349.0 H429.4 A4,4 0 0 1 433.4,353.0 V361.0 A4,4 0 0 1 429.4,365.0 H190.0 Z" class="neutro"/>
+<line x1="428.8" y1="357.0" x2="436.5" y2="357.0" class="halo"/>
+<line x1="428.8" y1="357.0" x2="436.5" y2="357.0" class="bigote"/>
+<line x1="428.8" y1="351.0" x2="428.8" y2="363.0" class="bigote"/>
+<line x1="436.5" y1="351.0" x2="436.5" y2="363.0" class="bigote"/>
+<text xml:space="preserve" x="446.5" y="361.5" class="t1 knock" font-size="13"><tspan font-weight="600">406 MB </tspan><tspan class="t2">(398–411)</tspan></text>
+<line x1="24" y1="428.0" x2="696" y2="428.0" class="rej"/>
+<text x="24.0" y="442.0" class="t2" font-size="12">Barra: mediana. Línea fina: mínimo–máximo de las rondas.</text>
+<text x="24.0" y="459.0" class="t2" font-size="12">Datos del 2026-10-10 · enchufado, perfil performance, 5 rondas, 13th Gen Intel(R) Core(TM) i7-13620H, 23.1 GiB</text>
+<text x="24.0" y="476.0" class="t2" font-size="12">Versiones: visor 7b7db2b · Obsidian 1.14.4 · Chromium 152.0.7977.82</text>
+</svg>

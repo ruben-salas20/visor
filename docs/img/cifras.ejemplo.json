@@ -1,0 +1,51 @@
+{"ejemplo": true,
+ "fecha": "2026-10-10",
+ "condiciones": "enchufado, perfil performance, 5 rondas, <CPU>, <RAM>",
+ "versiones": {"visor": "7b7db2b", "obsidian": "1.14.4", "chromium": "152.0.7977.82"},
+ "medidas": {
+  "visor": {
+   "minima": {
+    "arranque_ms": {"mediana": 221, "min": 219, "max": 224},
+    "arranque_carga_ms": {"mediana": 52, "min": 50, "max": 55},
+    "memoria_mb": {"mediana": 217, "min": 217, "max": 219},
+    "cpu_pct": {"mediana": 0.01, "min": 0.0, "max": 0.03}
+   },
+   "ondas": {
+    "arranque_ms": {"mediana": 721, "min": 717, "max": 722},
+    "arranque_carga_ms": {"mediana": 540, "min": 530, "max": 552},
+    "memoria_mb": {"mediana": 324, "min": 322, "max": 326},
+    "cpu_pct": {"mediana": 0.02, "min": 0.0, "max": 0.03}
+   },
+   "suelto": {
+    "arranque_ms": {"mediana": 219, "min": 217, "max": 221},
+    "arranque_carga_ms": {"mediana": 48, "min": 46, "max": 50},
+    "memoria_mb": {"mediana": 186, "min": 186, "max": 187},
+    "cpu_pct": {"mediana": 0.0, "min": 0.0, "max": 0.02}
+   }
+  },
+  "obsidian": {
+   "minima": {
+    "arranque_ms": {"mediana": 1450, "min": 1380, "max": 1530},
+    "memoria_mb": {"mediana": 310, "min": 300, "max": 322},
+    "cpu_pct": {"mediana": 0.10, "min": 0.08, "max": 0.14}
+   },
+   "ondas": {
+    "arranque_ms": {"mediana": 1900, "min": 1820, "max": 1990},
+    "memoria_mb": {"mediana": 420, "min": 405, "max": 440},
+    "cpu_pct": {"mediana": 0.20, "min": 0.10, "max": 0.30}
+   }
+  },
+  "chromium": {
+   "suelto": {
+    "arranque_ms": {"mediana": 640, "min": 600, "max": 690},
+    "memoria_mb": {"mediana": 290, "min": 270, "max": 305},
+    "cpu_pct": {"mediana": 0.10, "min": 0.05, "max": 0.12}
+   }
+  }
+ },
+ "tamano_mb": {
+  "visor": {"app": 4.1, "motor": 133.6, "motor_nombre": "webkit2gtk-4.1 (compartido del sistema)"},
+  "obsidian": {"app": 25.2, "motor": 335.8, "motor_nombre": "electron43"},
+  "chromium": {"app": 416.7, "motor": 0, "motor_nombre": ""}
+ }
+}

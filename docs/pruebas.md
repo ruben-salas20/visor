@@ -42,6 +42,18 @@ El cambio de página y la pestaña nueva se miden de dos formas. `cambio_pagina_
 - El ruido supera a menudo el efecto: con diferencias de pocos ms, compara solo rondas alternadas. El arranque con `ondas.md` es bimodal con cualquier binario (~670 y ~725 ms).
 - El perfil de energía manda: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
 
+## Comparar con Obsidian y Chromium
+
+```sh
+tools/medir/comparar.py --prueba                 # una medida por app, con capturas en $TMPDIR/visor-medir/prueba/
+tools/medir/comparar.py --rondas 5               # ~25 min sin usar el equipo
+tools/medir/comparar.py --resumen $TMPDIR/visor-medir/comparar-….jsonl   # escribe docs/img/cifras.json
+tools/medir/graficas.py                          # docs/img/graficas/*.svg
+node tools/video/grabar.mjs && tools/video/demo.sh && tools/video/unir.sh   # GIF del README
+```
+
+Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromium del usuario), calentado por un primer arranque que no cuenta, y el orden se alterna entre rondas. El arranque es hasta que aparece la ventana, igual para las tres; no incluye dibujar la página. `demo.sh` abre ventanas flotantes unos 30 s por idioma y añade a Hyprland, hasta que recargue, una regla para la etiqueta `visordemo` (opacas, sin borde).
+
 ## Referencia
 
 2026-10-10, commit `02727b2` (fin de la revisión de arquitectura y de la revisión independiente), enchufado, perfil `performance`. Mediana (mínimo–máximo) de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión.

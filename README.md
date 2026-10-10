@@ -1,10 +1,36 @@
-# visor
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo/logotipo-oscuro.svg">
+    <img alt="visor" src="docs/img/logo/logotipo.svg" width="240">
+  </picture>
+</h1>
 
 [Español](README.es.md)
 
 visor is an app for studying with artificial intelligence (AI), in the spirit of Obsidian. It shows a **vault**: a folder of HTML pages and Markdown notes. It also opens a single loose HTML file, without a vault. You read, highlight and comment. Your AI agent drives visor from the terminal or through MCP, reads your annotations and replies on the same page.
 
 visor is built in Rust with tao, wry and WebKitGTK. It runs only on Linux with Wayland.
+
+![visor: you highlight a sentence and ask; the agent replies on the page and opens a note beside it](docs/img/demo.en.gif)
+
+## Performance
+
+With a simple note or page, visor uses about half the memory of Obsidian or Chromium; with a heavy note (Mermaid, KaTeX, code), about a quarter less than Obsidian. Its window opens more than twice as fast.
+
+![Key figures: visor against Obsidian and Chromium](docs/img/graficas/resumen.en.svg)
+
+<details>
+<summary>Memory, startup and disk space charts</summary>
+
+![Memory at rest](docs/img/graficas/memoria.en.svg)
+
+![Cold start](docs/img/graficas/arranque.en.svg)
+
+![Disk space](docs/img/graficas/tamano.en.svg)
+
+</details>
+
+How it was measured: the same vault on the same laptop, 5 alternating rounds, each app with its default settings, no extensions and a profile warmed up by a first, uncounted launch. Memory is the PSS of the whole process tree, 10 seconds after the window appears. Startup is the time from launching the app until its window appears; it does not include drawing the page. Disk space counts each app's web engine; visor's (WebKitGTK) is a system library that other apps share. The script is `tools/medir/comparar.py` and the data are in `docs/img/cifras.json`.
 
 ## What you need
 
@@ -94,7 +120,7 @@ Then ask your agent to use the `guide` tool. That tool returns the same text as 
 - `src/agent/`: terminal, socket server and MCP. `help.txt` is the text of `visor help`.
 - `src/page/`: JavaScript and CSS that run inside pages.
 - `assets/`, `build.rs`: bundled libraries (KaTeX, highlight.js, Mermaid, CodeMirror), compressed with brotli at build time.
-- `tools/`: CodeMirror bundle generator and benchmark script.
+- `tools/`: CodeMirror bundle generator, benchmark scripts (`tools/medir/`) and the scripts that make the README GIF (`tools/video/`).
 
 ## More documentation
 
