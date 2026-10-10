@@ -34,6 +34,7 @@ Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orde
 | Medida | Valor |
 |---|---|
 | Arranque en frío hasta página cargada | 216–226 ms (2026-10-09, sin glycin; antes 269–277) |
+| Arranque en frío con `estudio/física/ondas.md` (Mermaid, KaTeX, código), 2026-10-09 | 666–677 ms (espera a Mermaid y KaTeX; con una nota de un párrafo, 214–230 ms) |
 | Arranque en frío con un HTML suelto (sin bóveda ni panel) | 268–275 ms |
 | Cambio de página | ~80 ms |
 | Pestaña nueva (`visor open --tab`) | ~130 ms |
