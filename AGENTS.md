@@ -25,4 +25,4 @@ Solo lo que el código no dice por sí mismo.
 ## Antes de…
 
 - **probar o medir**: lee `docs/pruebas.md`. El usuario suele tener visor abierto; tus órdenes irían a su ventana si no aíslas la instancia.
-- **tocar arquitectura, dependencias o perfil de compilación**: lee `docs/decisiones.md` y el ADR afectado. Cada ADR recoge lo medido o acordado con el usuario; cambia uno solo con datos nuevos y consultándolo.
+- **tocar arquitectura, dependencias o perfil de compilación**: lee el ADR afectado en `docs/adr/` (el nombre de cada archivo dice de qué trata; 0034 reúne las decisiones de una línea, y los valores por defecto de WebKit que no se tocan están comentados junto a `WebContext::new` en `ui/app.rs`). Cada ADR recoge lo medido o acordado con el usuario; cambia uno solo con datos nuevos y consultándolo. Los que citan cifras (0003, 0004, 0011, 0013, 0019, 0026, 0028) se re-miden con `docs/pruebas.md`.

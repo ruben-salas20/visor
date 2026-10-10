@@ -78,7 +78,7 @@ Después pide a tu agente que use la herramienta `guide`. Esa herramienta le exp
 Esta documentación está en español.
 
 - [CONTEXT.md](CONTEXT.md): glosario de términos.
-- [docs/decisiones.md](docs/decisiones.md): decisiones de diseño y sus mediciones.
+- [docs/adr/](docs/adr/): decisiones de diseño y sus mediciones.
 - [docs/pruebas.md](docs/pruebas.md): cómo probar y medir.
 - [AGENTS.md](AGENTS.md): guía para agentes que programan en este repositorio.
 

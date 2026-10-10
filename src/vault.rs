@@ -281,7 +281,11 @@ impl Vault {
     /// The file of the page shown at `url`, with its vault path. Websites and
     /// loose pages are not in the vault, so they are refused.
     pub fn page(&self, url: &str) -> Result<(String, PathBuf), String> {
-        let rel = rel_from_url(url).filter(|r| !is_loose(r)).ok_or("La página no es de la bóveda")?;
+        // The name keys the page's annotations, so it must be the one the file
+        // is listed under: `a/../b` would resolve, but store them elsewhere.
+        let rel = rel_from_url(url)
+            .filter(|r| !is_loose(r) && !r.split('/').any(|seg| seg == "." || seg == ".."))
+            .ok_or("La página no es de la bóveda")?;
         let path = self.resolve(&rel).ok_or("La página no existe en la bóveda")?;
         Ok((rel, path))
     }
@@ -576,6 +580,8 @@ mod tests {
         assert!(vault.page(&url(loose.to_str().unwrap())).is_err(), "loose page");
         assert!(vault.note(&url(loose.to_str().unwrap())).is_err(), "loose page");
         assert!(vault.page(&url("a/enlace.md")).is_err(), "link out of the vault");
+        assert!(vault.page(&format!("{BASE}a/%2e%2e/a/nota.md")).is_err(), "dot segments");
+        assert!(vault.page(&format!("{BASE}a/./nota.md")).is_err(), "dot segments");
         fs::remove_dir_all(dir).unwrap();
     }
 

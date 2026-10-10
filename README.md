@@ -53,7 +53,7 @@ All of it is in Spanish.
 - [README.es.md](README.es.md): guide for people.
 - [CONTEXT.md](CONTEXT.md): glossary.
 - [AGENTS.md](AGENTS.md): guide for agents working on this repository.
-- [docs/decisiones.md](docs/decisiones.md): design decisions (ADR), with the measurements behind them.
+- [docs/adr/](docs/adr/): design decisions (ADR), with the measurements behind them.
 - [docs/pruebas.md](docs/pruebas.md): how to test and measure.
 
 ## License

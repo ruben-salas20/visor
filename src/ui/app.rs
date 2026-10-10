@@ -129,6 +129,11 @@ pub fn launch() -> i32 {
     let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
     // One context for every view: one network process, and a single writer
     // for cookies and storage, which two contexts on one folder would fight over.
+    // WebKitGTK's defaults are decisions here, measured, so this code sets
+    // neither: DMA-BUF stays on (off starts ~0.5 s sooner, but Three.js drops
+    // from 60 to 26 fps), and the cache stays WebBrowser-sized without a limit
+    // (DocumentViewer frees ~700 MB after heavy sites, but CDN libraries then
+    // reload slower and fail offline; the disk cache does not slow startup).
     let context = WebContext::new(None);
     let sidebar = Sidebar::new(&proxy);
     // Started for a page outside every vault: that page alone, without the
