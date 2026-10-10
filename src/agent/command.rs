@@ -285,7 +285,7 @@ impl Command {
             })
         };
         // No resolved path travels as "".
-        let page = |page: &Page| json!({ "path": page.path.as_deref().unwrap_or(Path::new("")), "raw": page.raw });
+        let page = |page: &Page| json!({ "path": page.path.as_deref().unwrap_or(Path::new("")).to_string_lossy(), "raw": page.raw });
         let wire = match self {
             Self::Ping => json!({ "cmd": "ping" }),
             Self::Status => json!({ "cmd": "status" }),
@@ -615,6 +615,15 @@ mod tests {
         for (line, tool, arguments) in table {
             assert_eq!(unresolved(cli(line).unwrap()), unresolved(mcp(tool, arguments).unwrap()), "{line}");
         }
+    }
+
+    #[test]
+    fn wire_survives_paths_that_are_not_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff.html".to_vec()));
+        let command = Command::Open { target: Target::Path(Page { raw: "x".into(), path: Some(path) }), place: None };
+        let wire: Value = serde_json::from_str(&command.to_wire()).unwrap();
+        assert_eq!(wire["path"], "/tmp/\u{fffd}.html");
     }
 
     /// The JSON the socket has always carried, from the CLI and from MCP.

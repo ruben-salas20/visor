@@ -75,12 +75,26 @@ impl Config {
     }
 
     /// Atomic: a cut mid-write must not leave broken JSON, which `load` would
-    /// answer with an empty list of vaults.
+    /// answer with an empty list of vaults. A vault path that is not UTF-8
+    /// cannot be written as JSON; `check_vault` stops those earlier.
     fn save_to(&self, path: &Path) {
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
         }
-        let _ = crate::vault::write_atomic(path, serde_json::to_vec_pretty(self).unwrap());
+        match serde_json::to_vec_pretty(self) {
+            Ok(json) => {
+                let _ = crate::vault::write_atomic(path, json);
+            }
+            Err(e) => eprintln!("No se pudo guardar la configuración: {e}"),
+        }
+    }
+
+    /// Refuses a folder that the configuration could not keep.
+    pub fn check_vault(path: &Path) -> Result<(), String> {
+        match path.to_str() {
+            Some(_) => Ok(()),
+            None => Err(format!("El nombre de la carpeta no es UTF-8 y no se puede abrir como bóveda: {}", path.to_string_lossy())),
+        }
     }
 
     pub fn add(&mut self, vault: &Path) {
@@ -144,5 +158,19 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn non_utf8_vault_is_refused_and_saving_does_not_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let bad = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec()));
+        assert!(Config::check_vault(&bad).is_err());
+        assert!(Config::check_vault(Path::new("/tmp/ok")).is_ok());
+        let dir = std::env::temp_dir().join(format!("visor-config-utf8-{}", std::process::id()));
+        let mut config = Config::default();
+        config.add(&bad);
+        config.save_to(&dir.join("config.json"));
+        assert!(!dir.join("config.json").exists());
+        let _ = fs::remove_dir_all(dir);
     }
 }

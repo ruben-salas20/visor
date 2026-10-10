@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -104,9 +104,9 @@ impl Shared {
         let errors = page.console.iter().filter(|e| e["level"] == "error").count();
         json!({
             "ok": true,
-            "vault": vault,
+            "vault": vault.map(Path::to_string_lossy),
             "file": page.file,
-            "path": path,
+            "path": path.as_deref().map(Path::to_string_lossy),
             "url": page.url,
             "loaded": page.loaded,
             "errors": errors,
@@ -124,7 +124,7 @@ pub fn now() -> u64 {
 pub fn push_event(shared: &mut Shared, mut event: Value) {
     event["id"] = json!(shared.next_id);
     event["time"] = json!(now());
-    event["vault"] = json!(shared.vault.as_ref().map(|v| v.path()));
+    event["vault"] = json!(shared.vault.as_ref().map(|v| v.path().to_string_lossy()));
     shared.next_id += 1;
     if shared.events.len() >= MAX_EVENTS {
         shared.events.remove(0);

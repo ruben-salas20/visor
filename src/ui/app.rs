@@ -335,6 +335,10 @@ impl App {
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
     fn show_vault(&mut self, root: Option<PathBuf>) {
+        if let Some(Err(e)) = root.as_deref().map(Config::check_vault) {
+            eprintln!("{e}");
+            return;
+        }
         if root.is_some() && self.vault().is_none() {
             // It was hidden for loose pages.
             self.sidebar.root.show();
@@ -1236,6 +1240,7 @@ impl App {
             .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
             .map_err(|_| format!("No existe: {raw}"))?;
         if path.is_dir() {
+            Config::check_vault(&path)?;
             self.show_vault(Some(path));
             return Ok(None);
         }
@@ -1254,6 +1259,7 @@ impl App {
                     .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
                 let rel = vault::rel(&root, &path);
                 if self.vault().is_none_or(|v| v.path() != root) {
+                    Config::check_vault(&root)?;
                     self.show_vault(Some(root));
                 }
                 rel
