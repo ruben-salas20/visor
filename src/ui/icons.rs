@@ -1,6 +1,6 @@
 //! Line icons drawn with cairo in the text color. Theme icons go through a
 //! sandboxed SVG loader (glycin) that costs ~6.5 MB and ~50 ms on most cold
-//! starts, so visor draws its own. See docs/decisiones.md.
+//! starts, so visor draws its own. See docs/adr/0004.
 use gtk::glib::Propagation;
 use gtk::prelude::*;
 use std::f64::consts::PI;

@@ -14,7 +14,7 @@ use crate::vault::config::{PaneState, Workspace};
 use serde_json::{Value, json};
 
 /// Pages kept loaded across all tabs. Each one is a WebKit process of
-/// 60–90 MB; the active tab of each side always counts. See docs/decisiones.md.
+/// 60–90 MB; the active tab of each side always counts. See docs/adr/0011.
 pub const MAX_LIVE: usize = 3;
 
 /// What the window has to do after an operation. Side numbers are indexes at

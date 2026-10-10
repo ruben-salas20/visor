@@ -498,7 +498,7 @@ impl App {
     /// Shows the active view of side `p` and hides the others, which stay loaded.
     /// A new view stays hidden until its page starts loading: on screen,
     /// WebKitGTK blocks the app up to 500 ms waiting for its first paint while
-    /// the new process waits for the app, twice per new view.
+    /// the new process waits for the app, twice per new view (docs/adr/0013).
     fn show_active(&self, p: usize) {
         let side = self.tabs.side(p);
         if !side.tab().is_ready() {
