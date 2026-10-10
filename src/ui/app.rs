@@ -1,204 +1,44 @@
 use crate::vault::annot;
+use crate::session::{Loading, MAX_CONSOLE, Page, Place, AgentRequest, Shared, SharedRef, now, push_event};
+use crate::ui::action::{Action, SidebarMsg, UserEvent};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
+use crate::ui::page_calls;
+use crate::ui::page_view::{build_page, clean_position, is_web};
 use crate::ui::panes::{Pane, Tab};
 use crate::paths;
-use crate::ui::sidebar::{Sidebar, SidebarMsg};
+use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
+use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
 use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs;
+
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::unix::WindowExtUnix;
 use tao::window::WindowBuilder;
-use webkit2gtk::{
-    LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType,
-    PolicyDecisionExt, PolicyDecisionType, URIRequestExt, UserContentInjectedFrames,
-    UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt,
-};
-use wry::http::Request;
-use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use webkit2gtk::{UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
+use wry::{WebContext, WebView, WebViewExtUnix};
 
-const BRIDGE: &str = include_str!("../page/bridge.js");
-const ANNOT: &str = include_str!("../page/annot.js");
 const SIDEBAR_WIDTH: i32 = 260;
-const MAX_CONSOLE: usize = 500;
-const MAX_EVENTS: usize = 1000;
+const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 /// Pages kept loaded across all tabs. Each one is a WebKit process of
 /// 60–90 MB; the two on screen always count. See docs/decisiones.md.
 const MAX_LIVE: usize = 3;
-
-/// The view that will load and the load count it had before, to wait for the next one.
-pub type Loading = (u64, u64);
-pub type Reply = mpsc::Sender<Result<Option<Loading>, String>>;
-
-/// Where to open something: replacing the focused tab, in a new tab, or on the other side.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Place {
-    Here,
-    NewTab,
-    Beside,
-}
-
-pub enum UserEvent {
-    Sidebar(SidebarMsg),
-    /// A message from a page view, with the URL of the page that sent it.
-    Page { view: u64, url: String, body: String },
-    Navigated { view: u64, url: String },
-    PageLoaded(u64),
-    /// A page view got the keyboard focus.
-    Focused(u64),
-    Open { path: PathBuf, raw: String, place: Place, reply: Reply },
-    OpenUrl { url: String, place: Place, reply: Reply },
-    Picked(Option<PathBuf>),
-    VaultChanged(Vec<PathBuf>),
-    LooseChanged(Vec<PathBuf>),
-    ThemeChanged,
-    MonoFont(Option<String>),
-    Fullscreen { view: u64, on: bool },
-    /// A link the page asked to open in a new tab: in the background, for
-    /// Ctrl+click and middle click, or shown, for target="_blank".
-    OpenTab { view: u64, url: String, background: bool },
-    /// The reading position a page reported as its tab was hidden.
-    Position { view: u64, json: String },
-    /// A file dragged from the sidebar was dropped on a side: on one half of
-    /// it (0 left, 1 right) when the window is not split, or on all of it.
-    Dropped { pane: u64, half: Option<usize> },
-    /// The zone of a side under a dragged file changed: 0 left half, 1 right
-    /// half, 2 the whole side, or none when the pointer left it.
-    DropHover { pane: u64, zone: Option<u8> },
-    Action(Action),
-}
-
-pub enum Action {
-    PickVault,
-    ToggleSidebar,
-    ToggleBar,
-    /// Steps the page zoom in (1) or out (-1), or resets it (0).
-    Zoom(i8),
-    Reload,
-    Back,
-    Forward,
-    FocusAddress,
-    LeaveAddress,
-    /// The address field lost focus; a hidden bar hides again.
-    AddressDone,
-    NewNote,
-    ToggleEdit,
-    PickElement,
-    ToggleAnnotations,
-    Go(String),
-    NewTab,
-    /// Closes the tab with this id, or the focused one.
-    CloseTab(Option<u64>),
-    /// Moves to the next (1) or previous (-1) tab of the focused side.
-    CycleTab(i8),
-    SelectTab(u64),
-    ToggleSplit,
-    /// Makes the pane with this id the one keys and agents act on.
-    FocusPane(u64),
-    /// Moves the keyboard focus to the left (0) or right (1) side.
-    FocusSide(usize),
-}
-
-/// What a page view is showing, for the socket server.
-#[derive(Default)]
-pub struct Page {
-    pub file: Option<String>,
-    /// Set when the view shows a website instead of a vault file.
-    pub url: Option<String>,
-    pub loaded: bool,
-    pub load_seq: u64,
-    pub console: Vec<Value>,
-    /// Annotations of the page that could not be placed, as reported by it.
-    pub orphans: Option<Vec<String>>,
-}
-
-static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
-
-/// What the socket server can read without going through the event loop.
-#[derive(Default)]
-pub struct Shared {
-    pub vault: Option<Arc<Vault>>,
-    /// Folders of the pages opened on their own, which the server may read.
-    pub loose: Vec<PathBuf>,
-    /// Every live page view, by view id.
-    pub pages: HashMap<u64, Page>,
-    /// The view of the focused side's active tab: the one agents act on.
-    pub focused: u64,
-    /// Sides and tabs, as `visor status` reports them.
-    pub layout: Value,
-    pub events: Vec<Value>,
-    pub next_id: u64,
-}
-
-pub type SharedRef = Arc<Mutex<Shared>>;
-
-impl Shared {
-    fn with_saved_events() -> Self {
-        let mut events: Vec<Value> = fs::File::open(paths::events())
-            .map(|f| {
-                BufReader::new(f)
-                    .lines()
-                    .map_while(Result::ok)
-                    .filter_map(|line| serde_json::from_str(&line).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let next_id = events.last().and_then(|e| e["id"].as_u64()).unwrap_or(0) + 1;
-        let skip = events.len().saturating_sub(MAX_EVENTS);
-        events.drain(..skip);
-        Shared { events, next_id, ..Default::default() }
-    }
-
-    /// The page on the focused side.
-    pub fn page(&self) -> &Page {
-        self.page_of(self.focused)
-    }
-
-    pub fn page_of(&self, view: u64) -> &Page {
-        self.pages.get(&view).unwrap_or(&NO_PAGE)
-    }
-
-    pub fn status(&self) -> Value {
-        let page = self.page();
-        let vault = self.vault.as_ref().map(|v| v.path());
-        let path = page.file.as_ref().and_then(|f| match vault {
-            _ if vault::is_loose(f) => Some(PathBuf::from(f)),
-            Some(v) => Some(v.join(f)),
-            None => None,
-        });
-        let errors = page.console.iter().filter(|e| e["level"] == "error").count();
-        json!({
-            "ok": true,
-            "vault": vault,
-            "file": page.file,
-            "path": path,
-            "url": page.url,
-            "loaded": page.loaded,
-            "errors": errors,
-            "last_event_id": self.next_id - 1,
-            "sides": self.layout,
-        })
-    }
-}
 
 /// Messages from vault pages. Websites never get to send these.
 #[derive(Deserialize)]
@@ -221,14 +61,6 @@ enum PageMsg {
     AnnotStatus { orphans: Vec<String>, total: usize },
 }
 
-pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-fn is_web(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
-}
-
 pub fn launch() -> i32 {
     let socket = paths::socket();
     if UnixStream::connect(&socket).is_ok() {
@@ -247,7 +79,10 @@ pub fn launch() -> i32 {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
-    crate::agent::server::spawn(listener, shared.clone(), proxy.clone());
+    let agent_proxy = proxy.clone();
+    crate::agent::server::spawn(listener, shared.clone(), move |request| {
+        let _ = agent_proxy.send_event(UserEvent::Agent(request));
+    });
 
     let mut config = Config::load();
     let Some((port, base)) = crate::http::start(config.port, shared.clone()) else {
@@ -331,9 +166,11 @@ pub fn launch() -> i32 {
         shared,
         proxy: proxy.clone(),
         config,
+        config_dirty: false,
+        save_scheduled: false,
         theme,
         watcher: None,
-        loose_watchers: Vec::new(),
+        loose_watchers: LooseWatchers::default(),
         _theme_watcher: theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, proxy, |_| UserEvent::ThemeChanged)),
     };
     app.apply_theme();
@@ -345,6 +182,7 @@ pub fn launch() -> i32 {
         match event {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 app.save_layout();
+                app.flush_config();
                 let _ = fs::remove_file(paths::socket());
                 *flow = ControlFlow::Exit;
             }
@@ -394,151 +232,6 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
     });
 }
 
-/// A page view inside `container`. Its events carry `id`, so the app knows
-/// which tab they come from.
-fn build_page(
-    container: &gtk::Box,
-    context: &mut WebContext,
-    background: (u8, u8, u8, u8),
-    proxy: EventLoopProxy<UserEvent>,
-    id: u64,
-) -> wry::Result<WebView> {
-    let ipc = proxy.clone();
-    let new_window = proxy.clone();
-    let clicks = proxy.clone();
-    let page = WebViewBuilder::new_with_web_context(context)
-        .with_background_color(background)
-        .with_initialization_script(BRIDGE.replace("__VISOR_BASE__", vault::base()))
-        .with_initialization_script(ANNOT.replace("__VISOR_BASE__", vault::base()))
-        .with_ipc_handler(move |request: Request<String>| {
-            let url = request.uri().to_string();
-            let _ = ipc.send_event(UserEvent::Page { view: id, url, body: request.into_body() });
-        })
-        // target="_blank" and window.open open a tab beside this one.
-        .with_new_window_req_handler(move |url, _| {
-            if is_web(&url) {
-                let _ = new_window.send_event(UserEvent::OpenTab { view: id, url, background: false });
-            } else if url.starts_with("mailto:") {
-                open_external(&url);
-            }
-            NewWindowResponse::Deny
-        })
-        .with_devtools(true)
-        .build_gtk(container)?;
-    let view = page.webview();
-
-    // Clicked links may go to the vault or the web. Mail goes to the mail app,
-    // and any other scheme is refused rather than handed to the system.
-    // Only clicks are checked, so embedded iframes still load.
-    view.connect_decide_policy(move |_, decision, kind| {
-        if kind != PolicyDecisionType::NavigationAction && kind != PolicyDecisionType::NewWindowAction {
-            return false;
-        }
-        let Some(nav) = decision.downcast_ref::<NavigationPolicyDecision>() else { return false };
-        let Some(action) = nav.navigation_action() else { return false };
-        if action.navigation_type() != NavigationType::LinkClicked {
-            return false;
-        }
-        let uri = action.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
-        if is_web(&uri) {
-            // Ctrl+click and middle click open a tab in the background, as in a browser.
-            let control = action.modifiers() & gtk::gdk::ModifierType::CONTROL_MASK.bits() != 0;
-            if !(control || action.mouse_button() == 2) {
-                return false;
-            }
-            let _ = clicks.send_event(UserEvent::OpenTab { view: id, url: uri, background: true });
-            decision.ignore();
-            return true;
-        }
-        if uri.starts_with("mailto:") {
-            open_external(&uri);
-        }
-        decision.ignore();
-        true
-    });
-
-    // Followed here, not by the page script, so websites are tracked too.
-    let p = proxy.clone();
-    view.connect_load_changed(move |view, event| {
-        let event = match event {
-            LoadEvent::Committed => UserEvent::Navigated { view: id, url: view.uri().map(|u| u.to_string()).unwrap_or_default() },
-            LoadEvent::Finished => UserEvent::PageLoaded(id),
-            _ => return,
-        };
-        let _ = p.send_event(event);
-    });
-
-    let p = proxy.clone();
-    view.connect_focus_in_event(move |_, _| {
-        let _ = p.send_event(UserEvent::Focused(id));
-        gtk::glib::Propagation::Proceed
-    });
-
-    // WebKit makes the whole window fullscreen; the app hides its own chrome
-    // so only the element (a video, usually) remains. Returning false lets
-    // WebKit go on with its default handling.
-    let p = proxy.clone();
-    view.connect_enter_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: true });
-        false
-    });
-    let p = proxy.clone();
-    view.connect_leave_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: false });
-        false
-    });
-
-    // Mouse side buttons.
-    let p = proxy;
-    view.connect_button_press_event(move |_, event| {
-        let action = match event.button() {
-            8 => Action::Back,
-            9 => Action::Forward,
-            _ => return gtk::glib::Propagation::Proceed,
-        };
-        let _ = p.send_event(UserEvent::Action(action));
-        gtk::glib::Propagation::Stop
-    });
-    Ok(page)
-}
-
-fn open_external(url: &str) {
-    let _ = Command::new("xdg-open").arg(url).spawn();
-}
-
-/// Watches `path` and forwards changes in batches once they settle.
-/// Access events are dropped: serving a page opens it, which would reload it forever.
-fn watch(
-    path: &Path,
-    mode: RecursiveMode,
-    settle_ms: u64,
-    proxy: EventLoopProxy<UserEvent>,
-    wrap: fn(Vec<PathBuf>) -> UserEvent,
-) -> Option<RecommendedWatcher> {
-    let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if let Ok(event) = res
-            && !matches!(event.kind, EventKind::Access(_))
-        {
-            let _ = tx.send(event.paths);
-        }
-    })
-    .ok()?;
-    watcher.watch(path, mode).ok()?;
-    // Ends on its own when the watcher, and with it the sender, is dropped.
-    std::thread::spawn(move || {
-        while let Ok(mut batch) = rx.recv() {
-            while let Ok(more) = rx.recv_timeout(Duration::from_millis(settle_ms)) {
-                batch.extend(more);
-            }
-            batch.sort();
-            batch.dedup();
-            let _ = proxy.send_event(wrap(batch));
-        }
-    });
-    Some(watcher)
-}
-
 fn empty_page(message: &str, pick: bool) -> String {
     let button = if pick {
         r#"<button onclick="ipc.postMessage(JSON.stringify({type:'pick_vault'}))">Abrir carpeta…</button>"#
@@ -581,16 +274,19 @@ struct App {
     sidebar_before_fullscreen: Option<bool>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
     /// that still matches is the app's own; anything else came from outside.
-    own_write: Option<(PathBuf, u64)>,
+    own_write: Option<OwnWrite>,
     paned: gtk::Paned,
     styles: gtk::CssProvider,
     shared: SharedRef,
     proxy: EventLoopProxy<UserEvent>,
     config: Config,
+    /// Changes in `config` not yet written, and whether a write is already scheduled.
+    config_dirty: bool,
+    save_scheduled: bool,
     theme: Option<Theme>,
     watcher: Option<RecommendedWatcher>,
     /// One per folder of the loose pages in the tabs, without subfolders.
-    loose_watchers: Vec<(PathBuf, RecommendedWatcher)>,
+    loose_watchers: LooseWatchers,
     _theme_watcher: Option<RecommendedWatcher>,
 }
 
@@ -681,7 +377,7 @@ impl App {
         self.watcher = None;
         if let Some(root) = &root {
             self.config.add(root);
-            self.config.save();
+            self.save_config_soon();
             self.watcher = watch(root, RecursiveMode::Recursive, 150, self.proxy.clone(), UserEvent::VaultChanged);
         }
         self.show_sidebar();
@@ -754,7 +450,7 @@ impl App {
             focused: self.focused,
         };
         self.config.workspaces.insert(root, workspace);
-        self.config.save();
+        self.save_config_soon();
     }
 
     /// Adds the right side, empty.
@@ -890,7 +586,7 @@ impl App {
             {
                 let (proxy, id) = (self.proxy.clone(), *id);
                 let _ = view.evaluate_script_with_callback(
-                    "window.__visorNote ? __visorNote.hide() : { y: scrollY }",
+                    page_calls::hide(),
                     move |json| {
                         let _ = proxy.send_event(UserEvent::Position { view: id, json });
                     },
@@ -1049,6 +745,27 @@ impl App {
         self.sidebar.set_theme(self.theme.as_ref());
     }
 
+    /// Marks the settings as changed and writes them once, shortly after,
+    /// instead of on every navigation: the write blocks the window. A crash
+    /// loses at most this delay of state.
+    fn save_config_soon(&mut self) {
+        self.config_dirty = true;
+        if !self.save_scheduled {
+            self.save_scheduled = true;
+            let proxy = self.proxy.clone();
+            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || {
+                let _ = proxy.send_event(UserEvent::SaveConfig);
+            });
+        }
+    }
+
+    /// Writes the settings now if a change is waiting.
+    fn flush_config(&mut self) {
+        if std::mem::take(&mut self.config_dirty) {
+            self.config.save();
+        }
+    }
+
     fn save_layout(&mut self) {
         if self.sidebar.root.is_visible() {
             self.config.sidebar_width = Some(self.paned.position());
@@ -1087,9 +804,7 @@ impl App {
                 if let Some(position) = tab.restore.take()
                     && let Some((_, v)) = &tab.view
                 {
-                    let _ = v.evaluate_script(&format!(
-                        "(t => window.__visorNote ? __visorNote.place(t) : scrollTo(0, t.y))({position})"
-                    ));
+                    let _ = v.evaluate_script(&page_calls::place(&position));
                 }
                 if is_web(&tab.target)
                     && let Some((_, v)) = &tab.view
@@ -1106,12 +821,13 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Open { path, raw, place, reply } => {
+            UserEvent::Agent(AgentRequest::Open { path, raw, place, reply }) => {
                 let _ = reply.send(self.open(path, &raw, place));
             }
-            UserEvent::OpenUrl { url, place, reply } => {
+            UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
                 let _ = reply.send(Ok(self.open_in(url, place)));
             }
+            UserEvent::Agent(AgentRequest::Reload) => self.act(Action::Reload),
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
@@ -1135,6 +851,10 @@ impl App {
                 self.apply_theme();
             }
             UserEvent::Action(action) => self.act(action),
+            UserEvent::SaveConfig => {
+                self.save_scheduled = false;
+                self.flush_config();
+            }
         }
     }
 
@@ -1171,7 +891,7 @@ impl App {
             }
             Action::ToggleBar => {
                 self.config.bar_shown = !self.config.bar_shown;
-                self.config.save();
+                self.save_config_soon();
                 let typing = self.panes.iter().any(|p| p.bar.address.has_focus());
                 for pane in &self.panes {
                     pane.bar.root.set_visible(self.config.bar_shown);
@@ -1191,7 +911,7 @@ impl App {
                     view.webview().set_zoom_level(zoom);
                 }
                 self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
-                self.config.save();
+                self.save_config_soon();
             }
             Action::LeaveAddress => {
                 if let Some(view) = self.view() {
@@ -1201,9 +921,9 @@ impl App {
                 pane.bar.show(&pane.tab().target);
             }
             Action::Go(text) => self.go(&text),
-            Action::PickElement => self.page_call("window.__visorAnnot && window.__visorAnnot.pickElement()"),
-            Action::ToggleAnnotations => self.page_call("window.__visorAnnot && window.__visorAnnot.togglePanel()"),
-            Action::ToggleEdit => self.page_call("window.__visorNote && window.__visorNote.toggle()"),
+            Action::PickElement => self.page_call(page_calls::annot_pick_element()),
+            Action::ToggleAnnotations => self.page_call(page_calls::annot_toggle_panel()),
+            Action::ToggleEdit => self.page_call(page_calls::note_toggle()),
             Action::NewNote => {
                 if self.vault().is_none() {
                     return;
@@ -1290,24 +1010,7 @@ impl App {
     fn frost(&self, p: usize, zone: Option<u8>) {
         let Some((_, view)) = &self.panes[p].tab().view else { return };
         let accent = self.theme.as_ref().map_or("#3584e4", |t| t.accent.as_str());
-        let (left, right) = match zone {
-            Some(0) => ("8px", "calc(50% + 4px)"),
-            Some(1) => ("calc(50% + 4px)", "8px"),
-            _ => ("8px", "8px"),
-        };
-        let code = format!(
-            r#"(() => {{
-  let d = document.getElementById("__visor_drop");
-  if (!{on}) {{ d?.remove(); return; }}
-  if (!d) {{ d = document.createElement("div"); d.id = "__visor_drop"; document.documentElement.append(d); }}
-  d.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;top:8px;bottom:8px;left:{left};right:{right};"
-    + "border-radius:10px;border:2px solid color-mix(in srgb, {accent} 70%, transparent);"
-    + "background:color-mix(in srgb, {accent} 12%, transparent);"
-    + "backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2)";
-}})()"#,
-            on = zone.is_some(),
-        );
-        let _ = view.evaluate_script(&code);
+        let _ = view.evaluate_script(&page_calls::frost(zone, accent));
     }
 
     /// Opens the dragged file where it was dropped. On an unsplit window it
@@ -1471,7 +1174,7 @@ impl App {
             SidebarMsg::OpenFolders(open) => {
                 if let Some(vault) = self.vault() {
                     self.config.open_folders.insert(vault.path().to_path_buf(), open);
-                    self.config.save();
+                    self.save_config_soon();
                 }
             }
             SidebarMsg::PickVault => self.pick_vault(),
@@ -1533,13 +1236,13 @@ impl App {
                 self.config.open_folders.remove(&path);
                 if self.vault().is_some_and(|v| v.path() == path) {
                     self.config.current = self.config.vaults.first().cloned();
-                    self.config.save();
+                    self.save_config_soon();
                     // The removed vault must not get its workspace saved back.
                     self.shared.lock().unwrap().vault = None;
                     let next = self.config.current.clone();
                     self.show_vault(next);
                 } else {
-                    self.config.save();
+                    self.save_config_soon();
                     self.refresh_sidebar();
                 }
             }
@@ -1594,11 +1297,11 @@ impl App {
                     Ok(()) => (true, String::new()),
                     Err(e) => (false, e),
                 };
-                reply(self, format!("window.__visorNote && window.__visorNote.saved({ok}, {})", json!(error)));
+                reply(self, page_calls::note_saved(ok, &error));
             }
             PageMsg::ToggleTask { offset, checked } if trusted => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
-                reply(self, format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
+                reply(self, page_calls::note_toggled(&error));
             }
             PageMsg::AnnotSave { annotation } if trusted => {
                 match self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
@@ -1621,10 +1324,7 @@ impl App {
                 match self.with_page_annotations(url, |root, page| annot::person_reply(root, page, &id, &text)) {
                     Ok(()) => self.note_annotation(&file, &id, "reply", &text),
                     // The page took the message as sent; it takes it back and shows why.
-                    Err(e) => reply(self, format!(
-                        "window.__visorAnnot && window.__visorAnnot.replyFailed({}, {}, {})",
-                        json!(id), json!(text), json!(e)
-                    )),
+                    Err(e) => reply(self, page_calls::annot_reply_failed(&id, &text, &e)),
                 }
             }
             PageMsg::AnnotStatus { orphans, total } if trusted => {
@@ -1676,7 +1376,7 @@ impl App {
     /// an HTML page in the vault cannot overwrite files through this.
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
         let (_, path) = self.open_vault()?.note(url)?;
-        self.own_write = Some((path.clone(), hash(text.as_bytes())));
+        self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }
 
@@ -1712,7 +1412,7 @@ impl App {
         }
         let title = file.trim_end_matches(".md");
         let text = format!("# {title}\n\n");
-        self.own_write = Some((path.clone(), hash(text.as_bytes())));
+        self.own_write = Some(OwnWrite::new(&path, &text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())?;
         let rel = vault.rel(&path);
         // The name was typed in the sidebar; writing continues in the note.
@@ -1758,124 +1458,68 @@ impl App {
     }
 
     /// Watches the folders of the loose pages in the tabs, and stops watching the rest.
+    /// The server may read exactly those folders.
     fn watch_loose(&mut self) {
-        let dirs: Vec<PathBuf> = self
-            .panes
-            .iter()
-            .flat_map(|p| &p.tabs)
-            .filter(|t| vault::is_loose(&t.target))
-            .filter_map(|t| Path::new(&t.target).parent().map(Path::to_path_buf))
-            .collect();
-        self.loose_watchers.retain(|(dir, _)| dirs.contains(dir));
-        for dir in dirs {
-            if self.loose_watchers.iter().any(|(d, _)| *d == dir) {
-                continue;
-            }
-            if let Some(w) = watch(&dir, RecursiveMode::NonRecursive, 150, self.proxy.clone(), UserEvent::LooseChanged) {
-                self.loose_watchers.push((dir, w));
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for tab in self.panes.iter().flat_map(|p| &p.tabs).filter(|t| vault::is_loose(&t.target)) {
+            if let Some(dir) = Path::new(&tab.target).parent()
+                && !dirs.iter().any(|d| d == dir)
+            {
+                dirs.push(dir.to_path_buf());
             }
         }
+        self.loose_watchers.sync(&dirs, &self.proxy);
+        self.shared.lock().unwrap().loose = dirs;
     }
 
-    /// Reloads the loose pages that changed, or whose folder had another file change: it may be their CSS or data.
+    /// The live pages, for the decisions in `watch`.
+    fn live_pages(&self) -> Vec<(u64, Option<String>, &str)> {
+        self.panes
+            .iter()
+            .flat_map(|p| &p.tabs)
+            .filter_map(|t| {
+                let (id, view) = t.view.as_ref()?;
+                Some((*id, vault::rel_from_url(&view.url().unwrap_or_default()), t.target.as_str()))
+            })
+            .collect()
+    }
+
     fn loose_changed(&mut self, changed: Vec<PathBuf>) {
-        for tab in self.panes.iter().flat_map(|p| &p.tabs) {
-            let Some((_, view)) = &tab.view else { continue };
-            if !vault::is_loose(&tab.target) {
-                continue;
-            }
-            let page = Path::new(&tab.target);
-            if changed.iter().any(|p| p == page || (p.parent() == page.parent() && !vault::is_page(p))) {
-                let _ = view.reload();
+        let live = self.live_pages();
+        let pages: Vec<LivePage> = live.iter().map(|(view, file, target)| LivePage { view: *view, file: file.as_deref(), target }).collect();
+        for view in watch::loose_reaction(&changed, &pages) {
+            if let Some(v) = self.view_of(view) {
+                let _ = v.reload();
             }
         }
     }
 
     fn vault_changed(&mut self, changed: Vec<PathBuf>) {
         let Some(vault) = self.vault() else { return };
-        let root = vault.path();
-        // An agent replied or the page saved: the layer re-reads its notes.
-        for view in self.live_views() {
-            let file = vault::rel_from_url(&view.url().unwrap_or_default());
-            if file.is_some() && changed.iter().any(|p| annot::page_of(root, p) == file) {
-                let _ = view.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
+        let live = self.live_pages();
+        let pages: Vec<LivePage> = live.iter().map(|(view, file, target)| LivePage { view: *view, file: file.as_deref(), target }).collect();
+        let reaction = watch::vault_reaction(vault.path(), &changed, self.own_write.as_ref(), &pages, &RealDisk);
+        for view in reaction.reload_annotations {
+            if let Some(v) = self.view_of(view) {
+                let _ = v.evaluate_script(page_calls::annot_reload());
             }
         }
-        let changed: Vec<_> = changed.into_iter().filter(|p| !vault::ignored(root, p)).collect();
-        if changed.is_empty() {
-            return;
+        if reaction.refresh_tree {
+            self.sidebar.set_tree(Some(vault.tree()));
         }
-        self.sidebar.set_tree(Some(vault.tree()));
-        // What the app just saved itself is already on screen.
-        let own = |p: &PathBuf| {
-            self.own_write.as_ref().is_some_and(|(o, h)| o == p && fs::read(p).is_ok_and(|b| hash(&b) == *h))
-        };
-        let changed: Vec<_> = changed.into_iter().filter(|p| !own(p)).collect();
-        // Pages may load sibling CSS, JS or data, so any change outside pages reloads too.
-        let other = changed.iter().any(|p| !vault::is_page(p) && !p.is_dir());
-        for pane in &self.panes {
-            for tab in &pane.tabs {
-                let Some((_, view)) = &tab.view else { continue };
-                if tab.target.is_empty() {
-                    // On the empty page the message depends on whether the vault has files.
-                    self.load_into(view, "", "");
-                    continue;
+        for (view, action) in reaction.pages {
+            let Some(v) = self.view_of(view) else { continue };
+            match action {
+                // On the empty page the message depends on whether the vault has files.
+                PageAction::ReloadEmpty => self.load_into(v, "", ""),
+                // A note being edited must not lose its text to a reload.
+                PageAction::NoteChanged => {
+                    let _ = v.evaluate_script(page_calls::note_changed());
                 }
-                if is_web(&tab.target) || vault::is_loose(&tab.target) {
-                    continue;
-                }
-                let current = root.join(&tab.target);
-                if !(other || changed.contains(&current)) {
-                    continue;
-                }
-                if vault::is_markdown(&current) {
-                    // A note being edited must not lose its text to a reload.
-                    let _ = view.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
-                } else {
-                    let _ = view.reload();
+                PageAction::Reload => {
+                    let _ = v.reload();
                 }
             }
         }
-    }
-}
-
-/// A reading position as a page reported it, keeping only its numbers: the
-/// page may be a website, and the value is later written into a script.
-fn clean_position(json: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(json).ok()?;
-    let y = value["y"].as_f64().filter(|y| y.is_finite())?;
-    Some(match value["line"].as_u64() {
-        Some(line) => json!({ "line": line, "y": y }).to_string(),
-        None => json!({ "y": y }).to_string(),
-    })
-}
-
-fn hash(bytes: &[u8]) -> u64 {
-    use std::hash::{DefaultHasher, Hasher};
-    let mut hasher = DefaultHasher::new();
-    hasher.write(bytes);
-    hasher.finish()
-}
-
-/// Keeps an event for `visor events` and the agents waiting on it, with its id, time and vault.
-fn push_event(shared: &mut Shared, mut event: Value) {
-    event["id"] = json!(shared.next_id);
-    event["time"] = json!(now());
-    event["vault"] = json!(shared.vault.as_ref().map(|v| v.path()));
-    shared.next_id += 1;
-    if shared.events.len() >= MAX_EVENTS {
-        shared.events.remove(0);
-    }
-    shared.events.push(event.clone());
-    append_event(&event);
-}
-
-fn append_event(event: &Value) {
-    let path = paths::events();
-    if let Some(dir) = path.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{event}");
     }
 }

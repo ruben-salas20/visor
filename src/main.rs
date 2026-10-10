@@ -1,6 +1,7 @@
 mod agent;
 mod http;
 mod paths;
+mod session;
 mod ui;
 mod vault;
 

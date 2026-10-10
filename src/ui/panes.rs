@@ -1,4 +1,4 @@
-use crate::ui::app::{Action, UserEvent};
+use crate::ui::action::{Action, UserEvent};
 use crate::ui::bar::Bar;
 use crate::ui::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
 use crate::ui::theme::Theme;

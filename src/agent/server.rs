@@ -1,33 +1,34 @@
-use crate::ui::app::{Action, Place, SharedRef, UserEvent};
+use crate::session::{Place, AgentRequest, SharedRef};
 use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-use tao::event_loop::EventLoopProxy;
 
 const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
-pub fn spawn(listener: UnixListener, shared: SharedRef, proxy: EventLoopProxy<UserEvent>) {
+/// `send` hands a request to the window.
+pub fn spawn(listener: UnixListener, shared: SharedRef, send: impl Fn(AgentRequest) + Send + Sync + 'static) {
+    let send: Arc<dyn Fn(AgentRequest) + Send + Sync> = Arc::new(send);
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let (shared, proxy) = (shared.clone(), proxy.clone());
-            thread::spawn(move || handle(stream, &shared, &proxy));
+            let (shared, send) = (shared.clone(), send.clone());
+            thread::spawn(move || handle(stream, &shared, &*send));
         }
     });
 }
 
-fn handle(stream: UnixStream, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent>) {
+fn handle(stream: UnixStream, shared: &SharedRef, send: &dyn Fn(AgentRequest)) {
     let mut line = String::new();
     if BufReader::new(&stream).read_line(&mut line).is_err() {
         return;
     }
     let response = match serde_json::from_str::<Value>(&line) {
         Ok(request) => match Command::from_wire(&request) {
-            Ok(command) => respond(command, shared, proxy),
+            Ok(command) => respond(command, shared, send),
             Err(e) => fail(e),
         },
         Err(e) => fail(format!("Petición no válida: {e}")),
@@ -39,7 +40,7 @@ fn fail(error: String) -> Value {
     json!({ "ok": false, "error": error })
 }
 
-fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEvent>) -> Value {
+fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) -> Value {
     match command {
         Command::Ping => json!({ "ok": true }),
         Command::Status => shared.lock().unwrap().status(),
@@ -51,10 +52,10 @@ fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEven
             };
             let (reply, answer) = mpsc::channel();
             let event = match target {
-                Target::Url { url } => UserEvent::OpenUrl { url, place, reply },
-                Target::Path(page) => UserEvent::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, reply },
+                Target::Url { url } => AgentRequest::OpenUrl { url, place, reply },
+                Target::Path(page) => AgentRequest::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, reply },
             };
-            let _ = proxy.send_event(event);
+            send(event);
             match answer.recv_timeout(Duration::from_secs(15)) {
                 Ok(Ok(Some((view, before)))) => wait_for_load(shared, view, before),
                 Ok(Ok(None)) => shared.lock().unwrap().status(),
@@ -71,7 +72,7 @@ fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEven
             if !showing {
                 return fail("No hay nada abierto.".into());
             }
-            let _ = proxy.send_event(UserEvent::Action(Action::Reload));
+            send(AgentRequest::Reload);
             wait_for_load(shared, view, before)
         }
         Command::Console { level, clear } => {
@@ -82,7 +83,7 @@ fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEven
             };
             let entries: Vec<Value> = match level {
                 Some(Level::Error) => page.console.iter().filter(|e| e["level"] == "error").cloned().collect(),
-                None => page.console.clone(),
+                None => page.console.iter().cloned().collect(),
             };
             let out = json!({ "ok": true, "file": page.file, "console": entries });
             if clear {
@@ -176,7 +177,7 @@ fn events(after: Option<u64>, wait: Option<f64>, limit: Option<u64>, shared: &Sh
             let s = shared.lock().unwrap();
             let found: Vec<Value> = match after {
                 Some(after) => s.events.iter().filter(|e| e["id"].as_u64() > Some(after)).cloned().collect(),
-                None => s.events[s.events.len().saturating_sub(limit)..].to_vec(),
+                None => s.events.iter().skip(s.events.len().saturating_sub(limit)).cloned().collect(),
             };
             if !found.is_empty() || Instant::now() >= deadline {
                 return json!({ "ok": true, "events": found, "last_event_id": s.next_id - 1 });
