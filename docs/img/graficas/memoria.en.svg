@@ -8,6 +8,9 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 </style>
 <defs><pattern id="trama" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect class="trama-fondo" width="6" height="6"/><line class="trama" x1="0" y1="0" x2="0" y2="6" stroke-width="2.5"/></pattern></defs>
 <rect class="fondo" x="0" y="0" width="720" height="507" rx="8"/>
+<text x="24.0" y="32.0" class="t1" font-size="18" font-weight="600">visor uses between 1.3× and 2.2× less memory than the other apps</text>
+<text x="24.0" y="54.0" class="t2" font-size="13">Memory at rest (PSS, MB) · Less is better</text>
+<g transform="translate(0,0)">
 <line x1="190.0" y1="100.0" x2="190.0" y2="382.0" class="rej"/>
 <text x="190.0" y="398.0" class="t2" font-size="12" text-anchor="middle">0</text>
 <line x1="310.0" y1="100.0" x2="310.0" y2="382.0" class="rej"/>
@@ -18,12 +21,10 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 <text x="550.0" y="398.0" class="t2" font-size="12" text-anchor="middle">600</text>
 <line x1="190.0" y1="382.0" x2="550.0" y2="382.0" class="eje"/>
 <text x="190.0" y="416.0" class="t2" font-size="12">MB</text>
-<text x="24.0" y="32.0" class="t1" font-size="18" font-weight="600">visor uses between 1.3× and 2.2× less memory than the other apps</text>
-<text x="24.0" y="54.0" class="t2" font-size="13">Memory at rest (PSS, MB) · Less is better</text>
 <rect x="24" y="70" width="14" height="14" rx="2" class="acento"/>
 <text x="44.0" y="81.0" class="t2" font-size="12">visor</text>
-<rect x="99.0" y="70" width="14" height="14" rx="2" class="neutro"/>
-<text x="119.0" y="81.0" class="t2" font-size="12">Obsidian or Chromium</text>
+<rect x="95.12448" y="70" width="14" height="14" rx="2" class="neutro"/>
+<text x="115.1" y="81.0" class="t2" font-size="12">Obsidian or Chromium</text>
 <text x="24.0" y="116.0" class="t1 knock" font-size="13" font-weight="600">One-paragraph note</text>
 <text x="40.0" y="147.5" class="t1" font-size="13" font-weight="600">visor</text>
 <path d="M190.0,135.0 H315.3 A4,4 0 0 1 319.3,139.0 V147.0 A4,4 0 0 1 315.3,151.0 H190.0 Z" class="acento"/>
@@ -71,6 +72,7 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 <text xml:space="preserve" x="446.5" y="361.5" class="t1 knock" font-size="13"><tspan font-weight="600">406 MB </tspan><tspan class="t2">(398–411)</tspan></text>
 <line x1="24" y1="428.0" x2="696" y2="428.0" class="rej"/>
 <text x="24.0" y="442.0" class="t2" font-size="12">Bar: median. Thin line: min–max across the rounds.</text>
-<text x="24.0" y="459.0" class="t2" font-size="12">Data of 2026-10-10 · plugged in, performance profile, 5 rounds, 13th Gen Intel(R) Core(TM) i7-13620H, 23.1 GiB</text>
+<text x="24.0" y="459.0" class="t2" font-size="12">Data of 2026-10-10 · plugged in, performance profile, 5 rounds, Intel Core i7-13620H, 23.1 GiB</text>
 <text x="24.0" y="476.0" class="t2" font-size="12">Versions: visor 7b7db2b · Obsidian 1.14.4 · Chromium 152.0.7977.82</text>
+</g>
 </svg>

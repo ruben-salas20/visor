@@ -13,6 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -46,6 +47,47 @@ CASOS_BIGOTE = [
     ("ondas", ["visor", "obsidian"]),
     ("suelto", ["visor", "chromium"]),
 ]
+
+
+# Helvetica advance widths (1/1000 em). Fonts differ by viewer (GitHub shows the
+# reader's system-ui), so the estimate is padded to cover wider faces like Segoe UI or Inter.
+_ANCHOS = {**dict.fromkeys("ijl|!.,:;'·", 278), **dict.fromkeys("ftI []/", 278),
+           **dict.fromkeys("r()-", 333), **dict.fromkeys("ckvxyzsJ«»“”", 500),
+           "m": 833, "w": 722, "M": 833, "W": 944, "%": 889, "×": 584, "–": 556, "—": 1000}
+_HOLGURA = 1.12
+
+
+def ancho(s, size, weight=None):
+    """Estimated width in px of `s`, on the wide side."""
+    em = sum(_ANCHOS.get(ch, 722 if ch.isupper() else 556) for ch in s) / 1000
+    return em * size * _HOLGURA * (1.06 if weight and int(weight) >= 600 else 1.0)
+
+
+def envolver(s, size, max_px, weight=None):
+    """Splits `s` into lines that fit `max_px`, breaking only between words."""
+    lineas, actual = [], ""
+    for palabra in s.split(" "):
+        prueba = f"{actual} {palabra}".strip()
+        if actual and ancho(prueba, size, weight) > max_px:
+            lineas.append(actual)
+            actual = palabra
+        else:
+            actual = prueba
+    lineas.append(actual)
+    return lineas
+
+
+def equilibrar(s, size, max_px, weight=None):
+    """Like envolver, but with lines of similar length: no lone word on the last line."""
+    lineas = envolver(s, size, max_px, weight)
+    n, lo, hi = len(lineas), 0.0, max_px
+    while n > 1 and hi - lo > 2:
+        mid = (lo + hi) / 2
+        if len(envolver(s, size, mid, weight)) == n:
+            hi = mid
+        else:
+            lo = mid
+    return envolver(s, size, hi, weight) if n > 1 else lineas
 
 
 # ---------------------------------------------------------------- data access
@@ -125,10 +167,11 @@ def paso_eje(vmax):
 
 
 def condiciones(datos, t):
+    # "13th Gen Intel(R) Core(TM) i7-13620H" → "Intel Core i7-13620H": the marks only take room.
+    texto = re.sub(r"\d+th Gen |\(R\)|\(TM\)", "", datos["condiciones"])
     # cifras.json is written in Spanish; the English charts translate its fixed words.
-    texto = datos["condiciones"]
     if t["datos"] == "Datos del":
-        return texto
+        return re.sub(r"(\d)\.(\d)", r"\1,\2", texto)
     for es, en in (("enchufado", "plugged in"), ("perfil performance", "performance profile"), ("rondas", "rounds")):
         texto = texto.replace(es, en)
     return texto
@@ -147,23 +190,41 @@ def pie_lineas(datos, t):
 
 # --------------------------------------------------------------------- SVG kit
 
+def cabe(fin, hasta, s):
+    # Fail the build rather than ship a label that spills out of its box.
+    if fin > hasta:
+        raise ValueError(f"el texto no cabe ({fin:.0f} > {hasta:.0f} px): {s!r}")
+
+
 class Lienzo:
     def __init__(self):
         self.partes = []
+        self.cabeza = []
+        self.dy = 0  # extra height of a wrapped title; the body moves down by it
         self.alto = 0
 
     def add(self, s):
         self.partes.append(s)
 
-    def texto(self, x, y, s, clase="t1", size=13, weight=None, anchor="start", knock=False):
+    def texto(self, x, y, s, clase="t1", size=13, weight=None, anchor="start", knock=False, hasta=ANCHO - MARGEN):
+        if anchor == "start":
+            cabe(x + ancho(s, size, weight), hasta, s)
         w = f' font-weight="{weight}"' if weight else ""
         a = f' text-anchor="{anchor}"' if anchor != "start" else ""
         k = " knock" if knock else ""
         self.add(f'<text x="{x:.1f}" y="{y:.1f}" class="{clase}{k}" font-size="{size}"{w}{a}>{escape(s)}</text>')
 
     def cabecera(self, titulo, subtitulo):
-        self.texto(MARGEN, 32, titulo, size=18, weight=600)
-        self.texto(MARGEN, 54, subtitulo, clase="t2", size=13)
+        cuerpo, self.partes = self.partes, self.cabeza
+        y = 32
+        for linea in equilibrar(titulo, 18, ANCHO - 2 * MARGEN, 600):
+            self.texto(MARGEN, y, linea, size=18, weight=600)
+            y += 24
+        for linea in equilibrar(subtitulo, 13, ANCHO - 2 * MARGEN):
+            self.texto(MARGEN, y - 2, linea, clase="t2", size=13)
+            y += 18
+        self.dy = y - 74
+        self.partes = cuerpo
 
     def leyenda(self, x, y, items):
         """items: (clase, texto); clase 'trama' draws the hatch swatch."""
@@ -172,10 +233,11 @@ class Lienzo:
             cl = "" if clase == "trama" else f' class="{clase}"'
             self.add(f'<rect x="{x}" y="{y - 10}" width="14" height="14" rx="2"{cl}{fill}/>')
             self.texto(x + 20, y + 1, label, clase="t2", size=12)
-            x += 20 + len(label) * 6.6 + 22
+            x += 20 + ancho(label, 12) + 22
 
     def pie(self, y, lineas):
         self.add(f'<line x1="{MARGEN}" y1="{y - 14}" x2="{ANCHO - MARGEN}" y2="{y - 14}" class="rej"/>')
+        lineas = [l for s in lineas for l in equilibrar(s, 12, ANCHO - 2 * MARGEN)]
         for i, s in enumerate(lineas):
             self.texto(MARGEN, y + i * 17, s, clase="t2", size=12)
         self.alto = y + len(lineas) * 17 + 14
@@ -196,13 +258,15 @@ class Lienzo:
         return grid.partes
 
     def render(self, titulo, descripcion):
+        alto = self.alto + self.dy
         cabecera = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{ANCHO}" height="{self.alto:.0f}" '
-            f'viewBox="0 0 {ANCHO} {self.alto:.0f}" role="img" aria-labelledby="t d">\n'
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{ANCHO}" height="{alto:.0f}" '
+            f'viewBox="0 0 {ANCHO} {alto:.0f}" role="img" aria-labelledby="t d">\n'
             f'<title id="t">{escape(titulo)}</title>\n<desc id="d">{escape(descripcion)}</desc>\n'
         )
-        fondo = f'<rect class="fondo" x="0" y="0" width="{ANCHO}" height="{self.alto:.0f}" rx="8"/>\n'
-        return cabecera + _estilo() + fondo + "\n".join(self.partes) + "\n</svg>\n"
+        fondo = f'<rect class="fondo" x="0" y="0" width="{ANCHO}" height="{alto:.0f}" rx="8"/>\n'
+        cuerpo = f'<g transform="translate(0,{self.dy})">\n' + "\n".join(self.partes) + "\n</g>"
+        return cabecera + _estilo() + fondo + "\n".join(self.cabeza) + "\n" + cuerpo + "\n</svg>\n"
 
 
 def _reglas(c):
@@ -277,6 +341,9 @@ def grafica_con_bigote(datos, lang, metrica, unidad, titulo, subtitulo):
             for xx in (lo, hi):
                 lz.add(f'<line x1="{xx:.1f}" y1="{yc - 6}" x2="{xx:.1f}" y2="{yc + 6}" class="bigote"/>')
             etiqueta_x = max(px(m["mediana"]), hi) + 10
+            cabe(etiqueta_x + ancho(f'{numero(m["mediana"], 0, lang)} {unidad} '
+                                    f'({numero(m["min"], 0, lang)}–{numero(m["max"], 0, lang)})', 13, 600),
+                 ANCHO - MARGEN, "etiqueta de barra")
             lz.add(
                 f'<text xml:space="preserve" x="{etiqueta_x:.1f}" y="{yc + 4.5:.1f}" class="t1 knock" font-size="13">'
                 f'<tspan font-weight="600">{numero(m["mediana"], 0, lang)} {unidad}\u00a0</tspan>'
@@ -341,6 +408,7 @@ def grafica_tamano(datos, lang):
             fin = xa
             lz.add(barra_redondeada(x0, yc - 8, xa - x0, 16, 4, "acento" if es_visor else "neutro"))
         total = d["app"] + d["motor"]
+        cabe(fin + 10 + ancho(f"{numero(total, 1, lang)} MB", 13, 600), ANCHO - MARGEN, "total de disco")
         lz.add(f'<text x="{fin + 10:.1f}" y="{yc + 4.5:.1f}" class="t1 knock" font-size="13">'
                f'<tspan font-weight="600">{numero(total, 1, lang)} MB</tspan></text>')
         if d["motor"] > 0:
@@ -353,8 +421,10 @@ def grafica_tamano(datos, lang):
         else:
             nota = (f"app {numero(d['app'], 1, lang)} MB · motor incluido en la app" if es
                     else f"app {numero(d['app'], 1, lang)} MB · engine included in the app")
-        lz.texto(x0, yc + 30, nota, clase="t2", size=12, knock=True)
-        y += 60
+        lineas = envolver(nota, 12, ANCHO - MARGEN - x0)
+        for j, linea in enumerate(lineas):
+            lz.texto(x0, yc + 30 + j * 15, linea, clase="t2", size=12, knock=True)
+        y += 60 + 15 * (len(lineas) - 1)
 
     eje_y = y - 2
     lz.partes[0:0] = lz.eje_mb(x0, x1, px, top, paso, plot_top, eje_y, "MB")
@@ -448,54 +518,57 @@ def grafica_resumen(datos, lang):
     if es:
         tarjetas = [
             tarjeta(r_mem[0], m_v, m_o, "MB", "Obsidian",
-                    lambda v, o: ["menos memoria", "que Obsidian", "(nota sencilla)",
+                    lambda v, o: ["menos memoria que Obsidian", "(nota sencilla)",
                                   f"{numero(v, 0, lang)} frente a {numero(o, 0, lang)} MB"],
                     lambda o: ["memoria de visor", "(nota sencilla)", f"Obsidian: {numero(o, 0, lang)} MB"]),
             tarjeta(r_arr[0], a_v, a_o, "ms", "Obsidian",
-                    lambda v, o: ["más rápido en abrir", "la ventana que Obsidian", "(nota sencilla)",
+                    lambda v, o: ["más rápido en abrir la ventana que Obsidian", "(nota sencilla)",
                                   f"{numero(v, 0, lang)} frente a {numero(o, 0, lang)} ms"],
                     lambda o: ["arranque de visor", "(nota sencilla)", f"Obsidian: {numero(o, 0, lang)} ms"]),
             tarjeta(r_arr[2], as_v, as_c, "ms", "Chromium",
-                    lambda v, o: ["más rápido en abrir", "la ventana que Chromium", "(página suelta)",
+                    lambda v, o: ["más rápido en abrir la ventana que Chromium", "(página suelta)",
                                   f"{numero(v, 0, lang)} frente a {numero(o, 0, lang)} ms"],
                     lambda o: ["arranque de visor", "(página suelta)", f"Chromium: {numero(o, 0, lang)} ms"]),
             (f"{numero(cpu_v, 2, lang)} %",
-             ["CPU en reposo", "de visor", "(nota sencilla)", f"Obsidian: {numero(cpu_o, 2, lang)} %"]),
+             ["CPU en reposo de visor", "(nota sencilla)", f"Obsidian: {numero(cpu_o, 2, lang)} %"]),
         ]
-        nota = ("Cifras calculadas de las medianas de cifras.json. "
-                "Un cociente menor de 1,2× se muestra como cifra, sin «menos».")
+        nota = ["Cifras calculadas de las medianas de cifras.json.",
+                "Un cociente menor de 1,2× se muestra como cifra, sin «menos»."]
     else:
         tarjetas = [
             tarjeta(r_mem[0], m_v, m_o, "MB", "Obsidian",
-                    lambda v, o: ["less memory", "than Obsidian", "(simple note)",
+                    lambda v, o: ["less memory than Obsidian", "(simple note)",
                                   f"{numero(v, 0, lang)} vs {numero(o, 0, lang)} MB"],
                     lambda o: ["visor memory", "(simple note)", f"Obsidian: {numero(o, 0, lang)} MB"]),
             tarjeta(r_arr[0], a_v, a_o, "ms", "Obsidian",
-                    lambda v, o: ["faster to open", "its window than Obsidian", "(simple note)",
+                    lambda v, o: ["faster to open its window than Obsidian", "(simple note)",
                                   f"{numero(v, 0, lang)} vs {numero(o, 0, lang)} ms"],
                     lambda o: ["visor startup", "(simple note)", f"Obsidian: {numero(o, 0, lang)} ms"]),
             tarjeta(r_arr[2], as_v, as_c, "ms", "Chromium",
-                    lambda v, o: ["faster to open", "its window than Chromium", "(loose page)",
+                    lambda v, o: ["faster to open its window than Chromium", "(loose page)",
                                   f"{numero(v, 0, lang)} vs {numero(o, 0, lang)} ms"],
                     lambda o: ["visor startup", "(loose page)", f"Chromium: {numero(o, 0, lang)} ms"]),
             (f"{numero(cpu_v, 2, lang)} %",
              ["visor CPU at rest", "(simple note)", f"Obsidian: {numero(cpu_o, 2, lang)} %"]),
         ]
-        nota = ("Figures computed from the medians in cifras.json. "
-                "A ratio under 1.2× is shown as a number, without “less”.")
+        nota = ["Figures computed from the medians in cifras.json.",
+                "A ratio under 1.2× is shown as a number, without “less”."]
 
     lz = Lienzo()
     lz.lang = lang
     lz.cabecera(titulo, subtitulo)
     ancho_t = (ANCHO - 2 * MARGEN - 3 * 12) / 4
-    y_t, alto_t = 76, 150
-    for i, (valor, lineas) in enumerate(tarjetas):
+    interior = ancho_t - 28
+    y_t = 76
+    envueltas = [[l for p in parrafos for l in envolver(p, 12, interior)] for _, parrafos in tarjetas]
+    alto_t = 70 + 18 * max(len(l) for l in envueltas)
+    for i, ((valor, _), lineas) in enumerate(zip(tarjetas, envueltas)):
         x = MARGEN + i * (ancho_t + 12)
         lz.add(f'<rect x="{x:.1f}" y="{y_t}" width="{ancho_t:.1f}" height="{alto_t}" rx="8" class="tarjeta"/>')
-        lz.texto(x + 14, y_t + 40, valor, size=28, weight=700)
-        for j, s in enumerate(lineas):
-            lz.texto(x + 14, y_t + 70 + j * 18, s, clase="t2", size=12)
-    lz.pie(y_t + alto_t + 40, [nota] + pie_lineas(datos, t))
+        lz.texto(x + 14, y_t + 40, valor, size=28, weight=700, hasta=x + ancho_t - 14)
+        for j, linea in enumerate(lineas):
+            lz.texto(x + 14, y_t + 70 + j * 18, linea, clase="t2", size=12, hasta=x + ancho_t - 14)
+    lz.pie(y_t + alto_t + 40, nota + pie_lineas(datos, t))
     return lz.render(titulo, titulo + ". " + subtitulo)
 
 

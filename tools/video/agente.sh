@@ -8,13 +8,19 @@ set -euo pipefail
 VISOR=$1 GO=$2 DONE=$3
 
 prompt() { printf '\e[38;2;230;142;13m❯\e[0m '; }
-type_out() { # Prints a command one character at a time.
-  local s=$1 i
-  for ((i = 0; i < ${#s}; i++)); do printf '%s' "${s:i:1}"; sleep 0.022; done
+COLS=$(tput cols)
+type_out() { # Prints a command one character at a time, wrapping between words.
+  local s=$1 i col=2 word
+  for word in $s; do
+    if ((col > 2 && col + 1 + ${#word} > COLS)); then printf '\n  '; col=2
+    elif ((col > 2)); then printf ' '; ((col += 1)); fi
+    for ((i = 0; i < ${#word}; i++)); do printf '%s' "${word:i:1}"; sleep 0.022; done
+    ((col += ${#word}))
+  done
   sleep 0.25
   printf '\n'
 }
-dim() { printf '\e[38;2;140;140;140m%s\e[0m\n' "$1"; }
+dim() { printf '\e[38;2;140;140;140m%s\e[0m\n' "$(fold -s -w "$COLS" <<<"$1")"; }
 
 printf '\e[?25l' # no cursor: it would blink between frames
 clear

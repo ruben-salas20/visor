@@ -8,6 +8,9 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 </style>
 <defs><pattern id="trama" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect class="trama-fondo" width="6" height="6"/><line class="trama" x1="0" y1="0" x2="0" y2="6" stroke-width="2.5"/></pattern></defs>
 <rect class="fondo" x="0" y="0" width="720" height="444" rx="8"/>
+<text x="24.0" y="32.0" class="t1" font-size="18" font-weight="600">visor needs between 2.6× and 3.0× less disk, engine included</text>
+<text x="24.0" y="54.0" class="t2" font-size="13">Disk space (MB), app and engine stacked · Less is better</text>
+<g transform="translate(0,0)">
 <line x1="190.0" y1="118.0" x2="190.0" y2="302.0" class="rej"/>
 <text x="190.0" y="318.0" class="t2" font-size="12" text-anchor="middle">0</text>
 <line x1="310.0" y1="118.0" x2="310.0" y2="302.0" class="rej"/>
@@ -18,16 +21,14 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 <text x="550.0" y="318.0" class="t2" font-size="12" text-anchor="middle">600</text>
 <line x1="190.0" y1="302.0" x2="550.0" y2="302.0" class="eje"/>
 <text x="190.0" y="336.0" class="t2" font-size="12">MB</text>
-<text x="24.0" y="32.0" class="t1" font-size="18" font-weight="600">visor needs between 2.6× and 3.0× less disk, engine included</text>
-<text x="24.0" y="54.0" class="t2" font-size="13">Disk space (MB), app and engine stacked · Less is better</text>
 <rect x="24" y="70" width="14" height="14" rx="2" class="acento"/>
 <text x="44.0" y="81.0" class="t2" font-size="12">visor: app</text>
-<rect x="132.0" y="70" width="14" height="14" rx="2" fill="url(#trama)"/>
-<text x="152.0" y="81.0" class="t2" font-size="12">visor: WebKitGTK engine (shared)</text>
+<rect x="125.01504" y="70" width="14" height="14" rx="2" fill="url(#trama)"/>
+<text x="145.0" y="81.0" class="t2" font-size="12">visor: WebKitGTK engine (shared)</text>
 <rect x="24" y="90" width="14" height="14" rx="2" class="neutro"/>
 <text x="44.0" y="101.0" class="t2" font-size="12">Obsidian and Chromium: app</text>
-<rect x="237.6" y="90" width="14" height="14" rx="2" class="neutro-claro"/>
-<text x="257.6" y="101.0" class="t2" font-size="12">Obsidian: engine (Electron)</text>
+<rect x="242.29248" y="90" width="14" height="14" rx="2" class="neutro-claro"/>
+<text x="262.3" y="101.0" class="t2" font-size="12">Obsidian: engine (Electron)</text>
 <text x="40.0" y="142.5" class="t1" font-size="13" font-weight="600">visor</text>
 <rect x="190.0" y="130.0" width="1.5" height="16" class="acento"/>
 <path d="M193.5,130.0 H268.6 A4,4 0 0 1 272.6,134.0 V142.0 A4,4 0 0 1 268.6,146.0 H193.5 Z" fill="url(#trama)"/>
@@ -45,6 +46,7 @@ text{font-family:system-ui, -apple-system, "Segoe UI", sans-serif}
 <line x1="24" y1="348.0" x2="696" y2="348.0" class="rej"/>
 <text x="24.0" y="362.0" class="t2" font-size="12">visor's engine (WebKitGTK) is a shared system library: other apps use it too.</text>
 <text x="24.0" y="379.0" class="t2" font-size="12">Without it, visor is only its app. Chromium carries its engine inside the app.</text>
-<text x="24.0" y="396.0" class="t2" font-size="12">Data of 2026-10-10 · plugged in, performance profile, 5 rounds, 13th Gen Intel(R) Core(TM) i7-13620H, 23.1 GiB</text>
+<text x="24.0" y="396.0" class="t2" font-size="12">Data of 2026-10-10 · plugged in, performance profile, 5 rounds, Intel Core i7-13620H, 23.1 GiB</text>
 <text x="24.0" y="413.0" class="t2" font-size="12">Versions: visor 7b7db2b · Obsidian 1.14.4 · Chromium 152.0.7977.82</text>
+</g>
 </svg>
