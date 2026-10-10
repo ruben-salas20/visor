@@ -24,6 +24,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
@@ -33,6 +34,7 @@ use webkit2gtk::{UserContentInjectedFrames, UserContentManagerExt, UserStyleLeve
 use wry::{WebContext, WebView, WebViewExtUnix};
 
 const SIDEBAR_WIDTH: i32 = 260;
+const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 /// Pages kept loaded across all tabs. Each one is a WebKit process of
 /// 60–90 MB; the two on screen always count. See docs/decisiones.md.
@@ -164,6 +166,8 @@ pub fn launch() -> i32 {
         shared,
         proxy: proxy.clone(),
         config,
+        config_dirty: false,
+        save_scheduled: false,
         theme,
         watcher: None,
         loose_watchers: LooseWatchers::default(),
@@ -178,6 +182,7 @@ pub fn launch() -> i32 {
         match event {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 app.save_layout();
+                app.flush_config();
                 let _ = fs::remove_file(paths::socket());
                 *flow = ControlFlow::Exit;
             }
@@ -275,6 +280,9 @@ struct App {
     shared: SharedRef,
     proxy: EventLoopProxy<UserEvent>,
     config: Config,
+    /// Changes in `config` not yet written, and whether a write is already scheduled.
+    config_dirty: bool,
+    save_scheduled: bool,
     theme: Option<Theme>,
     watcher: Option<RecommendedWatcher>,
     /// One per folder of the loose pages in the tabs, without subfolders.
@@ -369,7 +377,7 @@ impl App {
         self.watcher = None;
         if let Some(root) = &root {
             self.config.add(root);
-            self.config.save();
+            self.save_config_soon();
             self.watcher = watch(root, RecursiveMode::Recursive, 150, self.proxy.clone(), UserEvent::VaultChanged);
         }
         self.show_sidebar();
@@ -442,7 +450,7 @@ impl App {
             focused: self.focused,
         };
         self.config.workspaces.insert(root, workspace);
-        self.config.save();
+        self.save_config_soon();
     }
 
     /// Adds the right side, empty.
@@ -737,6 +745,27 @@ impl App {
         self.sidebar.set_theme(self.theme.as_ref());
     }
 
+    /// Marks the settings as changed and writes them once, shortly after,
+    /// instead of on every navigation: the write blocks the window. A crash
+    /// loses at most this delay of state.
+    fn save_config_soon(&mut self) {
+        self.config_dirty = true;
+        if !self.save_scheduled {
+            self.save_scheduled = true;
+            let proxy = self.proxy.clone();
+            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || {
+                let _ = proxy.send_event(UserEvent::SaveConfig);
+            });
+        }
+    }
+
+    /// Writes the settings now if a change is waiting.
+    fn flush_config(&mut self) {
+        if std::mem::take(&mut self.config_dirty) {
+            self.config.save();
+        }
+    }
+
     fn save_layout(&mut self) {
         if self.sidebar.root.is_visible() {
             self.config.sidebar_width = Some(self.paned.position());
@@ -822,6 +851,10 @@ impl App {
                 self.apply_theme();
             }
             UserEvent::Action(action) => self.act(action),
+            UserEvent::SaveConfig => {
+                self.save_scheduled = false;
+                self.flush_config();
+            }
         }
     }
 
@@ -858,7 +891,7 @@ impl App {
             }
             Action::ToggleBar => {
                 self.config.bar_shown = !self.config.bar_shown;
-                self.config.save();
+                self.save_config_soon();
                 let typing = self.panes.iter().any(|p| p.bar.address.has_focus());
                 for pane in &self.panes {
                     pane.bar.root.set_visible(self.config.bar_shown);
@@ -878,7 +911,7 @@ impl App {
                     view.webview().set_zoom_level(zoom);
                 }
                 self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
-                self.config.save();
+                self.save_config_soon();
             }
             Action::LeaveAddress => {
                 if let Some(view) = self.view() {
@@ -1141,7 +1174,7 @@ impl App {
             SidebarMsg::OpenFolders(open) => {
                 if let Some(vault) = self.vault() {
                     self.config.open_folders.insert(vault.path().to_path_buf(), open);
-                    self.config.save();
+                    self.save_config_soon();
                 }
             }
             SidebarMsg::PickVault => self.pick_vault(),
@@ -1203,13 +1236,13 @@ impl App {
                 self.config.open_folders.remove(&path);
                 if self.vault().is_some_and(|v| v.path() == path) {
                     self.config.current = self.config.vaults.first().cloned();
-                    self.config.save();
+                    self.save_config_soon();
                     // The removed vault must not get its workspace saved back.
                     self.shared.lock().unwrap().vault = None;
                     let next = self.config.current.clone();
                     self.show_vault(next);
                 } else {
-                    self.config.save();
+                    self.save_config_soon();
                     self.refresh_sidebar();
                 }
             }

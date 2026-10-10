@@ -50,6 +50,8 @@ pub enum UserEvent {
     /// half, 2 the whole side, or none when the pointer left it.
     DropHover { pane: u64, zone: Option<u8> },
     Action(Action),
+    /// The settings write that was put off is due.
+    SaveConfig,
 }
 
 pub enum Action {
