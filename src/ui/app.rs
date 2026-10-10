@@ -1217,7 +1217,7 @@ impl App {
     /// Creates `name`.md in `dir` and opens it in the editor.
     fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
         let vault = self.open_vault()?;
-        let (folder, name) = vault.new_in(dir, name)?;
+        let (folder, name) = files::note_target(&vault, dir, name)?;
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {

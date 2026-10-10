@@ -101,7 +101,9 @@ NOTAS EN MARKDOWN
     (bloques ```mermaid).
   - Enlaces al estilo Obsidian: [[nota]], [[carpeta/nota]],
     [[nota#Sección]] y [[nota|texto]], buscados por nombre en toda la
-    bóveda. Un enlace a una nota que no existe la crea al hacer clic.
+    bóveda. Un enlace a una nota que no existe la crea al hacer clic;
+    si lleva carpetas ([[carpeta/nota]]), cuentan desde la raíz de la
+    bóveda y se crean las que falten.
     ![[foto.png]] muestra una imagen buscada por nombre.
   - La persona marca las tareas (- [ ] / - [x]) con un clic y visor lo
     guarda en el .md. Vuelve a leer el archivo antes de cambiarlo.
