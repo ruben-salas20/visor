@@ -264,6 +264,8 @@
     .reply-form button:hover { background: color-mix(in srgb, var(--visor-fg, #222) 10%, var(--visor-bg, #fff)); }
     .reply-err { margin: 0; color: var(--danger); font-size: 12px; }
     .reply-err:empty { display: none; }
+    .unsaved { margin: 0; color: var(--danger); font-size: 12px; }
+    .unsaved:empty { display: none; }
     .actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
     .actions button { padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 30%, var(--visor-bg, #fff));
       background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); }
@@ -386,8 +388,33 @@
 
   // ---------- popover ----------
 
-  let pop = null, popNote = null, conv = null;
-  function closePop() { pop?.remove(); pop = popNote = conv = null; }
+  let pop = null, popNote = null, conv = null, warned = false;
+  const UNSAVED = "Tienes texto sin guardar. ";
+  const ESCAPE_AGAIN = "Pulsa Escape otra vez para descartarlo.";
+  function closePop() { pop?.remove(); pop = popNote = conv = null; warned = false; }
+
+  // Closing throws the typed text away, so the first try only warns when there is
+  // text to lose. The second try always goes through.
+  function closePopSafely(discard = closePop, again = "Repítelo para descartarlo.") {
+    if (!pop) return true;
+    if (hasUnsaved() && !warned) {
+      warned = true;
+      conv.warn.textContent = UNSAVED + again;
+      return false;
+    }
+    discard();
+    return true;
+  }
+
+  function hasUnsaved() {
+    return conv.box.value.trim() !== "" || conv.area.value !== (popNote.comment || "");
+  }
+
+  // Typing again or sending the reply makes the next Escape warn again.
+  function hideWarn() {
+    warned = false;
+    if (conv) conv.warn.textContent = "";
+  }
   // Registered always: a note can be open on a page that had none before.
   addEventListener("resize", () => { if (pop) place(pop, anchorRect(popNote)); });
 
@@ -412,8 +439,8 @@
   }
 
   function openNote(note, isNew = false) {
+    if (!closePopSafely()) return;
     ensureHost();
-    closePop();
     hideToolbar();
     pop = document.createElement("div");
     popNote = note;
@@ -483,8 +510,13 @@
     box.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); }
     });
+    box.addEventListener("input", hideWarn);
+    area.addEventListener("input", hideWarn);
+    const warn = document.createElement("p");
+    warn.className = "unsaved";
+    warn.setAttribute("role", "alert");
     form.append(box, err, answer);
-    conv = { list, form, box, err };
+    conv = { area, list, form, box, err, warn };
     renderThread(note);
     pop.append(list, form);
     const actions = document.createElement("div");
@@ -507,11 +539,11 @@
     };
     if (!isNew || note.saved) actions.append(del);
     actions.append(cancel, ok);
-    pop.append(actions);
+    pop.append(warn, actions);
     // Ctrl+Enter in the reply box sends the reply; it must not also save the note.
     pop.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target !== box) ok.click();
-      if (e.key === "Escape") { e.stopPropagation(); cancel.click(); }
+      if (e.key === "Escape") { e.stopPropagation(); closePopSafely(() => cancel.click(), ESCAPE_AGAIN); }
     });
     ui.append(pop);
     place(pop, anchorRect(note));
@@ -549,6 +581,7 @@
     const note = popNote;
     conv.box.value = "";
     conv.err.textContent = "";
+    hideWarn();
     note.replies = [...(note.replies || []), { author: "persona", text }];
     renderThread(note);
     conv.list.scrollTop = conv.list.scrollHeight;
@@ -627,6 +660,8 @@
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-label", "Anotar selección");
     const make = (color, comment) => {
+      // Before the note exists: a refused popover must not leave an unsaved note behind.
+      if (comment && !closePopSafely()) return;
       const index = textIndex();
       const quote = quoteOf(index, range);
       if (!quote.exact.trim()) return hideToolbar();
@@ -697,8 +732,8 @@
 
   function startPicking() {
     if (picking) return stopPicking();
+    if (!closePopSafely()) return;
     ensureHost();
-    closePop();
     picking = true;
     hover = document.createElement("div");
     hover.className = "hover";
@@ -750,7 +785,7 @@
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (picking) stopPicking();
-    else if (pop) closePop();
+    else if (pop) closePopSafely(closePop, ESCAPE_AGAIN);
     else if (panel) closePanel();
     hideToolbar();
   });

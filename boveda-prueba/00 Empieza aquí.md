@@ -169,6 +169,7 @@ Cada anotación es ahora una conversación: el comentario y luego las respuestas
 - [ ] **Desplazamiento**: con 8 mensajes o más, la lista tiene barra de desplazamiento, se abre en el último mensaje y no tapa el resto del popover.
 - [ ] **Colores**: «Tú» y «Agente» se distinguen en modo claro y en modo oscuro. Cambia de tema en Omarchy para comprobarlo.
 - [ ] **Recargar**: cierra visor y vuelve a abrirlo: la conversación sigue igual.
+- [ ] **Texto a medias**: abre una anotación guardada y escribe en la respuesta, o cambia el comentario sin guardar. Pulsa Escape: aparece un aviso en rojo sobre los botones y el popover sigue abierto. Pulsa Escape otra vez: se cierra y el texto se descarta. Vuelve a escribir y el aviso desaparece. «Cancelar» cierra sin preguntar.
 
 ## Si algo falla
 
