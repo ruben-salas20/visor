@@ -222,7 +222,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "events",
-            "Devuelve los datos que las páginas enviaron con visor.send(). Sin argumentos, los 20 últimos. Con after, solo los posteriores a ese id. Con wait, espera a que llegue un dato nuevo: úsalo cuando una página pida algo a la persona.",
+            "Devuelve los datos que las páginas enviaron con visor.send() y los mensajes que la persona escribe en sus anotaciones (con annotation en lugar de data; action dice si es un comentario o una respuesta). Sin argumentos, los 20 últimos. Con after, solo los posteriores a ese id. Con wait, espera a que llegue uno nuevo: úsalo cuando una página pida algo a la persona o para seguir sus anotaciones.",
             object(
                 json!({
                     "after": {
@@ -247,7 +247,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "notes",
-            "Devuelve las anotaciones de la persona: texto subrayado, comentarios o elementos marcados. Sin argumentos, las de la página abierta. Con page, las de otra página. Con all, las de toda la bóveda. En la página abierta, anchored indica si cada anotación todavía encuentra su texto o elemento.",
+            "Devuelve las anotaciones de la persona: texto subrayado, comentarios o elementos marcados. Cada una es una conversación: comment es lo que escribió la persona y replies sus mensajes en orden, con author (\"persona\" o \"agente\"). pending indica que la persona espera tu respuesta. Sin argumentos, las de la página abierta. Con page, las de otra página. Con all, las de toda la bóveda. En la página abierta, anchored indica si cada anotación todavía encuentra su texto o elemento.",
             object(
                 json!({
                     "page": {
@@ -262,7 +262,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "notes_reply",
-            "Responde a una anotación de la persona; la respuesta aparece al momento en su nota. No edites a mano los archivos de anotaciones.",
+            "Responde a una anotación de la persona; la respuesta aparece al momento en su nota y se añade al final de la conversación. Tras un evento de events con annotation, responde así. No edites a mano los archivos de anotaciones.",
             object(
                 json!({
                     "id": { "type": "string", "minLength": 1, "description": "Id de la anotación, tal como lo devuelve notes." },

@@ -251,10 +251,19 @@
     textarea { width: 100%; min-height: 84px; resize: vertical; font: inherit; color: inherit; padding: 8px;
       background: color-mix(in srgb, var(--visor-fg, #222) 5%, var(--visor-bg, #fff));
       border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 25%, var(--visor-bg, #fff)); border-radius: 6px; }
-    .replies { display: grid; gap: 6px; max-height: 180px; overflow: auto; }
+    .replies { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
     .reply { padding: 6px 8px; border-radius: 6px; white-space: pre-wrap;
       background: color-mix(in srgb, var(--visor-accent, #1a6cc4) 10%, var(--visor-bg, #fff)); }
+    .reply.tu { margin-left: 24px; background: color-mix(in srgb, var(--visor-fg, #222) 7%, var(--visor-bg, #fff)); }
     .reply b { display: block; font-size: 11px; color: var(--soft); font-weight: 600; }
+    .reply-form { display: grid; gap: 6px; }
+    .reply-form[hidden] { display: none; }
+    .reply-form textarea { min-height: 56px; }
+    .reply-form button { justify-self: end; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 30%, var(--visor-bg, #fff));
+      background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); }
+    .reply-form button:hover { background: color-mix(in srgb, var(--visor-fg, #222) 10%, var(--visor-bg, #fff)); }
+    .reply-err { margin: 0; color: var(--danger); font-size: 12px; }
+    .reply-err:empty { display: none; }
     .actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
     .actions button { padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 30%, var(--visor-bg, #fff));
       background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); }
@@ -377,8 +386,8 @@
 
   // ---------- popover ----------
 
-  let pop = null, popNote = null;
-  function closePop() { pop?.remove(); pop = popNote = null; }
+  let pop = null, popNote = null, conv = null;
+  function closePop() { pop?.remove(); pop = popNote = conv = null; }
   // Registered always: a note can be open on a page that had none before.
   addEventListener("resize", () => { if (pop) place(pop, anchorRect(popNote)); });
 
@@ -458,19 +467,26 @@
     area.placeholder = "Escribe una nota…";
     area.value = note.comment || "";
     pop.append(header, area);
-    if (note.replies?.length) {
-      const list = document.createElement("div");
-      list.className = "replies";
-      for (const r of note.replies) {
-        const item = document.createElement("div");
-        item.className = "reply";
-        const who = document.createElement("b");
-        who.textContent = r.author === "agente" ? "Agente" : "Tú";
-        item.append(who, document.createTextNode(r.text));
-        list.append(item);
-      }
-      pop.append(list);
-    }
+    const list = document.createElement("div");
+    list.className = "replies";
+    const form = document.createElement("div");
+    form.className = "reply-form";
+    const box = document.createElement("textarea");
+    box.placeholder = "Escribe una respuesta…";
+    box.setAttribute("aria-label", "Respuesta");
+    const err = document.createElement("p");
+    err.className = "reply-err";
+    err.setAttribute("role", "alert");
+    const answer = document.createElement("button");
+    answer.textContent = "Responder";
+    answer.onclick = sendReply;
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendReply(); }
+    });
+    form.append(box, err, answer);
+    conv = { list, form, box, err };
+    renderThread(note);
+    pop.append(list, form);
     const actions = document.createElement("div");
     actions.className = "actions";
     const del = document.createElement("button");
@@ -492,13 +508,76 @@
     if (!isNew || note.saved) actions.append(del);
     actions.append(cancel, ok);
     pop.append(actions);
+    // Ctrl+Enter in the reply box sends the reply; it must not also save the note.
     pop.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ok.click();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target !== box) ok.click();
       if (e.key === "Escape") { e.stopPropagation(); cancel.click(); }
     });
     ui.append(pop);
     place(pop, anchorRect(note));
+    list.scrollTop = list.scrollHeight;
     area.focus();
+  }
+
+  // ---------- conversation ----------
+
+  // The person can answer a saved note once it has a comment or a reply.
+  const canReply = (n) => n.saved && (n.comment?.trim() || n.replies?.length);
+
+  function bubble(r) {
+    const item = document.createElement("div");
+    item.className = r.author === "agente" ? "reply" : "reply tu";
+    const who = document.createElement("b");
+    who.textContent = r.author === "agente" ? "Agente" : "Tú";
+    item.append(who, document.createTextNode(r.text));
+    return item;
+  }
+
+  // Redraws the messages but not the draft: keeps the scroll at the end if it was there.
+  function renderThread(note) {
+    const { list } = conv;
+    const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
+    const was = list.scrollTop;
+    list.replaceChildren(...(note.replies || []).map(bubble));
+    conv.form.hidden = !canReply(note);
+    list.scrollTop = atEnd ? list.scrollHeight : was;
+  }
+
+  function sendReply() {
+    const text = conv.box.value.trim();
+    if (!text || !popNote) return;
+    const note = popNote;
+    conv.box.value = "";
+    conv.err.textContent = "";
+    note.replies = [...(note.replies || []), { author: "persona", text }];
+    renderThread(note);
+    conv.list.scrollTop = conv.list.scrollHeight;
+    send({ type: "annot_reply", id: note.id, text });
+  }
+
+  // The app could not store the message: take it back out and say why.
+  function replyFailed(id, text, error) {
+    if (!popNote || popNote.id !== id) return;
+    const replies = popNote.replies || [];
+    for (let i = replies.length - 1; i >= 0; i--) {
+      if (replies[i].author === "persona" && replies[i].text === text) { replies.splice(i, 1); break; }
+    }
+    if (!conv.box.value) conv.box.value = text;
+    conv.err.textContent = error;
+    renderThread(popNote);
+  }
+
+  // An agent's reply arrived, or the notes were read again: show it in the open
+  // note. The draft in the box is not touched.
+  function refreshPopover() {
+    if (!pop || !popNote) return;
+    const fresh = notes.find((n) => n.id === popNote.id);
+    if (!fresh) {
+      if (popNote.saved) closePop();
+      return;
+    }
+    popNote = fresh;
+    renderThread(fresh);
   }
 
   // ---------- changes ----------
@@ -743,16 +822,21 @@
   // ---------- loading and keeping up with the page ----------
 
   async function load() {
+    // Notes not saved yet belong to the open popover: a reload must keep them.
+    const unsaved = notes.filter((n) => !n.saved);
+    let saved = [];
     try {
       const response = await fetch(storeUrl, { cache: "no-store" });
-      notes = response.ok ? (await response.json()).annotations || [] : [];
+      saved = response.ok ? (await response.json()).annotations || [] : [];
     } catch {
-      notes = [];
+      saved = [];
     }
-    for (const n of notes) n.saved = true;
+    for (const n of saved) n.saved = true;
+    notes = [...saved, ...unsaved];
     resolve();
     if (notes.length) watch();
     if (panel) { closePanel(); togglePanel(); }
+    refreshPopover();
   }
 
   // Pages built by scripts may move or replace text after load. Re-resolve when
@@ -785,6 +869,7 @@
     pickElement: startPicking,
     togglePanel,
     reload: load,
+    replyFailed,
   });
 
   if (document.readyState === "complete") load();

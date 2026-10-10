@@ -34,14 +34,16 @@ USO
                              cargaron y promesas rechazadas.
   visor events [--after ID] [--wait SEG] [--limit N]
                              Datos que las páginas enviaron con
-                             visor.send(). Sin opciones devuelve los 20
-                             últimos. Con --wait espera hasta SEG
-                             segundos a que llegue uno nuevo.
+                             visor.send() y mensajes que la persona
+                             escribe en sus anotaciones. Sin opciones
+                             devuelve los 20 últimos. Con --wait espera
+                             hasta SEG segundos a que llegue uno nuevo.
   visor notes [ruta|--all]   Anotaciones de la persona: de la página
                              abierta, de otra página o de toda la
-                             bóveda. En la página abierta, "anchored"
-                             dice si cada una sigue encontrando su
-                             texto o elemento.
+                             bóveda. Cada una es una conversación;
+                             "pending" dice si espera tu respuesta. En
+                             la página abierta, "anchored" dice si cada
+                             una sigue encontrando su texto o elemento.
   visor notes reply <id> <texto>
                              Responde a una anotación. La persona ve
                              la respuesta al momento en su nota.
@@ -118,6 +120,18 @@ ANOTACIONES
     en “Ondas”»). Las antiguas pueden no tenerlo. Si escribes páginas,
     pon aria-label, alt o un pie (figcaption, caption) a gráficos,
     imágenes y tablas: así el título dice qué es.
+  - Cada anotación es una conversación: "comment" es lo que escribió la
+    persona y "replies" son los mensajes siguientes, en orden, con
+    "author" ("persona" o "agente") y "text". La persona puede responder
+    en su nota.
+  - "pending": true significa que la persona espera tu respuesta: tiene
+    comentario o mensajes y el último es suyo. Tras tu respuesta, pasa
+    a false.
+  - Cuando la persona escribe un comentario nuevo o cambia el de una
+    anotación, o responde, `visor events` recibe un evento con
+    "annotation" ("id", "action": "comment" o "reply", y "text") y
+    "file", en lugar de "data". Los datos de visor.send() siempre
+    traen "data".
   - Responde con `visor notes reply`; no edites esos archivos a mano.
   - Si cambias una página, las anotaciones se reubican solas mientras
     el texto citado siga existiendo. Si lo quitas, quedan huérfanas
@@ -170,6 +184,10 @@ FLUJO TÍPICO DE UN AGENTE
   3. Si hay problemas, corrige el archivo y llama a `visor reload`.
   4. Si la página pide algo a la persona, espera su respuesta con
      `visor events --wait 300`.
+  5. Para seguir las anotaciones, espera con `visor events --wait 300`. Al
+     recibir un evento con "annotation", lee la nota con `visor notes`
+     (con su conversación) y responde con `visor notes reply <id>
+     <texto>`. Luego vuelve a esperar.
 
 ATAJOS EN LA APP
   Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel

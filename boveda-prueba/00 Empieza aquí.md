@@ -156,6 +156,20 @@ Los iconos de la barra, las pestañas y las flechas de las carpetas ahora los di
 - [ ] **Botones**: atrás, adelante, recargar, anotar, lista de anotaciones, cerrar pestaña («×») y nueva pestaña («+») hacen lo mismo que antes. Al pasar el ratón por encima sale su descripción.
 - [ ] **Tema**: cambia de tema en Omarchy. Los iconos y las flechas cambian de color con él.
 
+## 15. Conversación en las anotaciones
+
+Cada anotación es ahora una conversación: el comentario y luego las respuestas, de la persona y del agente, en orden. Abre [[anotaciones]] y ten a mano una terminal en esta bóveda. Para las órdenes de la terminal, usa el `id` de una anotación que tenga comentario.
+
+- [ ] **Responder**: abre una anotación guardada con comentario. Escribe en «Escribe una respuesta…» y pulsa «Responder». El mensaje sale con «Tú», el campo se vacía y la lista baja hasta el último mensaje. El popover sigue abierto.
+- [ ] **Ctrl+Enter en la respuesta**: escribe una respuesta y pulsa Ctrl+Enter. Se envía, pero la nota no se guarda: el popover sigue abierto y el comentario no cambia.
+- [ ] **Ctrl+Enter en el comentario**: cambia el comentario y pulsa Ctrl+Enter. Guarda y cierra el popover, como antes.
+- [ ] **Sin campo de respuesta**: una anotación nueva, sin guardar, no muestra el campo de respuesta. Tampoco lo muestra una anotación de elemento guardada solo con su título, sin comentario ni respuestas.
+- [ ] **Respuesta del agente con el popover abierto**: escribe a medias en el campo de respuesta. En la terminal, ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta sale con «Agente» sin cerrar el popover, y lo que habías escrito sigue en el campo.
+- [ ] **Eventos**: en la terminal, `visor events` muestra tu respuesta con `annotation` y `action` «reply», y no con `data`. Al guardar un comentario nuevo, aparece otro evento con `action` «comment». En `visor notes`, la nota tiene `pending: true` mientras espera tu respuesta del agente, y `false` después.
+- [ ] **Desplazamiento**: con 8 mensajes o más, la lista tiene barra de desplazamiento, se abre en el último mensaje y no tapa el resto del popover.
+- [ ] **Colores**: «Tú» y «Agente» se distinguen en modo claro y en modo oscuro. Cambia de tema en Omarchy para comprobarlo.
+- [ ] **Recargar**: cierra visor y vuelve a abrirlo: la conversación sigue igual.
+
 ## Si algo falla
 
 Anota qué hiciste y qué pasó justo debajo de la casilla. Con eso basta para que lo corrija.

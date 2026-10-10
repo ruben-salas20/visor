@@ -1,6 +1,8 @@
 //! Annotations: a layer of highlights and comments over vault pages, stored
 //! apart from them in `.visor/anotaciones/<page>.json`, so pages never change.
 //! The app is the only writer; pages propose changes and agents reply.
+//! Each annotation is a conversation: the person's comment, then `replies`
+//! from either side, in order. Messages are only ever added.
 
 use serde_json::{Value, json};
 use std::fs;
@@ -12,6 +14,7 @@ pub const DIR: &str = ".visor/anotaciones";
 const COLORS: [&str; 4] = ["amarillo", "verde", "azul", "rosa"];
 const MAX_TEXT: usize = 20_000;
 const MAX_TITLE: usize = 200;
+const MAX_REPLIES: usize = 200;
 
 /// Page writes come from the event loop and agent replies from the socket
 /// threads; one lock keeps them from overwriting each other.
@@ -78,8 +81,9 @@ fn set_title(note: &mut Value, title: Option<String>) {
 }
 
 /// Adds or updates an annotation sent by a page. Only the fields a person
-/// edits are taken from it; creation time and agent replies are kept.
-pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
+/// edits are taken from it; creation time and replies are kept. Returns true
+/// when the comment is new or changed and not blank, which agents must hear about.
+pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String> {
     let id = incoming["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
     let id = id.ok_or("Anotación sin id válido")?;
     let kind = incoming["target"]["kind"].as_str();
@@ -98,8 +102,10 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
     let mut doc = load(root, page);
     let list = doc["annotations"].as_array_mut().unwrap();
     let now = crate::app::now();
+    let mut before = String::new();
     match list.iter_mut().find(|a| a["id"] == id) {
         Some(existing) => {
+            before = existing["comment"].as_str().unwrap_or_default().to_string();
             existing["color"] = json!(color);
             existing["comment"] = json!(comment);
             existing["target"] = target;
@@ -121,6 +127,34 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<(), String> {
             list.push(note);
         }
     }
+    store(root, page, &doc).map_err(|e| e.to_string())?;
+    Ok(comment != before && !comment.trim().is_empty())
+}
+
+/// Appends one message to an annotation's conversation. Nothing else changes.
+fn add_message(note: &mut Value, author: &str, text: &str) -> Result<(), String> {
+    if text.trim().is_empty() || text.chars().count() > MAX_TEXT {
+        return Err("La respuesta está vacía o es demasiado larga.".into());
+    }
+    if !note["replies"].is_array() {
+        note["replies"] = json!([]);
+    }
+    let replies = note["replies"].as_array_mut().unwrap();
+    if replies.len() >= MAX_REPLIES {
+        return Err(format!("La anotación ya tiene {MAX_REPLIES} mensajes y no admite más."));
+    }
+    replies.push(json!({ "author": author, "text": text, "created": crate::app::now() }));
+    Ok(())
+}
+
+/// The person's reply to annotation `id` of `page`. A page can only answer
+/// its own notes, and only add a message.
+pub fn person_reply(root: &Path, page: &str, id: &str, text: &str) -> Result<(), String> {
+    let _guard = LOCK.lock().unwrap();
+    let mut doc = load(root, page);
+    let note = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id);
+    let note = note.ok_or_else(|| format!("No hay ninguna anotación con id {id}"))?;
+    add_message(note, "persona", text)?;
     store(root, page, &doc).map_err(|e| e.to_string())
 }
 
@@ -129,6 +163,15 @@ pub fn delete(root: &Path, page: &str, id: &str) -> Result<(), String> {
     let mut doc = load(root, page);
     doc["annotations"].as_array_mut().unwrap().retain(|a| a["id"] != id);
     store(root, page, &doc).map_err(|e| e.to_string())
+}
+
+/// Whether the person is waiting for an agent: their message is the last one.
+/// Without replies, their comment counts as that message.
+fn pending(note: &Value) -> bool {
+    match note["replies"].as_array().and_then(|r| r.last()) {
+        Some(last) => last["author"] == "persona",
+        None => note["comment"].as_str().is_some_and(|c| !c.trim().is_empty()),
+    }
 }
 
 /// Annotations of one page, or of the whole vault when `page` is `None`.
@@ -153,6 +196,7 @@ pub fn list(root: &Path, page: Option<&str>) -> Vec<Value> {
                 .into_iter()
                 .map(move |mut a| {
                     a["page"] = json!(page);
+                    a["pending"] = json!(pending(&a));
                     a
                 })
         })
@@ -173,9 +217,6 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// Adds an agent's reply to the annotation `id`, wherever it is. Returns its page.
 pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
-    if reply.trim().is_empty() || reply.chars().count() > MAX_TEXT {
-        return Err("La respuesta está vacía o es demasiado larga.".into());
-    }
     let _guard = LOCK.lock().unwrap();
     let mut files = vec![];
     collect(&root.join(DIR), &mut files);
@@ -184,14 +225,7 @@ pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
         let Some(note) = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id) else {
             continue;
         };
-        if !note["replies"].is_array() {
-            note["replies"] = json!([]);
-        }
-        note["replies"].as_array_mut().unwrap().push(json!({
-            "author": "agente",
-            "text": reply,
-            "created": crate::app::now(),
-        }));
+        add_message(note, "agente", reply)?;
         store(root, &page, &doc).map_err(|e| e.to_string())?;
         return Ok(page);
     }
@@ -249,6 +283,73 @@ mod tests {
         assert!(upsert(&root, "p.html", &json!({ "id": "../x", "target": { "kind": "text" } })).is_err());
         assert!(upsert(&root, "p.html", &json!({ "id": "ok", "target": { "kind": "script" } })).is_err());
         assert!(reply(&root, "nada", "hola").is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn quote_note(id: &str, comment: &str) -> Value {
+        json!({ "id": id, "comment": comment, "target": { "kind": "text", "quote": { "exact": "onda" } } })
+    }
+
+    #[test]
+    fn conversation_and_pending() {
+        let root = vault();
+        let page = "física/ondas.html";
+        // A comment alone waits for an agent; a blank one does not.
+        assert_eq!(upsert(&root, page, &quote_note("c1", "¿Qué es?")), Ok(true));
+        upsert(&root, page, &quote_note("b1", "   ")).unwrap();
+        let all = list(&root, None);
+        assert_eq!(all.iter().find(|a| a["id"] == "c1").unwrap()["pending"], true);
+        assert_eq!(all.iter().find(|a| a["id"] == "b1").unwrap()["pending"], false);
+
+        // The person answers; the agent answers; the person answers again.
+        person_reply(&root, page, "c1", "Gracias, y ¿la frecuencia?").unwrap();
+        let note = list(&root, Some(page))[0].clone();
+        assert_eq!(note["replies"][0]["author"], "persona");
+        assert_eq!(note["pending"], true);
+        reply(&root, "c1", "Es una perturbación.").unwrap();
+        assert_eq!(list(&root, Some(page))[0]["pending"], false);
+        person_reply(&root, page, "c1", "Vale").unwrap();
+        // Editing the comment keeps the whole conversation.
+        assert_eq!(upsert(&root, page, &quote_note("c1", "¿Qué es? (editado)")), Ok(true));
+        let note = list(&root, Some(page))[0].clone();
+        let authors: Vec<_> = note["replies"].as_array().unwrap().iter().map(|r| r["author"].as_str().unwrap()).collect();
+        assert_eq!(authors, ["persona", "agente", "persona"]);
+        assert_eq!(note["pending"], true);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn upsert_reports_only_new_comments() {
+        let root = vault();
+        let page = "p.html";
+        assert_eq!(upsert(&root, page, &quote_note("a", "")), Ok(false));
+        assert_eq!(upsert(&root, page, &quote_note("a", "duda")), Ok(true));
+        assert_eq!(upsert(&root, page, &quote_note("a", "duda")), Ok(false));
+        assert_eq!(upsert(&root, page, &quote_note("a", "  ")), Ok(false));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn person_reply_limits() {
+        let root = vault();
+        let page = "p.html";
+        upsert(&root, page, &quote_note("a", "")).unwrap();
+        // Only the note's own page, and only notes that exist.
+        assert!(person_reply(&root, "otra.html", "a", "hola").is_err());
+        assert!(person_reply(&root, page, "nada", "hola").is_err());
+        assert!(person_reply(&root, page, "a", "  ").is_err());
+        assert!(person_reply(&root, page, "a", &"x".repeat(MAX_TEXT + 1)).is_err());
+        assert!(person_reply(&root, page, "a", &"x".repeat(MAX_TEXT)).is_ok());
+        // Without a comment, the person's reply is the last message.
+        assert_eq!(list(&root, Some(page))[0]["pending"], true);
+        for _ in 1..MAX_REPLIES {
+            person_reply(&root, page, "a", "más").unwrap();
+        }
+        let full = person_reply(&root, page, "a", "una más").unwrap_err();
+        assert!(full.contains("200"), "{full}");
+        assert_eq!(list(&root, Some(page))[0]["replies"].as_array().unwrap().len(), MAX_REPLIES);
+        // The agent is also capped: the same function decides.
+        assert!(reply(&root, "a", "agente").is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

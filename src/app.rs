@@ -213,6 +213,8 @@ enum PageMsg {
     CreateNote { dir: String, name: String },
     AnnotSave { annotation: Value },
     AnnotDelete { id: String },
+    /// The person's reply in the conversation of one of the page's annotations.
+    AnnotReply { id: String, text: String },
     /// Which annotations the page could not place.
     AnnotStatus { orphans: Vec<String>, total: usize },
 }
@@ -1597,13 +1599,30 @@ impl App {
                 reply(self, format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
             }
             PageMsg::AnnotSave { annotation } if trusted => {
-                if let Err(e) = self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
-                    eprintln!("No se pudo guardar la anotación: {e}");
+                match self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
+                    Ok(true) => {
+                        let file = vault::rel_from_url(url).unwrap_or_default();
+                        let (id, text) = (annotation["id"].as_str().unwrap_or_default(), annotation["comment"].as_str().unwrap_or_default());
+                        self.note_annotation(&file, id, "comment", text);
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!("No se pudo guardar la anotación: {e}"),
                 }
             }
             PageMsg::AnnotDelete { id } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::delete(root, page, &id)) {
                     eprintln!("No se pudo borrar la anotación: {e}");
+                }
+            }
+            PageMsg::AnnotReply { id, text } if trusted => {
+                let file = vault::rel_from_url(url).unwrap_or_default();
+                match self.with_page_annotations(url, |root, page| annot::person_reply(root, page, &id, &text)) {
+                    Ok(()) => self.note_annotation(&file, &id, "reply", &text),
+                    // The page took the message as sent; it takes it back and shows why.
+                    Err(e) => reply(self, format!(
+                        "window.__visorAnnot && window.__visorAnnot.replyFailed({}, {}, {})",
+                        json!(id), json!(text), json!(e)
+                    )),
                 }
             }
             PageMsg::AnnotStatus { orphans, total } if trusted => {
@@ -1628,27 +1647,24 @@ impl App {
             }
             PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();
-                let event = json!({
-                    "id": shared.next_id,
-                    "time": now(),
-                    "vault": shared.vault,
-                    "file": shared.page_of(view).file,
-                    "data": data,
-                });
-                shared.next_id += 1;
-                if shared.events.len() >= MAX_EVENTS {
-                    shared.events.remove(0);
-                }
-                shared.events.push(event.clone());
-                append_event(&event);
+                let file = shared.page_of(view).file.clone();
+                push_event(&mut shared, json!({ "file": file, "data": data }));
             }
             _ => {}
         }
     }
 
+    /// Tells agents what the person wrote in an annotation. It carries
+    /// `annotation` and no `data`: a page's own `visor.send` always has `data`,
+    /// so it cannot pass as one of these.
+    fn note_annotation(&self, file: &str, id: &str, action: &str, text: &str) {
+        let mut shared = self.shared.lock().unwrap();
+        push_event(&mut shared, json!({ "file": file, "annotation": { "id": id, "action": action, "text": text } }));
+    }
+
     /// Runs an annotation change for the page at `url`, which must be a real
     /// file of the open vault: the page cannot name any other.
-    fn with_page_annotations(&self, url: &str, change: impl FnOnce(&Path, &str) -> Result<(), String>) -> Result<(), String> {
+    fn with_page_annotations<T>(&self, url: &str, change: impl FnOnce(&Path, &str) -> Result<T, String>) -> Result<T, String> {
         let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
         let page = vault::rel_from_url(url).ok_or("La página no es de la bóveda")?;
         vault::resolve(&root, &page).ok_or("La página no existe en la bóveda")?;
@@ -1863,6 +1879,19 @@ pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_file_name(format!(".{name}.visor-tmp"));
     fs::write(&tmp, text)?;
     fs::rename(&tmp, path)
+}
+
+/// Keeps an event for `visor events` and the agents waiting on it, with its id, time and vault.
+fn push_event(shared: &mut Shared, mut event: Value) {
+    event["id"] = json!(shared.next_id);
+    event["time"] = json!(now());
+    event["vault"] = json!(shared.vault);
+    shared.next_id += 1;
+    if shared.events.len() >= MAX_EVENTS {
+        shared.events.remove(0);
+    }
+    shared.events.push(event.clone());
+    append_event(&event);
 }
 
 fn append_event(event: &Value) {
