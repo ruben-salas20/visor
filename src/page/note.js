@@ -4,7 +4,7 @@
   const edit = document.getElementById("edit");
   const editor = document.getElementById("editor");
   const status = document.getElementById("status");
-  const send = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const send = (m) => window.__visorPost(m);
   const scrollKey = "visor-scroll:" + location.pathname;
   let editing = false;
   let dirty = false;

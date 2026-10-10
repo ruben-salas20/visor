@@ -224,7 +224,7 @@
     }
     if (url) location.href = url;
     // As in the reading view: a link to a note that does not exist creates it.
-    else window.ipc.postMessage(JSON.stringify({ type: "create_note", dir: config.dir, name: link.wiki }));
+    else window.__visorPost({ type: "create_note", dir: config.dir, name: link.wiki });
   }
 
   const unbracket = (url) => (url.startsWith("<") && url.endsWith(">") ? url.slice(1, -1) : url);

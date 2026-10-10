@@ -243,7 +243,8 @@ impl Vault {
     }
 }
 
-/// What a page may do, decided by where its URL points.
+/// What a page may do, decided by the address of the document it shows: the
+/// one it was loaded from, never one it gave itself afterwards.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Access {
     /// A website or anything else not served by visor.
@@ -314,10 +315,17 @@ pub fn byte_range(header: &str, len: u64) -> Option<(u64, u64)> {
 }
 
 static BASE: OnceLock<String> = OnceLock::new();
+static LOOSE_BASE: OnceLock<String> = OnceLock::new();
 
 /// Sets the URL the local server serves the vault from. Called once at startup.
 pub fn set_base(base: String) {
     let _ = BASE.set(base);
+}
+
+/// Sets the URL loose pages are served from. It is another origin, so a loose
+/// page can neither read the vault nor take the address of one of its pages.
+pub fn set_loose_base(base: String) {
+    let _ = LOOSE_BASE.set(base);
 }
 
 /// URL prefix of every vault page, e.g. `http://127.0.0.1:PORT/SECRET/`.
@@ -325,17 +333,27 @@ pub fn base() -> &'static str {
     BASE.get().map_or("", String::as_str)
 }
 
-/// Also takes a loose page's absolute path, served at `base()` + `/` + path.
-pub fn url(rel: &str) -> String {
-    let path: Vec<String> = rel.split('/').map(|seg| utf8_percent_encode(seg, SEGMENT).to_string()).collect();
-    format!("{}{}", base(), path.join("/"))
+/// URL prefix of loose pages, e.g. `http://127.0.0.2:PORT/SECRET/`.
+pub fn loose_base() -> &'static str {
+    LOOSE_BASE.get().map_or("", String::as_str)
 }
 
-/// Inverse of [`url`]; `None` for pages the server does not serve.
+/// Also takes a loose page's absolute path, served at `loose_base()` + `/` + path.
+pub fn url(rel: &str) -> String {
+    let path: Vec<String> = rel.split('/').map(|seg| utf8_percent_encode(seg, SEGMENT).to_string()).collect();
+    let base = if is_loose(rel) { loose_base() } else { base() };
+    format!("{base}{}", path.join("/"))
+}
+
+/// Inverse of [`url`]; `None` for pages the server does not serve, and for a
+/// path asked of the wrong origin.
 pub fn rel_from_url(url: &str) -> Option<String> {
-    let path = url.strip_prefix(base()).filter(|_| !base().is_empty())?;
-    let path = path.split(['?', '#']).next()?;
-    Some(percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned())
+    let decode = |base: &str| {
+        let path = url.strip_prefix(base).filter(|_| !base.is_empty())?;
+        let path = path.split(['?', '#']).next()?;
+        Some(percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned())
+    };
+    decode(base()).filter(|rel| !is_loose(rel)).or_else(|| decode(loose_base()).filter(|rel| is_loose(rel)))
 }
 
 #[cfg(test)]
@@ -361,18 +379,28 @@ mod tests {
 
     #[test]
     fn url_round_trip() {
-        set_base("http://127.0.0.1:1/s/".into());
+        bases();
         let rel = "física/tema 2/¿qué?#1.html";
         let url = url(rel);
         assert_eq!(url, "http://127.0.0.1:1/s/f%C3%ADsica/tema%202/%C2%BFqu%C3%A9%3F%231.html");
         assert_eq!(rel_from_url(&url).as_deref(), Some(rel));
         assert_eq!(rel_from_url("https://example.com/"), None);
         let loose = "/tmp/muestra rápida.html";
-        assert_eq!(super::url(loose), "http://127.0.0.1:1/s//tmp/muestra%20r%C3%A1pida.html");
+        assert_eq!(super::url(loose), "http://127.0.0.2:1/s//tmp/muestra%20r%C3%A1pida.html");
         assert_eq!(rel_from_url(&super::url(loose)).as_deref(), Some(loose));
+        // Each origin serves only its own kind of page.
+        assert_eq!(rel_from_url("http://127.0.0.1:1/s//tmp/x.html"), None);
+        assert_eq!(rel_from_url("http://127.0.0.2:1/s/nota.md"), None);
     }
 
     const BASE: &str = "http://127.0.0.1:1/s/";
+    const LOOSE_BASE: &str = "http://127.0.0.2:1/s/";
+
+    /// The same bases in every test: they can only be set once per process.
+    fn bases() {
+        set_base(BASE.into());
+        set_loose_base(LOOSE_BASE.into());
+    }
 
     /// A vault in a temporary folder, plus a file outside it that links try to reach.
     fn make(name: &str) -> (Vault, PathBuf) {
@@ -428,7 +456,7 @@ mod tests {
 
     #[test]
     fn page_and_note() {
-        set_base(BASE.into());
+        bases();
         let (vault, dir) = make("page");
         let (rel, path) = vault.page(&url("a/pagina.html")).unwrap();
         assert_eq!((rel.as_str(), path), ("a/pagina.html", vault.root().join("a/pagina.html")));
@@ -447,12 +475,14 @@ mod tests {
 
     #[test]
     fn access_by_url() {
-        set_base(BASE.into());
+        bases();
         assert_eq!(access("https://example.com/"), Access::None);
         assert_eq!(access("about:blank"), Access::None);
         assert_eq!(access(&url("a/nota.md")), Access::Trusted);
         assert_eq!(access(&format!("{}#x", url("a/nota.md"))), Access::Trusted);
         assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
+        assert_eq!(access(&format!("{LOOSE_BASE}nota.md")), Access::None, "a vault path on the loose origin");
+        assert_eq!(access(&format!("{BASE}/tmp/suelta.html")), Access::None, "a loose path on the vault origin");
     }
 
     #[test]

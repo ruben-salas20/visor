@@ -1,7 +1,13 @@
 (() => {
-  // Only vault pages: websites must not reach the logs and events that agents read.
-  if (window.top !== window || window.visor || !location.href.startsWith("__VISOR_BASE__")) return;
-  const post = (m) => window.ipc.postMessage(JSON.stringify(m));
+  // Only pages visor serves: websites must not reach the logs and events that agents read.
+  const served = ["__VISOR_BASE__", "__VISOR_LOOSE_BASE__"].some((base) => location.href.startsWith(base));
+  if (window.top !== window || window.visor || !served) return;
+  // The app drops messages without this key, so frames from other origins,
+  // which can post to the handler but not read this scope, cannot speak for the page.
+  const handler = window.webkit.messageHandlers.ipc;
+  const KEY = "__VISOR_KEY__";
+  const post = (m) => handler.postMessage(JSON.stringify({ ...m, key: KEY }));
+  Object.defineProperty(window, "__visorPost", { value: post });
   const show = (v) => {
     if (v instanceof Error) return v.stack || String(v);
     if (typeof v === "object" && v !== null) {

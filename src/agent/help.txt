@@ -84,7 +84,8 @@ ARCHIVOS SUELTOS
     app cerrada, se abre sin panel y sin la última bóveda; con una
     bóveda abierta, va a una pestaña y la bóveda sigue igual.
   - Funcionan las rutas relativas a su carpeta y subcarpetas, no las
-    que salen de ella (../).
+    que salen de ella (../) ni los archivos o carpetas que empiezan por
+    punto. Tiene su propio origen: no puede leer la bóveda.
   - Se recarga sola si cambian ella o los archivos de su carpeta (no
     los de las subcarpetas).
   - Tiene visor.send(), `visor console` y `visor reload`, pero no

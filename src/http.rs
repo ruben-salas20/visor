@@ -1,40 +1,73 @@
-//! Serves the open vault, and pages opened on their own, over plain HTTP on
-//! 127.0.0.1. WebKitGTK only plays video and offers Media Source to network
-//! origins, not to custom schemes.
+//! Serves the open vault on 127.0.0.1, and pages opened on their own on
+//! 127.0.0.2, over plain HTTP. WebKitGTK only plays video and offers Media
+//! Source to network origins, not to custom schemes.
 
 use crate::session::SharedRef;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use tiny_http::{Header, ListenAddr, Request, Response, Server, StatusCode};
 
 include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
-/// Starts the server and returns its port and the base URL of vault pages.
-/// The preferred port is reused so pages keep their origin, and with it their
-/// localStorage, between sessions.
-pub fn start(preferred_port: Option<u16>, shared: SharedRef) -> Option<(u16, String)> {
-    let server = preferred_port
-        .and_then(|port| Server::http(("127.0.0.1", port)).ok())
-        .or_else(|| Server::http("127.0.0.1:0").ok())?;
-    let ListenAddr::IP(addr) = server.server_addr() else { return None };
-    let port = addr.port();
+/// Where the server listens, as the app needs it.
+pub struct Started {
+    pub port: u16,
+    /// URL prefix of vault pages.
+    pub base: String,
+    /// URL prefix of loose pages, on an origin of their own.
+    pub loose_base: String,
+}
+
+/// The two origins the server answers for. Loose pages get their own, on
+/// another loopback address, so they can neither read the vault nor make
+/// their address look like a vault page's.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Realm {
+    Vault,
+    Loose,
+}
+
+/// Starts the server. The preferred port is reused so pages keep their
+/// origin, and with it their localStorage, between sessions.
+pub fn start(preferred_port: Option<u16>, shared: SharedRef) -> Option<Started> {
+    let vault = listen("127.0.0.1", preferred_port)?;
+    let port = port_of(&vault)?;
+    let loose = listen("127.0.0.2", Some(port))?;
+    let loose_port = port_of(&loose)?;
     // Other programs on this machine can reach the port; without the secret
     // path they cannot read the vault.
     let prefix = format!("/{}/", secret()?);
-    let base = format!("http://127.0.0.1:{port}{prefix}");
-    let host = format!("127.0.0.1:{port}");
+    let started = Started {
+        port,
+        base: format!("http://127.0.0.1:{port}{prefix}"),
+        loose_base: format!("http://127.0.0.2:{loose_port}{prefix}"),
+    };
+    serve(vault, Realm::Vault, format!("127.0.0.1:{port}"), prefix.clone(), shared.clone());
+    serve(loose, Realm::Loose, format!("127.0.0.2:{loose_port}"), prefix, shared);
+    Some(started)
+}
+
+fn listen(address: &str, port: Option<u16>) -> Option<Server> {
+    port.and_then(|port| Server::http((address, port)).ok()).or_else(|| Server::http((address, 0)).ok())
+}
+
+fn port_of(server: &Server) -> Option<u16> {
+    let ListenAddr::IP(addr) = server.server_addr() else { return None };
+    Some(addr.port())
+}
+
+fn serve(server: Server, realm: Realm, host: String, prefix: String, shared: SharedRef) {
     let server = Arc::new(server);
     thread::spawn(move || {
         for request in server.incoming_requests() {
             let (shared, prefix, host) = (shared.clone(), prefix.clone(), host.clone());
-            thread::spawn(move || handle(request, &shared, &prefix, &host));
+            thread::spawn(move || handle(request, realm, &shared, &prefix, &host));
         }
     });
-    Some((port, base))
 }
 
 fn serve_asset(request: Request, name: &str) {
@@ -51,7 +84,8 @@ fn serve_asset(request: Request, name: &str) {
     let _ = request.respond(response);
 }
 
-fn secret() -> Option<String> {
+/// 32 random hex digits.
+pub fn secret() -> Option<String> {
     let mut bytes = [0u8; 16];
     File::open("/dev/urandom").ok()?.read_exact(&mut bytes).ok()?;
     Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
@@ -67,7 +101,7 @@ fn text(status: u16, message: &str) -> Response<std::io::Cursor<Vec<u8>>> {
         .with_header(header("Content-Type", "text/plain; charset=utf-8"))
 }
 
-fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
+fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host: &str) {
     let value = |name: &str| {
         request
             .headers()
@@ -87,16 +121,21 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let _ = request.respond(text(404, "No encontrado"));
         return;
     };
-    if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS) {
+    if realm == Realm::Vault
+        && let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS)
+    {
         serve_asset(request, name);
         return;
     }
     let rel = percent_encoding::percent_decode_str(rel).decode_utf8_lossy().into_owned();
-    if vault::is_loose(&rel) {
-        // Only from the folders of pages opened on their own, as plain files.
+    // Each origin serves only its own kind of page.
+    if vault::is_loose(&rel) != (realm == Realm::Loose) {
+        let _ = request.respond(text(404, &format!("No existe: {rel}")));
+        return;
+    }
+    if realm == Realm::Loose {
         let allowed = shared.lock().unwrap().loose.clone();
-        let path = Path::new(&rel).canonicalize().ok().filter(|p| p.is_file() && allowed.iter().any(|d| p.starts_with(d)));
-        match path {
+        match loose_file(Path::new(&rel), &allowed) {
             Some(path) => {
                 let range = value("Range");
                 serve_file(request, &path, range);
@@ -156,6 +195,14 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
     serve_file(request, &path, range);
 }
 
+/// A file a loose page may read: inside the folder of a loose tab that is
+/// open, subfolders included, and with nothing hidden on the way.
+fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
+    let path = path.canonicalize().ok().filter(|p| p.is_file())?;
+    let visible = |rel: &Path| !rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+    allowed.iter().any(|dir| path.strip_prefix(dir).is_ok_and(visible)).then_some(path)
+}
+
 fn serve_file(request: Request, path: &Path, range: Option<String>) {
     let Ok(mut file) = File::open(path) else {
         let _ = request.respond(text(500, "No se pudo leer el archivo"));
@@ -181,4 +228,35 @@ fn serve_file(request: Request, path: &Path, range: Option<String>) {
     }
     let body = file.take(size);
     let _ = request.respond(Response::new(StatusCode(status), headers, body, Some(size as usize), None));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn loose_pages_read_their_folder_but_nothing_hidden() {
+        let dir = std::env::temp_dir().join(format!("visor-loose-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        for sub in ["pagina/css", "pagina/.oculta", "otra"] {
+            fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for file in ["pagina/x.html", "pagina/css/e.css", "pagina/.oculta/s.txt", "pagina/.s.txt", "otra/y.html"] {
+            fs::write(dir.join(file), "").unwrap();
+        }
+        let root = dir.canonicalize().unwrap();
+        std::os::unix::fs::symlink(root.join("otra/y.html"), root.join("pagina/enlace.html")).unwrap();
+        let allowed = [root.join("pagina")];
+        let reads = |rel: &str| loose_file(&root.join(rel), &allowed).is_some();
+        assert!(reads("pagina/x.html"));
+        assert!(reads("pagina/css/e.css"), "subfolders");
+        assert!(!reads("pagina/.oculta/s.txt"), "hidden folder");
+        assert!(!reads("pagina/.s.txt"), "hidden file");
+        assert!(!reads("otra/y.html"), "another folder");
+        assert!(!reads("pagina/enlace.html"), "a link out of the folder");
+        assert!(!reads("pagina/css/../../otra/y.html"));
+        assert!(!reads("pagina/falta.html"));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

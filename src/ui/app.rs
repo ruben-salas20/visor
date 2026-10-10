@@ -83,11 +83,12 @@ pub fn launch() -> i32 {
     });
 
     let mut config = Config::load();
-    let Some((port, base)) = crate::http::start(config.port, shared.clone()) else {
+    let Some(crate::http::Started { port, base, loose_base }) = crate::http::start(config.port, shared.clone()) else {
         eprintln!("No se pudo iniciar el servidor local.");
         return 1;
     };
     vault::set_base(base);
+    vault::set_loose_base(loose_base);
     if config.port != Some(port) {
         config.port = Some(port);
         config.save();
@@ -1154,7 +1155,7 @@ impl App {
                     page.console.remove(0);
                 }
                 // Vault paths read better than server URLs, and keep the secret out of logs.
-                let text = text.replace(vault::base(), "");
+                let text = text.replace(vault::base(), "").replace(vault::loose_base(), "");
                 page.console.push(json!({ "time": now(), "level": level, "text": text }));
             }
             PageMsg::Event { data } if local => {
@@ -1251,6 +1252,7 @@ impl App {
                 }
                 path.to_string_lossy().into_owned()
             }
+            None if !vault::is_page(&path) => return Err("visor abre carpetas, páginas .html y notas .md.".into()),
             known => {
                 let root = known
                     .or_else(|| path.parent().map(Path::to_path_buf))

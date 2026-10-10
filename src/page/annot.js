@@ -10,7 +10,7 @@
   // A page opened on its own (an absolute path) has no vault to keep notes in.
   if (page.startsWith("/")) return;
   const storeUrl = BASE + ".visor/anotaciones/" + page.split("/").map(encodeURIComponent).join("/") + ".json";
-  const send = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const send = (m) => window.__visorPost(m);
   const COLORS = { amarillo: "#f2c94c", verde: "#6fcf97", azul: "#56a0f5", rosa: "#f28bb0" };
   const SKIP = "script,style,noscript,textarea,template,[data-visor-skip]";
   const CONTEXT = 32;

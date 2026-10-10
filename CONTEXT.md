@@ -30,8 +30,8 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 
 ## Seguridad y escritura
 
-- **Frontera de confianza**: Rust decide qué puede hacer cada página por su URL (`vault::access`); ver `AGENTS.md`.
-- **Página de la bóveda**: servida desde la bóveda; puede tener anotaciones y escritura. Las sueltas comparten el prefijo de URL, pero solo usan consola y `visor.send`.
+- **Frontera de confianza**: Rust decide qué puede hacer cada página por la URL del documento cargado en su vista (`vault::access`); ver `AGENTS.md`.
+- **Página de la bóveda**: servida desde la bóveda (127.0.0.1); puede tener anotaciones y escritura. Las sueltas tienen su propio origen (127.0.0.2) y solo usan consola y `visor.send`.
 - **Escritura propia** (`OwnWrite` en `watch.rs`): archivo que visor acaba de escribir. Se reconoce por el hash de su contenido, no por el tiempo, para no tapar los cambios de un agente.
 
 ## Términos que debes evitar
