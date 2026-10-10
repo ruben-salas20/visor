@@ -1,26 +1,28 @@
 # visor
 
-Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. También abre un HTML suelto, sin bóveda. Rust + tao + wry sobre WebKitGTK, Wayland nativo (Omarchy/Hyprland); solo compila en Linux. Los agentes lo controlan por CLI; `visor help` es la referencia de esa interfaz y de cómo escribir páginas para visor: si cambias su comportamiento, actualiza `src/agent/help.txt`.
+Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. Rust + tao + wry sobre WebKitGTK, Wayland nativo; solo compila en Linux. Los agentes lo controlan por CLI o MCP. `src/agent/help.txt` es `visor help` y la herramienta MCP `guide`: si cambias un comportamiento visible, actualízalo. Términos del dominio: `CONTEXT.md`.
 
 ## Mapa
 
-Los términos del dominio (bóveda, lado, pestaña viva, archivo suelto…) están en `CONTEXT.md`.
+Solo lo que el código no dice por sí mismo.
 
-- `src/session.rs`: el estado que comparten la ventana y los servidores (`Shared`, `Page`, eventos, consola) y lo que el servidor de agentes pide a la ventana (`AgentRequest`). No conoce GTK: ni `session.rs` ni `agent/` dependen de la ventana.
-- `src/ui/`: la ventana. `app.rs` orquesta webviews y eventos y aplica los efectos del modelo de pestañas; `tabs.rs`, ese modelo (lados, pestañas, foco, pestañas vivas y descargadas, `MAX_LIVE`) sin GTK ni wry: cada operación devuelve los efectos que la ventana aplica, y los lados que hay que redibujar se marcan para hacerlo una vez por evento; `action.rs`, los eventos y acciones que llegan a su bucle; `watch.rs`, la vigilancia de archivos y la decisión pura de qué hacer con un lote de cambios (`vault_reaction`); `page_view.rs`, el webview de una página; `page_calls.rs`, el JavaScript con que Rust llama a las páginas; `panes.rs`, los widgets de cada lado de la vista dividida con su fila de pestañas, sus botones de anotaciones (solo en páginas de la bóveda) y su barra (`bar.rs`); `sidebar.rs`, el panel en GTK nativo; `icons.rs`, iconos dibujados con cairo (cargarlos del tema cuesta ~50 ms en frío); `theme.rs`, colores de Omarchy.
-- `src/vault.rs`: la bóveda abierta (`Vault`, raíz canónica una sola vez) y su frontera de confianza: toda ruta o URL que llega de una página, del panel o de la CLI se valida aquí (`resolve`, `page`, `note`, `entry`, `new_in`, `access`), más `write_atomic`. Dentro, `src/vault/`: `config.rs` (configuración en JSON: bóvedas, espacios de trabajo), `files.rs` (mover y mandar a la papelera), `links.rs` (reescribe enlaces al mover), `markdown.rs` (notas .md en lectura), `annot.rs` (anotaciones; solo Rust escribe `.visor/anotaciones/`).
-- `src/agent/`: lo que usan los agentes. `command.rs` define cada orden una vez (`Command`; esquemas MCP en `command/tools.rs`); `cli.rs` y `server.rs` las llevan por socket Unix; `mcp.rs` es el servidor MCP por stdio (`visor mcp`); `help.txt` es `visor help`.
-- `src/http.rs`: servidor local que sirve la bóveda, `assets/` y las carpetas de los HTML sueltos (pestañas con ruta absoluta). `src/paths.rs`: socket, configuración y registro de eventos.
-- `src/page/`: lo que corre dentro de las páginas. `bridge.js` (consola y `visor.send`), `annot.js` (capa de anotaciones), `note.js/css` (lectura de notas), `editor.js/css` (editor de Ctrl+E, CodeMirror 6, solo se carga al editar).
-- `build.rs`: empaqueta `assets/` (KaTeX, highlight.js, Mermaid, CodeMirror) y `editor.js/css` comprimidos con brotli. CodeMirror se regenera en `tools/codemirror/`; las medidas, con `tools/medir/medir.py`.
+- `src/session.rs`: estado compartido entre ventana y servidores. Ni él ni `agent/` dependen de GTK.
+- `src/ui/tabs.rs`: modelo de pestañas sin GTK ni wry. Cada operación devuelve efectos que `app.rs` aplica; los lados a redibujar se marcan y se redibujan una vez por evento. Añade lógica de pestañas aquí, con prueba, no en `app.rs`.
+- `src/ui/watch.rs`: `vault_reaction` decide, sin tocar disco real (trait `Disk`), qué hacer con un lote de cambios.
+- `src/ui/icons.rs`: iconos con cairo, ninguno del tema (ADR 0004).
+- `src/vault.rs`: frontera de confianza. Toda ruta o URL que llega de una página, del panel o de la CLI se valida aquí (`resolve`, `page`, `note`, `entry`, `new_in`, `access`). Escribe con `write_atomic`. `vault/annot.rs`: solo Rust escribe `.visor/anotaciones/`.
+- `src/agent/command.rs`: cada orden se define una vez (`Command`); CLI, socket y MCP salen de ahí (esquemas MCP en `command/tools.rs`). Una orden nueva se añade solo allí y en `help.txt`.
+- `src/http.rs`: sirve la bóveda, `assets/` y las carpetas de los HTML sueltos. `src/paths.rs`: socket, configuración, registro de eventos.
+- `src/page/`: JavaScript y CSS de las páginas. `editor.js/css` solo se carga al editar.
+- `build.rs`: comprime con brotli `assets/` y `editor.js/css`. CodeMirror se regenera en `tools/codemirror/` (ADR 0028). Medidas: `tools/medir/medir.py`.
 
 ## Reglas
 
-- **Rendimiento primero.** Mide arranque, memoria (PSS de todo el árbol de procesos), CPU en reposo y peso del binario antes y después de cada cambio, y di el coste de cada función nueva antes de añadirla. Cifras de referencia y método: `docs/pruebas.md`.
-- **Frontera de confianza.** `bridge.js` y `annot.js` se inyectan en todas las páginas, pero solo actúan en las que sirve visor (URL con prefijo `vault::base()`). Rust valida cada mensaje IPC contra la URL de la página que lo envía (`vault::access`). Los HTML sueltos comparten ese prefijo y solo pueden usar la consola y `visor.send`: nada que escriba en una bóveda. Las webs externas son *no confiables*: lo que publiquen acabaría en el contexto de un agente (inyección de instrucciones).
-- **Textos de interfaz en español** (norma UNE-ISO 24495-1, lenguaje claro); comentarios del código en inglés y solo para el porqué.
+- **Rendimiento primero.** Antes y después de cada cambio mide arranque, memoria (PSS de todo el árbol de procesos), CPU en reposo y peso del binario. Di el coste de cada función nueva antes de añadirla. Método y cifras: `docs/pruebas.md`.
+- **Frontera de confianza.** `bridge.js` y `annot.js` se inyectan en todas las páginas, pero solo actúan en las que sirve visor (URL con prefijo `vault::base()`). Rust valida cada mensaje IPC contra la URL de quien lo envía (`vault::access`). Los HTML sueltos comparten ese prefijo y solo usan la consola y `visor.send`: no escriben en la bóveda. Las webs externas son *no confiables*: lo que publiquen llegaría al contexto de un agente (inyección de instrucciones), así que no tienen `visor.send` ni consola registrada.
+- **Textos de interfaz en español** (UNE-ISO 24495-1, lenguaje claro). Comentarios del código en inglés y solo para el porqué.
 
 ## Antes de…
 
-- **probar o medir** cualquier cosa: lee `docs/pruebas.md`. El usuario suele tener visor abierto y tus órdenes irían a su ventana.
-- **tocar arquitectura, dependencias o perfil de compilación**: lee `docs/decisiones.md` (índice de los ADR de `docs/adr/`); recoge lo ya medido y decidido con el usuario.
+- **probar o medir**: lee `docs/pruebas.md`. El usuario suele tener visor abierto; tus órdenes irían a su ventana si no aíslas la instancia.
+- **tocar arquitectura, dependencias o perfil de compilación**: lee `docs/decisiones.md` y el ADR afectado. Cada ADR recoge lo medido o acordado con el usuario; cambia uno solo con datos nuevos y consultándolo.

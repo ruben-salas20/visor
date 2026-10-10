@@ -44,11 +44,12 @@ USO
                              Datos que las páginas enviaron con
                              visor.send() y mensajes que la persona
                              escribe en sus anotaciones. Sin opciones
-                             devuelve los 20 últimos. Con --wait espera
-                             hasta SEG segundos a que llegue uno nuevo.
+                             devuelve los 20 últimos (se guardan los
+                             últimos 1000). Con --wait espera hasta SEG
+                             segundos (máximo 600) a que llegue uno nuevo.
   visor notes [ruta|--all]   Anotaciones de la persona: de la página
                              abierta, de otra página o de toda la
-                             bóveda (con una ruta, --all no cuenta). Cada una es una conversación;
+                             bóveda (ruta y --all no se combinan). Cada una es una conversación;
                              "pending" dice si espera tu respuesta. En
                              la página abierta, "anchored" dice si cada
                              una sigue encontrando su texto o elemento.

@@ -10,6 +10,6 @@ Se buscaba un binario pequeño sin perder velocidad al renderizar Markdown.
 
 `panic = "abort"` y `opt-level = 3`.
 
-## Consecuencias
+## Cifras
 
-`"s"` ahorraba 380 KB, pero renderizaba Markdown un 8–15 % más lento. `"z"` lo hacía un 50 % más lento.
+`opt-level = "s"` ahorraba 380 KB pero renderizaba Markdown un 8–15 % más lento; `"z"`, un 50 % más lento.

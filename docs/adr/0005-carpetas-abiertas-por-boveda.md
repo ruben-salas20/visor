@@ -2,14 +2,6 @@
 
 **Estado:** Aceptada
 
-## Contexto
-
-El panel muestra un árbol de carpetas.
-
 ## Decisión
 
-Las carpetas abiertas se guardan por bóveda en `open_folders` de la configuración.
-
-## Consecuencias
-
-Cada bóveda recupera su árbol como lo dejó.
+Las carpetas abiertas del árbol se guardan por bóveda en `open_folders` de la configuración, para que cada bóveda recupere su árbol como lo dejó.

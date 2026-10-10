@@ -2,14 +2,6 @@
 
 **Estado:** Aceptada
 
-## Contexto
-
-Se planteó ocultar la ventana al cerrarla.
-
 ## Decisión
 
-Cerrar es cerrar: la app termina.
-
-## Consecuencias
-
-El usuario rechazó ocultar la ventana, porque costaría ~240 MB permanentes.
+Cerrar la ventana termina el proceso. El usuario rechazó ocultarla en lugar de cerrar, porque costaría ~240 MB permanentes.

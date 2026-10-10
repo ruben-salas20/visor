@@ -2,7 +2,7 @@
 
 ## Instancia aislada
 
-El CLI habla con la instancia que escucha en el socket. Si el usuario tiene visor abierto (`target/release/visor`, lanzado con `cargo run --release`), cualquier `visor open` sin aislar abre páginas en su ventana y escribe en su `~/.config/visor`. Prueba siempre así:
+El CLI habla con la instancia que escucha en el socket. Si el usuario tiene visor abierto, un `visor open` sin aislar abre páginas en su ventana y escribe en su `~/.config/visor`. Aísla siempre:
 
 ```sh
 export TMP=$(mktemp -d)                                  # carpeta de la prueba
@@ -11,7 +11,7 @@ export XDG_CONFIG_HOME=$TMP/cfg XDG_STATE_HOME=$TMP/state XDG_DATA_HOME=$TMP/dat
 target/release/visor & echo $! > $TMP/pid      # ciérrala con kill $(cat $TMP/pid)
 ```
 
-Cierra solo por PID. Un `pkill -f` con un patrón que aparezca en tu propia orden mata tu shell, y uno con la ruta relativa alcanza la instancia del usuario.
+Cierra solo por PID: `pkill -f` con un patrón presente en tu propia orden mata tu shell, y con la ruta relativa alcanza la instancia del usuario.
 
 ## Interactuar sin ratón
 
@@ -33,7 +33,7 @@ tools/medir/medir.py --rondas 3 /tmp/visor-antes /tmp/visor-despues
 tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 ```
 
-Cada ronda dura unos 2 minutos por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. Usa 3 rondas para comprobar un cambio y 5 para una referencia o si una cifra se sale del ruido.
+Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. 3 rondas para comprobar un cambio; 5 para una referencia o si una cifra se sale del ruido.
 
 Qué mide y cómo:
 
@@ -43,13 +43,13 @@ Qué mide y cómo:
 - **Cambio de página y pestaña nueva**: tiempo de `visor open otra.md` y de `visor open --tab tareas.md` con la app abierta.
 - **Editor**: memoria 10 s después de Ctrl+E en la nota mínima.
 - **Three.js**: la página escribe sus fps en la consola cada segundo; se leen con `visor console`.
-- **La página manda en la memoria**: una nota con Mermaid y KaTeX ocupa unos 100 MB más que una nota de un párrafo con el mismo binario. Compara siempre con la misma página.
+- **La página manda en la memoria**: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
 - **El ruido supera a menudo el efecto**: con diferencias de pocos milisegundos, compara solo rondas alternadas. El arranque con `ondas.md` cae en dos valores (~670 y ~725 ms) con cualquier binario.
 - **El perfil de energía manda**: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
 
 ## Referencia
 
-2026-10-10, commit `8e4ae91` (fin de la revisión de arquitectura), enchufado, perfil `performance`, `tools/medir/medir.py`. Mediana y, entre paréntesis, mínimo y máximo de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión. En otras 2 rondas el equipo cambió de estado y el arranque se duplicó con los dos binarios por igual; no cuentan.
+2026-10-10, commit `8e4ae91` (fin de la revisión de arquitectura), enchufado, perfil `performance`, `tools/medir/medir.py`. Mediana (mínimo–máximo) de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión. Otras 2 rondas no cuentan: el equipo cambió de estado y el arranque se duplicó con ambos binarios.
 
 | Medida | Valor | Antes (`f2bec3e`) |
 |---|---|---|

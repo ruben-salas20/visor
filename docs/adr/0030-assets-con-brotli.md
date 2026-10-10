@@ -8,8 +8,4 @@ WebKit solo anuncia gzip por HTTP, pero descodifica brotli.
 
 ## Decisión
 
-Las librerías de `assets/` van comprimidas con brotli. `build-override` optimiza el script de compilación.
-
-## Consecuencias
-
-Sin optimizar, brotli tardaba 39 s.
+Las librerías de `assets/` van comprimidas con brotli (`build.rs`). `[profile.*.build-override] opt-level = 3` optimiza el script de compilación: sin ello, brotli tardaba 39 s.

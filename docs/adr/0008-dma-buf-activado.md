@@ -4,16 +4,12 @@
 
 ## Contexto
 
-Desactivar DMA-BUF adelanta el arranque, pero perjudica el dibujo con Three.js.
+Desactivar DMA-BUF adelanta el arranque, pero perjudica el dibujo con Three.js, que el usuario usa mucho.
 
 ## Decisión
 
-DMA-BUF queda activado.
-
-## Consecuencias
-
-El arranque tarda ~0,5 s más que sin DMA-BUF. El usuario usa mucho Three.js.
+DMA-BUF queda activado. Es el valor por defecto de WebKitGTK: el código no lo toca, y no debe tocarlo.
 
 ## Cifras
 
-- Sin DMA-BUF el arranque es ~0,5 s más rápido, pero Three.js cae de 60 a 26 fps.
+Sin DMA-BUF el arranque es ~0,5 s más rápido, pero Three.js cae de 60 a 26 fps.

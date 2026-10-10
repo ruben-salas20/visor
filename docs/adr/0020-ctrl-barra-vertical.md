@@ -2,14 +2,6 @@
 
 **Estado:** Aceptada
 
-## Contexto
-
-Con el teclado latinoamericano del usuario, «\» necesita AltGr.
-
 ## Decisión
 
-Dividir la ventana funciona con Ctrl+| y con Ctrl+\.
-
-## Consecuencias
-
-Ambos atajos hacen lo mismo.
+Dividir la ventana funciona con Ctrl+| y con Ctrl+\, porque con el teclado latinoamericano del usuario «\» necesita AltGr. Ambos hacen lo mismo.

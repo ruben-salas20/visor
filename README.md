@@ -1,62 +1,61 @@
 # visor
 
-visor es un visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. También abre un HTML suelto, sin bóveda. Los agentes lo controlan por línea de órdenes o por MCP.
+[Español](README.es.md)
 
-Está escrito en Rust con tao y wry sobre WebKitGTK. Solo compila en Linux, con Wayland nativo.
+A desktop viewer for vaults (folders) of HTML and Markdown pages, built for studying with AI, in the spirit of Obsidian. It also opens a single loose HTML file without a vault. Agents drive it through a CLI or MCP; the person reads, highlights, comments, and gets replies from the agent.
 
-## Requisitos
+Rust + tao + wry on WebKitGTK. Linux only, native Wayland.
 
-- Linux con Wayland.
-- WebKitGTK 4.1, versión 2.38 o posterior (`Cargo.toml` activa la feature `v2_38`).
-- GTK 3.
-- Para vídeo web: `gst-libav` y `gst-plugins-bad`. Se recomiendan `gst-plugin-va` y `gst-plugin-dav1d` ([detalle](docs/adr/0032-requisitos-de-gstreamer.md)).
+## Requirements
 
-## Compilar
+- Linux with Wayland, GTK 3, WebKitGTK 4.1 (2.38 or later).
+- Web video: `gst-libav` and `gst-plugins-bad`; `gst-plugin-va` and `gst-plugin-dav1d` recommended ([why](docs/adr/0032-requisitos-de-gstreamer.md)).
+- Rust 1.88 or later to build.
+
+## Build
 
 ```
 cargo build --release
 ```
 
-El paquete de CodeMirror ya está en `assets/`. Solo se regenera con `npm ci && npm run build` en `tools/codemirror/`.
+The CodeMirror bundle is committed in `assets/`; regenerate it only with `npm ci && npm run build` in `tools/codemirror/`.
 
-## Uso
+## Use
 
 ```
-visor                              # abre la app
-visor open <carpeta|archivo|URL>   # abre una bóveda, una página o una web
-visor help                         # referencia completa
-visor mcp                          # servidor MCP por stdio
+visor                              # open the app
+visor open <folder|file|URL> [--tab | --beside]
+visor help                         # full CLI reference and how to write pages
+visor mcp                          # MCP server over stdio
 ```
 
-`visor open` admite `--tab` (pestaña nueva) y `--beside` (en el otro lado).
-
-Para usar visor desde un cliente MCP, regístralo así (ejemplo de Claude Code, tomado de `visor help`):
+Register it with an MCP client, for example:
 
 ```
 claude mcp add visor -- visor mcp
 ```
 
-### Atajos principales
+The MCP tool `guide` returns the same text as `visor help`, shortcuts included (Ctrl+O open folder, Ctrl+E edit note, Ctrl+Shift+A annotate, Ctrl+| split).
 
-| Atajo | Acción |
-|---|---|
-| Ctrl+O | abrir carpeta |
-| Ctrl+B | mostrar u ocultar el panel |
-| Ctrl+L | ir a la barra de direcciones |
-| Ctrl+E | editar la nota o volver a la vista |
-| Ctrl+T, Ctrl+W | pestaña nueva, cerrar pestaña |
-| Ctrl+\| (o Ctrl+\\) | dividir la ventana o volver a un lado |
-| Ctrl+Shift+A, Ctrl+Shift+L | anotar, lista de anotaciones |
+## Repository layout
 
-La lista completa está en `visor help`.
+- `src/ui/`: window, tabs, sidebar (GTK).
+- `src/vault.rs`, `src/vault/`: vault access, annotations, Markdown, config.
+- `src/agent/`: CLI, socket server, MCP; `help.txt` is `visor help`.
+- `src/page/`: JavaScript and CSS that run inside pages.
+- `assets/`, `build.rs`: bundled libraries (KaTeX, highlight.js, Mermaid, CodeMirror), brotli-compressed at build time.
+- `tools/`: CodeMirror bundle generator, benchmark script.
 
-## Más documentación
+## Documentation
 
-- [CONTEXT.md](CONTEXT.md): glosario de términos.
-- [docs/decisiones.md](docs/decisiones.md) y [docs/adr/](docs/adr/): decisiones de diseño y sus cifras.
-- [docs/pruebas.md](docs/pruebas.md): cómo probar y medir.
-- [AGENTS.md](AGENTS.md): guía para agentes que programan en este repositorio.
+All of it is in Spanish.
 
-## Licencia
+- [README.es.md](README.es.md): guide for people.
+- [CONTEXT.md](CONTEXT.md): glossary.
+- [AGENTS.md](AGENTS.md): guide for agents working on this repository.
+- [docs/decisiones.md](docs/decisiones.md): design decisions (ADR), with the measurements behind them.
+- [docs/pruebas.md](docs/pruebas.md): how to test and measure.
 
-MIT. Consulta [LICENSE](LICENSE).
+## License
+
+MIT. See [LICENSE](LICENSE).
