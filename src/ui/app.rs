@@ -1341,11 +1341,11 @@ impl App {
                 let mut shared = self.shared.lock().unwrap();
                 let Some(page) = shared.pages.get_mut(&view) else { return };
                 if page.console.len() >= MAX_CONSOLE {
-                    page.console.pop_front();
+                    page.console.remove(0);
                 }
                 // Vault paths read better than server URLs, and keep the secret out of logs.
                 let text = text.replace(vault::base(), "");
-                page.console.push_back(json!({ "time": now(), "level": level, "text": text }));
+                page.console.push(json!({ "time": now(), "level": level, "text": text }));
             }
             PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();

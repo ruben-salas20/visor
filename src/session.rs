@@ -4,7 +4,7 @@
 use crate::paths;
 use crate::vault::{self, Vault};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -42,12 +42,12 @@ pub struct Page {
     pub url: Option<String>,
     pub loaded: bool,
     pub load_seq: u64,
-    pub console: VecDeque<Value>,
+    pub console: Vec<Value>,
     /// Annotations of the page that could not be placed, as reported by it.
     pub orphans: Option<Vec<String>>,
 }
 
-pub static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: VecDeque::new(), orphans: None };
+pub static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
 
 /// What the socket server can read without going through the event loop.
 #[derive(Default)]
@@ -61,7 +61,7 @@ pub struct Shared {
     pub focused: u64,
     /// Sides and tabs, as `visor status` reports them.
     pub layout: Value,
-    pub events: VecDeque<Value>,
+    pub events: Vec<Value>,
     pub next_id: u64,
 }
 
@@ -69,7 +69,7 @@ pub type SharedRef = Arc<Mutex<Shared>>;
 
 impl Shared {
     pub fn with_saved_events() -> Self {
-        let mut events: VecDeque<Value> = fs::File::open(paths::events())
+        let mut events: Vec<Value> = fs::File::open(paths::events())
             .map(|f| {
                 BufReader::new(f)
                     .lines()
@@ -78,7 +78,7 @@ impl Shared {
                     .collect()
             })
             .unwrap_or_default();
-        let next_id = events.back().and_then(|e| e["id"].as_u64()).unwrap_or(0) + 1;
+        let next_id = events.last().and_then(|e| e["id"].as_u64()).unwrap_or(0) + 1;
         let skip = events.len().saturating_sub(MAX_EVENTS);
         events.drain(..skip);
         Shared { events, next_id, ..Default::default() }
@@ -127,9 +127,9 @@ pub fn push_event(shared: &mut Shared, mut event: Value) {
     event["vault"] = json!(shared.vault.as_ref().map(|v| v.path()));
     shared.next_id += 1;
     if shared.events.len() >= MAX_EVENTS {
-        shared.events.pop_front();
+        shared.events.remove(0);
     }
-    shared.events.push_back(event.clone());
+    shared.events.push(event.clone());
     append_event(&event);
 }
 
