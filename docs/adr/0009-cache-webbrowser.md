@@ -1,0 +1,15 @@
+# 0009. Caché de WebKit en modo WebBrowser y sin límite
+
+**Estado:** Aceptada
+
+## Contexto
+
+WebKit ofrece los modos de caché `WebBrowser` y `DocumentViewer`.
+
+## Decisión
+
+Se usa `WebBrowser`, sin límite de tamaño.
+
+## Consecuencias
+
+`DocumentViewer` libera ~700 MB al salir de webs pesadas. Pero las páginas con librerías de CDN se recargan más lentas y fallan sin conexión. El tamaño de la caché en disco no afecta al arranque.
