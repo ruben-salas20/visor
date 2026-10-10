@@ -2,7 +2,7 @@
 //! 127.0.0.1. WebKitGTK only plays video and offers Media Source to network
 //! origins, not to custom schemes.
 
-use crate::ui::app::SharedRef;
+use crate::session::SharedRef;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};

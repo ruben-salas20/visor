@@ -1,11 +1,13 @@
 use crate::vault::annot;
+use crate::session::{Loading, MAX_CONSOLE, Page, Place, AgentRequest, Shared, SharedRef, now, push_event};
+use crate::ui::action::{Action, SidebarMsg, UserEvent};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
 use crate::ui::panes::{Pane, Tab};
 use crate::paths;
-use crate::ui::sidebar::{Sidebar, SidebarMsg};
+use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
 use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
@@ -13,15 +15,14 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs;
+
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
@@ -38,167 +39,10 @@ use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilder
 const BRIDGE: &str = include_str!("../page/bridge.js");
 const ANNOT: &str = include_str!("../page/annot.js");
 const SIDEBAR_WIDTH: i32 = 260;
-const MAX_CONSOLE: usize = 500;
-const MAX_EVENTS: usize = 1000;
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 /// Pages kept loaded across all tabs. Each one is a WebKit process of
 /// 60–90 MB; the two on screen always count. See docs/decisiones.md.
 const MAX_LIVE: usize = 3;
-
-/// The view that will load and the load count it had before, to wait for the next one.
-pub type Loading = (u64, u64);
-pub type Reply = mpsc::Sender<Result<Option<Loading>, String>>;
-
-/// Where to open something: replacing the focused tab, in a new tab, or on the other side.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Place {
-    Here,
-    NewTab,
-    Beside,
-}
-
-pub enum UserEvent {
-    Sidebar(SidebarMsg),
-    /// A message from a page view, with the URL of the page that sent it.
-    Page { view: u64, url: String, body: String },
-    Navigated { view: u64, url: String },
-    PageLoaded(u64),
-    /// A page view got the keyboard focus.
-    Focused(u64),
-    Open { path: PathBuf, raw: String, place: Place, reply: Reply },
-    OpenUrl { url: String, place: Place, reply: Reply },
-    Picked(Option<PathBuf>),
-    VaultChanged(Vec<PathBuf>),
-    LooseChanged(Vec<PathBuf>),
-    ThemeChanged,
-    MonoFont(Option<String>),
-    Fullscreen { view: u64, on: bool },
-    /// A link the page asked to open in a new tab: in the background, for
-    /// Ctrl+click and middle click, or shown, for target="_blank".
-    OpenTab { view: u64, url: String, background: bool },
-    /// The reading position a page reported as its tab was hidden.
-    Position { view: u64, json: String },
-    /// A file dragged from the sidebar was dropped on a side: on one half of
-    /// it (0 left, 1 right) when the window is not split, or on all of it.
-    Dropped { pane: u64, half: Option<usize> },
-    /// The zone of a side under a dragged file changed: 0 left half, 1 right
-    /// half, 2 the whole side, or none when the pointer left it.
-    DropHover { pane: u64, zone: Option<u8> },
-    Action(Action),
-}
-
-pub enum Action {
-    PickVault,
-    ToggleSidebar,
-    ToggleBar,
-    /// Steps the page zoom in (1) or out (-1), or resets it (0).
-    Zoom(i8),
-    Reload,
-    Back,
-    Forward,
-    FocusAddress,
-    LeaveAddress,
-    /// The address field lost focus; a hidden bar hides again.
-    AddressDone,
-    NewNote,
-    ToggleEdit,
-    PickElement,
-    ToggleAnnotations,
-    Go(String),
-    NewTab,
-    /// Closes the tab with this id, or the focused one.
-    CloseTab(Option<u64>),
-    /// Moves to the next (1) or previous (-1) tab of the focused side.
-    CycleTab(i8),
-    SelectTab(u64),
-    ToggleSplit,
-    /// Makes the pane with this id the one keys and agents act on.
-    FocusPane(u64),
-    /// Moves the keyboard focus to the left (0) or right (1) side.
-    FocusSide(usize),
-}
-
-/// What a page view is showing, for the socket server.
-#[derive(Default)]
-pub struct Page {
-    pub file: Option<String>,
-    /// Set when the view shows a website instead of a vault file.
-    pub url: Option<String>,
-    pub loaded: bool,
-    pub load_seq: u64,
-    pub console: Vec<Value>,
-    /// Annotations of the page that could not be placed, as reported by it.
-    pub orphans: Option<Vec<String>>,
-}
-
-static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
-
-/// What the socket server can read without going through the event loop.
-#[derive(Default)]
-pub struct Shared {
-    pub vault: Option<Arc<Vault>>,
-    /// Folders of the pages opened on their own, which the server may read.
-    pub loose: Vec<PathBuf>,
-    /// Every live page view, by view id.
-    pub pages: HashMap<u64, Page>,
-    /// The view of the focused side's active tab: the one agents act on.
-    pub focused: u64,
-    /// Sides and tabs, as `visor status` reports them.
-    pub layout: Value,
-    pub events: Vec<Value>,
-    pub next_id: u64,
-}
-
-pub type SharedRef = Arc<Mutex<Shared>>;
-
-impl Shared {
-    fn with_saved_events() -> Self {
-        let mut events: Vec<Value> = fs::File::open(paths::events())
-            .map(|f| {
-                BufReader::new(f)
-                    .lines()
-                    .map_while(Result::ok)
-                    .filter_map(|line| serde_json::from_str(&line).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let next_id = events.last().and_then(|e| e["id"].as_u64()).unwrap_or(0) + 1;
-        let skip = events.len().saturating_sub(MAX_EVENTS);
-        events.drain(..skip);
-        Shared { events, next_id, ..Default::default() }
-    }
-
-    /// The page on the focused side.
-    pub fn page(&self) -> &Page {
-        self.page_of(self.focused)
-    }
-
-    pub fn page_of(&self, view: u64) -> &Page {
-        self.pages.get(&view).unwrap_or(&NO_PAGE)
-    }
-
-    pub fn status(&self) -> Value {
-        let page = self.page();
-        let vault = self.vault.as_ref().map(|v| v.path());
-        let path = page.file.as_ref().and_then(|f| match vault {
-            _ if vault::is_loose(f) => Some(PathBuf::from(f)),
-            Some(v) => Some(v.join(f)),
-            None => None,
-        });
-        let errors = page.console.iter().filter(|e| e["level"] == "error").count();
-        json!({
-            "ok": true,
-            "vault": vault,
-            "file": page.file,
-            "path": path,
-            "url": page.url,
-            "loaded": page.loaded,
-            "errors": errors,
-            "last_event_id": self.next_id - 1,
-            "sides": self.layout,
-        })
-    }
-}
 
 /// Messages from vault pages. Websites never get to send these.
 #[derive(Deserialize)]
@@ -219,10 +63,6 @@ enum PageMsg {
     AnnotReply { id: String, text: String },
     /// Which annotations the page could not place.
     AnnotStatus { orphans: Vec<String>, total: usize },
-}
-
-pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn is_web(url: &str) -> bool {
@@ -247,7 +87,10 @@ pub fn launch() -> i32 {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
-    crate::agent::server::spawn(listener, shared.clone(), proxy.clone());
+    let agent_proxy = proxy.clone();
+    crate::agent::server::spawn(listener, shared.clone(), move |request| {
+        let _ = agent_proxy.send_event(UserEvent::Agent(request));
+    });
 
     let mut config = Config::load();
     let Some((port, base)) = crate::http::start(config.port, shared.clone()) else {
@@ -1106,12 +949,13 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Open { path, raw, place, reply } => {
+            UserEvent::Agent(AgentRequest::Open { path, raw, place, reply }) => {
                 let _ = reply.send(self.open(path, &raw, place));
             }
-            UserEvent::OpenUrl { url, place, reply } => {
+            UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
                 let _ = reply.send(Ok(self.open_in(url, place)));
             }
+            UserEvent::Agent(AgentRequest::Reload) => self.act(Action::Reload),
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
@@ -1641,11 +1485,11 @@ impl App {
                 let mut shared = self.shared.lock().unwrap();
                 let Some(page) = shared.pages.get_mut(&view) else { return };
                 if page.console.len() >= MAX_CONSOLE {
-                    page.console.remove(0);
+                    page.console.pop_front();
                 }
                 // Vault paths read better than server URLs, and keep the secret out of logs.
                 let text = text.replace(vault::base(), "");
-                page.console.push(json!({ "time": now(), "level": level, "text": text }));
+                page.console.push_back(json!({ "time": now(), "level": level, "text": text }));
             }
             PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();
@@ -1855,27 +1699,4 @@ fn hash(bytes: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
     hasher.write(bytes);
     hasher.finish()
-}
-
-/// Keeps an event for `visor events` and the agents waiting on it, with its id, time and vault.
-fn push_event(shared: &mut Shared, mut event: Value) {
-    event["id"] = json!(shared.next_id);
-    event["time"] = json!(now());
-    event["vault"] = json!(shared.vault.as_ref().map(|v| v.path()));
-    shared.next_id += 1;
-    if shared.events.len() >= MAX_EVENTS {
-        shared.events.remove(0);
-    }
-    shared.events.push(event.clone());
-    append_event(&event);
-}
-
-fn append_event(event: &Value) {
-    let path = paths::events();
-    if let Some(dir) = path.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{event}");
-    }
 }
