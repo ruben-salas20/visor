@@ -83,7 +83,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
             };
             let entries: Vec<Value> = match level {
                 Some(Level::Error) => page.console.iter().filter(|e| e["level"] == "error").cloned().collect(),
-                None => page.console.iter().cloned().collect(),
+                None => page.console.clone(),
             };
             let out = json!({ "ok": true, "file": page.file, "console": entries });
             if clear {
