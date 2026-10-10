@@ -347,11 +347,15 @@
     host = document.createElement("visor-capa");
     host.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none";
     const shadow = host.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    style.textContent = CSS_TEXT;
+    // A constructed sheet, not a <style>: pages with their own Content-Security-Policy
+    // block inline styles unless they allow 'unsafe-inline', and the same goes for style="…"
+    // attributes, so everything below sets styles through the CSSOM.
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(CSS_TEXT);
+    shadow.adoptedStyleSheets = [sheet];
     ui = document.createElement("div");
     ui.className = "ui";
-    shadow.append(style, ui);
+    shadow.append(ui);
     document.documentElement.append(host);
   }
 
@@ -861,7 +865,9 @@
       b.className = "dot";
       b.title = "Resaltar en " + name;
       b.setAttribute("aria-label", "Resaltar en " + name);
-      b.innerHTML = `<span style="background:${value}"></span>`;
+      const swatch = document.createElement("span");
+      swatch.style.background = value;
+      b.append(swatch);
       b.onmousedown = (e) => e.preventDefault();
       b.onclick = () => make(name, false);
       toolbar.append(b);
