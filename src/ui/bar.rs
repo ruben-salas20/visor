@@ -1,6 +1,6 @@
-use crate::app::{Action, UserEvent};
-use crate::icons::{draw_back, draw_forward, draw_reload, icon_button};
-use crate::theme::Theme;
+use crate::ui::app::{Action, UserEvent};
+use crate::ui::icons::{draw_back, draw_forward, draw_reload, icon_button};
+use crate::ui::theme::Theme;
 use gtk::prelude::*;
 use tao::event_loop::EventLoopProxy;
 

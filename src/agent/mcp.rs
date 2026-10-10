@@ -1,7 +1,7 @@
 //! Model Context Protocol server over stdio. Each tool is one `visor` order,
 //! sent to the app through the same socket the CLI uses.
-use crate::cli;
-use crate::command::{Command, tools};
+use crate::agent::cli;
+use crate::agent::command::{Command, tools};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 

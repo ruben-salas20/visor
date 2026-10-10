@@ -1,8 +1,8 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/decisiones.md.
-use crate::app::UserEvent;
-use crate::icons::{draw_chevron, draw_chevron_bold, draw_new_folder, draw_plus, drawn_icon, icon_button};
-use crate::theme::Theme;
+use crate::ui::app::UserEvent;
+use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_new_folder, draw_plus, drawn_icon, icon_button};
+use crate::ui::theme::Theme;
 use crate::vault::Dir;
 use gtk::cairo::{Context, Format, ImageSurface};
 use gtk::gdk;

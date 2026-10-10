@@ -101,7 +101,7 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String>
     let _guard = LOCK.lock().unwrap();
     let mut doc = load(root, page);
     let list = doc["annotations"].as_array_mut().unwrap();
-    let now = crate::app::now();
+    let now = crate::ui::app::now();
     let mut before = String::new();
     match list.iter_mut().find(|a| a["id"] == id) {
         Some(existing) => {
@@ -143,7 +143,7 @@ fn add_message(note: &mut Value, author: &str, text: &str) -> Result<(), String>
     if replies.len() >= MAX_REPLIES {
         return Err(format!("La anotación ya tiene {MAX_REPLIES} mensajes y no admite más."));
     }
-    replies.push(json!({ "author": author, "text": text, "created": crate::app::now() }));
+    replies.push(json!({ "author": author, "text": text, "created": crate::ui::app::now() }));
     Ok(())
 }
 

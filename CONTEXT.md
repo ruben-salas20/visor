@@ -4,7 +4,7 @@ Los términos de la interfaz y de la ayuda van en español. El código usa nombr
 
 ## Quién usa visor
 
-- **Persona**: quien lee y estudia en visor. La ayuda (`src/help.txt`) y la interfaz dicen «persona».
+- **Persona**: quien lee y estudia en visor. La ayuda (`src/agent/help.txt`) y la interfaz dicen «persona».
 - **Agente**: programa de IA que controla visor por la CLI o por MCP. Firma sus respuestas a las anotaciones como `"agente"`.
 
 ## Contenido
@@ -31,7 +31,7 @@ Los términos de la interfaz y de la ayuda van en español. El código usa nombr
 
 ## Seguridad y escritura
 
-- **Frontera de confianza**: solo las páginas de la bóveda (URL con prefijo `vault::base()`) reciben `bridge.js`, `annot.js` y voz en el canal IPC. Rust valida cada mensaje contra la URL de la página que lo envía. Las páginas sueltas comparten el prefijo, pero solo usan la consola y `visor.send`. Las webs externas no son de confianza: lo que publiquen podría llegar a un agente como inyección de instrucciones.
+- **Frontera de confianza**: Rust decide qué puede hacer cada página por su URL (`vault::access`). Solo las páginas de la bóveda (URL con prefijo `vault::base()`) pueden escribir en ella. Las páginas sueltas comparten el prefijo, pero solo usan la consola y `visor.send`. Las webs externas no son de confianza: lo que publiquen podría llegar a un agente como inyección de instrucciones.
 - **Página de la bóveda**: página servida desde la bóveda. Puede tener anotaciones y escritura.
 - **Escritura propia** (`own_write`): archivo que visor acaba de escribir. Se reconoce por el hash de su contenido, no por el tiempo, para no tapar los cambios de un agente.
 

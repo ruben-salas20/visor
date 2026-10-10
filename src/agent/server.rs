@@ -1,5 +1,5 @@
-use crate::app::{Action, Place, SharedRef, UserEvent};
-use crate::command::{Command, Level, NotesScope, OpenPlace, Target};
+use crate::ui::app::{Action, Place, SharedRef, UserEvent};
+use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -96,7 +96,7 @@ fn respond(command: Command, shared: &SharedRef, proxy: &EventLoopProxy<UserEven
             let Some(vault) = shared.lock().unwrap().vault.clone() else {
                 return fail("No hay ninguna bóveda abierta.".into());
             };
-            match crate::annot::reply(vault.path(), &id, &text) {
+            match crate::vault::annot::reply(vault.path(), &id, &text) {
                 Ok(page) => json!({ "ok": true, "page": page }),
                 Err(e) => fail(e),
             }
@@ -154,7 +154,7 @@ fn notes(scope: &NotesScope, shared: &SharedRef) -> Value {
             None => return fail("No hay ninguna página abierta; indica una ruta o usa --all.".into()),
         },
     };
-    let mut list = crate::annot::list(vault.path(), page.as_deref());
+    let mut list = crate::vault::annot::list(vault.path(), page.as_deref());
     for note in &mut list {
         if note["page"].as_str() == current.as_deref()
             && let Some(orphans) = &orphans

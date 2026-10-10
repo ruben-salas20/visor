@@ -1,12 +1,12 @@
-use crate::annot;
-use crate::bar::Bar;
-use crate::config::{Config, PaneState, Workspace};
-use crate::files;
-use crate::links;
-use crate::panes::{Pane, Tab};
+use crate::vault::annot;
+use crate::ui::bar::Bar;
+use crate::vault::config::{Config, PaneState, Workspace};
+use crate::vault::files;
+use crate::vault::links;
+use crate::ui::panes::{Pane, Tab};
 use crate::paths;
-use crate::sidebar::{Sidebar, SidebarMsg};
-use crate::theme::{self, Theme};
+use crate::ui::sidebar::{Sidebar, SidebarMsg};
+use crate::ui::theme::{self, Theme};
 use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -35,8 +35,8 @@ use webkit2gtk::{
 use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
-const BRIDGE: &str = include_str!("bridge.js");
-const ANNOT: &str = include_str!("annot.js");
+const BRIDGE: &str = include_str!("../page/bridge.js");
+const ANNOT: &str = include_str!("../page/annot.js");
 const SIDEBAR_WIDTH: i32 = 260;
 const MAX_CONSOLE: usize = 500;
 const MAX_EVENTS: usize = 1000;
@@ -247,7 +247,7 @@ pub fn launch() -> i32 {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
-    crate::server::spawn(listener, shared.clone(), proxy.clone());
+    crate::agent::server::spawn(listener, shared.clone(), proxy.clone());
 
     let mut config = Config::load();
     let Some((port, base)) = crate::http::start(config.port, shared.clone()) else {
@@ -1688,7 +1688,7 @@ impl App {
             return Err("Solo se pueden cambiar notas .md".into());
         }
         let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let text = crate::markdown::toggle_task(&source, offset, checked).ok_or("La tarea ya no está en la nota")?;
+        let text = crate::vault::markdown::toggle_task(&source, offset, checked).ok_or("La tarea ya no está en la nota")?;
         self.save_note(url, &text)
     }
 

@@ -110,7 +110,7 @@
     location.replace(location.pathname);
   }
 
-  // CodeMirror and the live preview (src/editor.js) load on the first Ctrl+E only.
+  // CodeMirror and the live preview (editor.js) load on the first Ctrl+E only.
   let loading = null;
   function loadEditor() {
     return (loading ||= new Promise((resolve, reject) => {

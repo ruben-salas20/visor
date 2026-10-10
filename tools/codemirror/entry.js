@@ -1,4 +1,4 @@
-// Only what src/editor.js uses. Markdown is parsed with @lezer/markdown
+// What src/page/editor.js uses. Markdown is parsed with @lezer/markdown
 // directly: @codemirror/lang-markdown would pull in the HTML, CSS and
 // JavaScript parsers (about 150 KB).
 export { EditorState, EditorSelection, StateField, StateEffect, Prec } from "@codemirror/state";

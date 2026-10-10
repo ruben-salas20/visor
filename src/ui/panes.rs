@@ -1,7 +1,7 @@
-use crate::app::{Action, UserEvent};
-use crate::bar::Bar;
-use crate::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
-use crate::theme::Theme;
+use crate::ui::app::{Action, UserEvent};
+use crate::ui::bar::Bar;
+use crate::ui::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
+use crate::ui::theme::Theme;
 use gtk::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;

@@ -7,8 +7,8 @@ use pulldown_cmark::{CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Ta
 use std::fs;
 use std::path::Path;
 
-const STYLE: &str = include_str!("note.css");
-const SCRIPT: &str = include_str!("note.js");
+const STYLE: &str = include_str!("../page/note.css");
+const SCRIPT: &str = include_str!("../page/note.js");
 
 /// URL path, under the vault base, where the bundled libraries are served.
 pub const ASSETS: &str = "__visor__/";

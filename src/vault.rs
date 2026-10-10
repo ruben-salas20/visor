@@ -1,3 +1,11 @@
+//! The open vault and what lives in it: its configuration, notes, annotations
+//! and links. Every path a page or the panel names is checked here.
+pub mod annot;
+pub mod config;
+pub mod files;
+pub mod links;
+pub mod markdown;
+
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs;

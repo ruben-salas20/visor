@@ -8,11 +8,11 @@ El paquete de CodeMirror vive en `assets/codemirror/codemirror.min.js` y se gene
 
 ## Decisión
 
-En `tools/codemirror/`, `npm ci && npm run build` escribe `assets/codemirror/codemirror.min.js`. Las versiones están fijadas en `package.json` y `package-lock.json`. `entry.js` exporta en `window.CM` lo que usa `src/editor.js`. Si este necesita algo más, se añade allí y se vuelve a generar.
+En `tools/codemirror/`, `npm ci && npm run build` escribe `assets/codemirror/codemirror.min.js`. Las versiones están fijadas en `package.json` y `package-lock.json`. `entry.js` exporta en `window.CM` lo que usa `src/page/editor.js`. Si este necesita algo más, se añade allí y se vuelve a generar.
 
 ## Consecuencias
 
-`entry.js` exporta además `EditorSelection` y `styleTags`, que `src/editor.js` no usa. Se dejan porque quitarlos agranda el paquete comprimido en 49 bytes.
+`entry.js` exporta además `EditorSelection` y `styleTags`, que `src/page/editor.js` no usa. Se dejan porque quitarlos agranda el paquete comprimido en 49 bytes.
 
 ## Cifras
 

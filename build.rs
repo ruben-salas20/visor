@@ -3,7 +3,7 @@
 //! way; WebKit decodes them. Brotli shrinks Mermaid a quarter more than gzip.
 //! WebKit only advertises gzip over plain HTTP, but decodes Brotli all the same.
 //! Fonts are already compressed and go in as they are.
-//! The note editor's own code lives in `src/` but is packed the same way, as
+//! The note editor's own code lives in `src/page/` but is packed the same way, as
 //! `visor/…`: it only loads when someone starts editing.
 
 use std::fs;
@@ -21,8 +21,8 @@ fn main() {
         .map(|path| (path.strip_prefix("assets").unwrap().to_string_lossy().replace('\\', "/"), path))
         .collect();
     for file in EDITOR {
-        named.push((format!("visor/{file}"), Path::new("src").join(file)));
-        println!("cargo:rerun-if-changed=src/{file}");
+        named.push((format!("visor/{file}"), Path::new("src/page").join(file)));
+        println!("cargo:rerun-if-changed=src/page/{file}");
     }
 
     let mut table = String::from("pub static ASSETS: &[(&str, &[u8], bool)] = &[\n");

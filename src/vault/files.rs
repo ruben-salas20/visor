@@ -1,7 +1,7 @@
 //! Moving and deleting vault files from the sidebar. A page's annotations
 //! live apart from it, so they go wherever the page goes.
 
-use crate::annot;
+use crate::vault::annot;
 use std::fs;
 use crate::vault::Vault;
 use std::path::{Path, PathBuf};

@@ -114,7 +114,7 @@ pub fn list() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::Command;
+    use crate::agent::command::Command;
 
     /// A value the schema of `spec` accepts.
     fn sample(spec: &Value) -> Value {

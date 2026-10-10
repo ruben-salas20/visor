@@ -2,7 +2,7 @@
 //! 127.0.0.1. WebKitGTK only plays video and offers Media Source to network
 //! origins, not to custom schemes.
 
-use crate::app::SharedRef;
+use crate::ui::app::SharedRef;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -87,7 +87,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let _ = request.respond(text(404, "No encontrado"));
         return;
     };
-    if let Some(name) = rel.strip_prefix(crate::markdown::ASSETS) {
+    if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS) {
         serve_asset(request, name);
         return;
     }
@@ -121,7 +121,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         // `![[image]]` in the editor: the image file, wherever it is in the vault.
         if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
-            let response = match crate::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
                 Some(url) => text(302, "").with_header(header("Location", &url)),
                 None => text(404, "No existe"),
             };
@@ -130,7 +130,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         }
         if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
-            let response = match crate::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
                 Some(url) => text(200, &url),
                 None => text(404, "No existe"),
             };
@@ -144,7 +144,7 @@ fn handle(request: Request, shared: &SharedRef, prefix: &str, host: &str) {
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
             (source, "text/plain; charset=utf-8")
         } else {
-            (crate::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
+            (crate::vault::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
         };
         let response = Response::from_string(body)
             .with_header(header("Content-Type", mime))

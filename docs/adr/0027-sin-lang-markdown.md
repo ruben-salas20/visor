@@ -8,8 +8,8 @@
 
 ## Decisión
 
-El lenguaje se crea con `@lezer/markdown` + GFM y `new Language(...)`. Las fórmulas, los `[[enlaces]]` y el front matter son extensiones propias en `src/editor.js`. El código se colorea con highlight.js de `assets/`, no con lenguajes de CodeMirror.
+El lenguaje se crea con `@lezer/markdown` + GFM y `new Language(...)`. Las fórmulas, los `[[enlaces]]` y el front matter son extensiones propias en `src/page/editor.js`. El código se colorea con highlight.js de `assets/`, no con lenguajes de CodeMirror.
 
 ## Consecuencias
 
-Se ahorran 150 KB. Las extensiones propias se mantienen en `src/editor.js`.
+Se ahorran 150 KB. Las extensiones propias se mantienen en `src/page/editor.js`.

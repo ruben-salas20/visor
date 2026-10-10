@@ -1,5 +1,6 @@
-use crate::command::{Command, Target};
-use crate::{config, paths, vault};
+use crate::agent::command::{Command, Target};
+use crate::paths;
+use crate::vault::{self, config};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

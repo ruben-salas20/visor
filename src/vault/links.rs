@@ -1,7 +1,7 @@
 //! Keeps the links of Markdown notes working after the sidebar moves a page
 //! or folder, like Obsidian. HTML pages are left as they are.
 
-use crate::{markdown, vault};
+use crate::vault::{self, markdown};
 use percent_encoding::percent_decode_str;
 use pulldown_cmark::{Event, LinkType, Parser, Tag, TagEnd};
 use std::collections::HashSet;
@@ -326,7 +326,7 @@ fn destination(source: &str, pos: usize, end: usize) -> Option<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::files::move_to;
+    use crate::vault::files::move_to;
 
     fn vault(name: &str, files: &[(&str, &str)]) -> PathBuf {
         let root = std::env::temp_dir().join(format!("visor-links-{name}-{}", std::process::id()));
