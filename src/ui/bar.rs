@@ -6,10 +6,10 @@ use tao::event_loop::EventLoopProxy;
 
 /// Native toolbar above a page: back, forward, reload and the address field.
 pub struct Bar {
-    pub root: gtk::Box,
-    pub back: gtk::Button,
-    pub forward: gtk::Button,
-    pub address: gtk::Entry,
+    root: gtk::Box,
+    back: gtk::Button,
+    forward: gtk::Button,
+    address: gtk::Entry,
 }
 
 impl Bar {
@@ -65,11 +65,40 @@ impl Bar {
         Bar { root, back, forward, address }
     }
 
+    pub fn widget(&self) -> &gtk::Box {
+        &self.root
+    }
+
     /// Shows `text` unless the person is typing in the field.
-    pub fn show(&self, text: &str) {
+    pub fn set_text(&self, text: &str) {
         if !self.address.has_focus() {
             self.address.set_text(text);
         }
+    }
+
+    /// Marks the address as not understood; typing again clears the mark.
+    pub fn set_error(&self) {
+        self.address.style_context().add_class("error");
+    }
+
+    pub fn set_nav(&self, back: bool, forward: bool) {
+        self.back.set_sensitive(back);
+        self.forward.set_sensitive(forward);
+    }
+
+    pub fn set_visible(&self, visible: bool) {
+        self.root.set_visible(visible);
+    }
+
+    /// Whether the person is typing an address.
+    pub fn is_typing(&self) -> bool {
+        self.address.has_focus()
+    }
+
+    /// Shows the bar and puts the cursor in the field.
+    pub fn focus_address(&self) {
+        self.root.show();
+        self.address.grab_focus();
     }
 
     pub fn css(theme: &Theme) -> String {

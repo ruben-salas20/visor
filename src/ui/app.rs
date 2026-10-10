@@ -142,7 +142,7 @@ pub fn launch() -> i32 {
     paned.pack1(&sidebar.root, false, false);
     paned.pack2(&split, true, true);
     let first = Pane::new(1, &proxy);
-    first.bar.root.set_visible(config.bar_shown);
+    first.bar.set_visible(config.bar_shown);
     split.pack1(&first.root, true, false);
     split.show();
     paned.show();
@@ -457,7 +457,7 @@ impl App {
     fn add_pane(&mut self) {
         let id = self.new_id();
         let pane = Pane::new(id, &self.proxy);
-        pane.bar.root.set_visible(self.config.bar_shown);
+        pane.bar.set_visible(self.config.bar_shown);
         self.split.pack2(&pane.root, true, false);
         self.place_split.set(Some(self.config.split_ratio.unwrap_or(0.5)));
         self.split.queue_resize();
@@ -595,7 +595,7 @@ impl App {
         }
         pane.show_active();
         pane.render(p == self.focused);
-        pane.bar.show(&pane.tab().target);
+        pane.bar.set_text(&pane.tab().target);
         self.update_nav(p);
     }
 
@@ -678,7 +678,7 @@ impl App {
         }
         if vault::is_loose(text) {
             if self.open(PathBuf::from(text), text, Place::Here).is_err() {
-                self.pane().bar.address.style_context().add_class("error");
+                self.pane().bar.set_error();
             }
             return;
         }
@@ -690,7 +690,7 @@ impl App {
         } else if !text.contains(char::is_whitespace) && text.contains('.') {
             self.open_in(format!("https://{text}"), Place::Here);
         } else {
-            self.pane().bar.address.style_context().add_class("error");
+            self.pane().bar.set_error();
         }
     }
 
@@ -698,8 +698,7 @@ impl App {
         let pane = &self.panes[p];
         let Some((_, view)) = &pane.tab().view else { return };
         let view = view.webview();
-        pane.bar.back.set_sensitive(view.can_go_back());
-        pane.bar.forward.set_sensitive(view.can_go_forward());
+        pane.bar.set_nav(view.can_go_back(), view.can_go_forward());
     }
 
     fn style_view(&self, view: &WebView) {
@@ -876,15 +875,13 @@ impl App {
                 side.set_visible(!side.is_visible());
             }
             Action::FocusAddress => {
-                let bar = &self.pane().bar;
-                bar.root.show();
-                bar.address.grab_focus();
+                self.pane().bar.focus_address();
             }
             Action::AddressDone => {
                 if !self.config.bar_shown {
                     for pane in &self.panes {
-                        if !pane.bar.address.has_focus() {
-                            pane.bar.root.hide();
+                        if !pane.bar.is_typing() {
+                            pane.bar.set_visible(false);
                         }
                     }
                 }
@@ -892,9 +889,9 @@ impl App {
             Action::ToggleBar => {
                 self.config.bar_shown = !self.config.bar_shown;
                 self.save_config_soon();
-                let typing = self.panes.iter().any(|p| p.bar.address.has_focus());
+                let typing = self.panes.iter().any(|p| p.bar.is_typing());
                 for pane in &self.panes {
-                    pane.bar.root.set_visible(self.config.bar_shown);
+                    pane.bar.set_visible(self.config.bar_shown);
                 }
                 if !self.config.bar_shown && typing && let Some(view) = self.view() {
                     view.webview().grab_focus();
@@ -918,7 +915,7 @@ impl App {
                     view.webview().grab_focus();
                 }
                 let pane = self.pane();
-                pane.bar.show(&pane.tab().target);
+                pane.bar.set_text(&pane.tab().target);
             }
             Action::Go(text) => self.go(&text),
             Action::PickElement => self.page_call(page_calls::annot_pick_element()),
@@ -1110,13 +1107,13 @@ impl App {
             side.hide();
             for (p, pane) in self.panes.iter().enumerate() {
                 pane.strip.hide();
-                pane.bar.root.hide();
+                pane.bar.set_visible(false);
                 pane.root.set_visible(Some(p) == holder);
             }
         } else {
             for pane in &self.panes {
                 pane.strip.show();
-                pane.bar.root.set_visible(self.config.bar_shown);
+                pane.bar.set_visible(self.config.bar_shown);
                 pane.root.show();
             }
             if self.sidebar_before_fullscreen.take().unwrap_or(true) {
@@ -1151,7 +1148,7 @@ impl App {
         let pane = &self.panes[p];
         pane.render(p == self.focused);
         if pane.active == i {
-            pane.bar.show(&pane.tab().target);
+            pane.bar.set_text(&pane.tab().target);
             self.update_nav(p);
         }
         self.publish();

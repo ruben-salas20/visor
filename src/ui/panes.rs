@@ -108,7 +108,7 @@ impl Pane {
         let (drop, whole) = drop_zone(id, proxy);
         overlay.add_overlay(&drop);
         root.pack_start(&strip, false, false, 0);
-        root.pack_start(&bar.root, false, false, 0);
+        root.pack_start(bar.widget(), false, false, 0);
         root.pack_start(&overlay, true, true, 0);
         strip.show_all();
         views.show();
