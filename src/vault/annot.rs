@@ -98,7 +98,7 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String>
         return Err("Tipo de anotación desconocido".into());
     }
     let color = incoming["color"].as_str().filter(|c| COLORS.contains(c)).unwrap_or("amarillo");
-    let comment = text(&incoming["comment"]).ok_or("Comentario demasiado largo")?;
+    let comment = text(&incoming["comment"]).ok_or("El comentario pasa de 20 000 caracteres.")?;
     let title = title(&incoming["title"])?;
     let target = incoming["target"].clone();
     if target.to_string().len() > MAX_TEXT {

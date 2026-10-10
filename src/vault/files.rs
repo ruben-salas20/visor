@@ -53,6 +53,52 @@ pub fn trash(vault: &Vault, rel: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The note a `[[name#Section|alias]]` link names: without the section or the alias.
+pub fn wiki_note_name(target: &str) -> &str {
+    target.split(['#', '|']).next().unwrap_or_default().trim()
+}
+
+/// Folder and file name for a new note called `name`. A plain name goes in `dir`.
+/// A name with «/» is a path from the vault root, as in Obsidian's `[[carpeta/nota]]`:
+/// missing folders are created, and none of it may leave the vault.
+pub fn note_target(vault: &Vault, dir: &str, name: &str) -> Result<(PathBuf, String), String> {
+    if !name.contains('/') {
+        return vault.new_in(dir, name).map(|(folder, name)| (folder, name.to_string()));
+    }
+    let bad = || "La ruta no puede tener partes vacías, empezar por punto ni usar «\\».".to_string();
+    let parts: Vec<&str> = name.split('/').map(str::trim).collect();
+    if parts.iter().any(|p| p.is_empty() || p.starts_with('.') || p.contains('\\')) {
+        return Err(bad());
+    }
+    let (file, folders) = parts.split_last().ok_or_else(bad)?;
+    // Nothing is created until the whole path is known to be valid.
+    let mut folder = vault.root().to_path_buf();
+    let mut missing = false;
+    for part in folders {
+        folder.push(part);
+        if missing {
+            continue;
+        }
+        match fs::symlink_metadata(&folder) {
+            Ok(_) => {
+                let real = folder.canonicalize().map_err(|_| format!("No existe la carpeta {part}"))?;
+                if !real.is_dir() {
+                    return Err(format!("«{part}» no es una carpeta."));
+                }
+                if !real.starts_with(vault.root()) {
+                    return Err("La carpeta está fuera de la bóveda.".into());
+                }
+                folder = real;
+            }
+            Err(_) => missing = true,
+        }
+    }
+    if missing {
+        fs::create_dir_all(&folder).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
+    }
+    Ok((folder, (*file).to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +131,45 @@ mod tests {
         assert_eq!(move_to(&Vault::open(&root), "a", "c").unwrap().as_deref(), Some("c/a"));
         assert!(annot::file(&root, "c/a/nota.md").is_file());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn note_target_creates_folders_from_the_root() {
+        let root = vault("target");
+        let v = Vault::open(&root);
+        assert_eq!(note_target(&v, "a", "x").unwrap(), (root.join("a"), "x".to_string()), "plain name: in dir");
+        assert_eq!(note_target(&v, "a", "a/b/x").unwrap(), (root.join("a/b"), "x".to_string()), "existing folders");
+        assert_eq!(note_target(&v, "a", "n/m/x").unwrap(), (root.join("n/m"), "x".to_string()), "relative to the root, not to dir");
+        assert!(root.join("n/m").is_dir());
+        assert_eq!(note_target(&v, "", " p / q ").unwrap(), (root.join("p"), "q".to_string()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn note_target_refuses_bad_paths_and_creates_nothing() {
+        use std::os::unix::fs::symlink;
+        let root = vault("targetbad");
+        let out = root.with_file_name(format!("visor-files-out-{}", std::process::id()));
+        fs::create_dir_all(&out).unwrap();
+        symlink(&out, root.join("salida")).unwrap();
+        let v = Vault::open(&root);
+        for name in ["a//x", "/x", "a/", "../x", "a/../x", ".visor/x", "a/.o/x", "n/.x", "a\\b/x", " /x"] {
+            assert!(note_target(&v, "", name).is_err(), "{name:?}");
+        }
+        assert!(note_target(&v, "", "salida/x").is_err(), "link out of the vault");
+        assert!(note_target(&v, "", "a/nota.md/x").is_err(), "a file is not a folder");
+        assert!(!root.join("n").exists());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    #[test]
+    fn wiki_note_name_drops_section_and_alias() {
+        assert_eq!(wiki_note_name("nota#Sección"), "nota");
+        assert_eq!(wiki_note_name("a/nota|texto"), "a/nota");
+        assert_eq!(wiki_note_name(" nota#S|t "), "nota");
+        assert_eq!(wiki_note_name("nota"), "nota");
+        assert_eq!(wiki_note_name("#Sección"), "");
     }
 
     #[test]

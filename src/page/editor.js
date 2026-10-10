@@ -556,6 +556,10 @@
         return undefined;
       },
     });
+    for (const b of blocks) {
+      b.first = state.doc.lineAt(b.from).number;
+      b.last = state.doc.lineAt(b.to).number;
+    }
     return blocks;
   }
 
@@ -591,19 +595,35 @@
     return Decoration.set(out, true);
   }
 
+  // Which blocks the cursor is in. Moving it inside a block, or between plain lines,
+  // changes nothing on screen, so the widgets are not rebuilt then.
+  function touching(state, blocks) {
+    const active = activeLines(state);
+    let key = "";
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (active.some(([s, e]) => s <= b.last && e >= b.first)) key += i + ",";
+    }
+    return key;
+  }
+
   const blockField = StateField.define({
     create(state) {
       const blocks = findBlocks(state);
-      return { blocks, deco: blockDecorations(state, blocks) };
+      return { blocks, touch: touching(state, blocks), deco: blockDecorations(state, blocks) };
     },
     update(value, tr) {
       const tree = syntaxTree(tr.state) !== syntaxTree(tr.startState);
       const libs = tr.effects.some((e) => e.is(refresh));
       if (tr.docChanged || tree || libs) {
         const blocks = findBlocks(tr.state);
-        return { blocks, deco: blockDecorations(tr.state, blocks) };
+        return { blocks, touch: touching(tr.state, blocks), deco: blockDecorations(tr.state, blocks) };
       }
-      if (tr.selection) return { blocks: value.blocks, deco: blockDecorations(tr.state, value.blocks) };
+      if (tr.selection) {
+        const touch = touching(tr.state, value.blocks);
+        if (touch === value.touch) return value;
+        return { blocks: value.blocks, touch, deco: blockDecorations(tr.state, value.blocks) };
+      }
       return value;
     },
     provide: (field) => EditorView.decorations.from(field, (value) => value.deco),

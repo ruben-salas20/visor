@@ -101,7 +101,9 @@ NOTAS EN MARKDOWN
     (bloques ```mermaid).
   - Enlaces al estilo Obsidian: [[nota]], [[carpeta/nota]],
     [[nota#Sección]] y [[nota|texto]], buscados por nombre en toda la
-    bóveda. Un enlace a una nota que no existe la crea al hacer clic.
+    bóveda. Un enlace a una nota que no existe la crea al hacer clic;
+    si lleva carpetas ([[carpeta/nota]]), cuentan desde la raíz de la
+    bóveda y se crean las que falten.
     ![[foto.png]] muestra una imagen buscada por nombre.
   - La persona marca las tareas (- [ ] / - [x]) con un clic y visor lo
     guarda en el .md. Vuelve a leer el archivo antes de cambiarlo.
@@ -158,7 +160,10 @@ ESCRIBIR PÁGINAS PARA VISOR
 
       visor.send({ tipo: "respuesta", pregunta: 3, elegida: "b" });
 
-    Si los datos serializados pasan de 16 KB, el evento se descarta.
+    Cada página puede enviar como mucho 100 eventos por segundo y cada
+    uno hasta 16 KB serializado. Lo que pase se descarta, y una línea
+    de `visor console` dice cuántos eventos se omitieron o que uno era
+    demasiado grande.
 
   - Con Omarchy, cada página recibe los colores del tema como variables
     CSS, actualizadas al cambiar de tema:

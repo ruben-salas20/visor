@@ -1129,12 +1129,16 @@ impl App {
                         self.note_annotation(&file, id, "comment", text);
                     }
                     Ok(false) => {}
-                    Err(e) => eprintln!("No se pudo guardar la anotación: {e}"),
+                    Err(e) => {
+                        eprintln!("No se pudo guardar la anotación: {e}");
+                        reply(self, page_calls::annot_save_failed(annotation["id"].as_str().unwrap_or_default(), &e));
+                    }
                 }
             }
             PageMsg::AnnotDelete { id } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::delete(root, page, &id)) {
                     eprintln!("No se pudo borrar la anotación: {e}");
+                    reply(self, page_calls::annot_delete_failed(&id, &e));
                 }
             }
             PageMsg::AnnotReply { id, text } if trusted => {
@@ -1151,8 +1155,9 @@ impl App {
                 }
             }
             PageMsg::CreateNote { dir, name } if trusted => {
-                if let Err(e) = self.create_note(&dir, &name) {
+                if let Err(e) = self.create_note(&dir, files::wiki_note_name(&name)) {
                     eprintln!("No se pudo crear la nota: {e}");
+                    reply(self, page_calls::note_create_failed(&e));
                 }
             }
             PageMsg::Console { level, text } if local => {
@@ -1222,7 +1227,7 @@ impl App {
     /// Creates `name`.md in `dir` and opens it in the editor.
     fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
         let vault = self.open_vault()?;
-        let (folder, name) = vault.new_in(dir, name)?;
+        let (folder, name) = files::note_target(&vault, dir, name)?;
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {

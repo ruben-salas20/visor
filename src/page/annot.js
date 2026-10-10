@@ -15,6 +15,15 @@
   const SKIP = "script,style,noscript,textarea,template,[data-visor-skip]";
   const CONTEXT = 32;
 
+  // Cuts by code points, not UTF-16 units: a cut inside an emoji leaves a lone
+  // surrogate, and visor refuses the whole message that carries one.
+  const cut = (s, max) => {
+    const chars = Array.from(s);
+    return chars.length > max ? chars.slice(0, max).join("") : s;
+  };
+  // A slice of the page text may start or end inside a pair: drop the stray half.
+  const whole = (s) => s.replace(/^[\uDC00-\uDFFF]/, "").replace(/[\uD800-\uDBFF]$/, "").toWellFormed();
+
   let notes = [];
   const anchors = new Map(); // id -> Range (text) or { el, point } (element)
   let host = null;
@@ -87,9 +96,9 @@
     const end = offsetOf(index, range.endContainer, range.endOffset);
     const exact = index.text.slice(start, end);
     return {
-      exact,
-      prefix: index.text.slice(Math.max(0, start - CONTEXT), start),
-      suffix: index.text.slice(end, end + CONTEXT),
+      exact: exact.toWellFormed(),
+      prefix: whole(index.text.slice(Math.max(0, start - CONTEXT), start)),
+      suffix: whole(index.text.slice(end, end + CONTEXT)),
       start,
     };
   }
@@ -104,7 +113,7 @@
     for (let n; (n = walk.nextNode()) && text.length < 400; ) {
       if (!n.parentElement?.closest("style,script")) text += n.data + " ";
     }
-    return text.replace(/\s+/g, " ").trim().slice(0, 80);
+    return cut(text.replace(/\s+/g, " ").trim(), 80);
   }
 
   // Ids built from a timestamp, like Mermaid's "mermaid-1791323458942", change on
@@ -158,7 +167,7 @@
   // ---------- titles for element notes ----------
 
   const TITLE_MAX = 120;
-  const clip = (s) => (s.length > TITLE_MAX ? s.slice(0, TITLE_MAX - 1).trimEnd() + "…" : s);
+  const clip = (s) => (Array.from(s).length > TITLE_MAX ? cut(s, TITLE_MAX - 1).trimEnd() + "…" : s);
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
 
   // What a person would call the element, never its tag name.
@@ -307,6 +316,10 @@
     .actions .danger:hover { box-shadow: 0 0 0 1px var(--danger); }
     .hover { position: fixed; pointer-events: none; border: 2px solid var(--visor-accent, #1a6cc4); border-radius: 4px;
       background: color-mix(in srgb, var(--visor-accent, #1a6cc4) 12%, transparent); }
+    .toast { position: fixed; bottom: 16px; left: 50%; translate: -50% 0; width: max-content; max-width: min(480px, calc(100vw - 24px));
+      padding: 8px 12px; pointer-events: auto; display: flex; align-items: center; gap: 12px; color: var(--danger); }
+    .toast span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .toast button { flex: none; padding: 4px 8px; box-shadow: var(--ring); }
     .banner { position: fixed; top: 12px; left: 50%; translate: -50% 0; padding: 8px 14px; pointer-events: auto; }
     .panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(330px, calc(100vw - 24px)); padding: 12px; border-radius: 18px; pointer-events: auto;
       display: flex; flex-direction: column; gap: 8px; }
@@ -334,11 +347,15 @@
     host = document.createElement("visor-capa");
     host.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none";
     const shadow = host.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    style.textContent = CSS_TEXT;
+    // A constructed sheet, not a <style>: pages with their own Content-Security-Policy
+    // block inline styles unless they allow 'unsafe-inline', and the same goes for style="…"
+    // attributes, so everything below sets styles through the CSSOM.
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(CSS_TEXT);
+    shadow.adoptedStyleSheets = [sheet];
     ui = document.createElement("div");
     ui.className = "ui";
-    shadow.append(style, ui);
+    shadow.append(ui);
     document.documentElement.append(host);
   }
 
@@ -451,26 +468,34 @@
     if (pin.left !== left) { button.style.left = left + "px"; pin.left = left; }
     if (pin.top !== top) { button.style.top = top + "px"; pin.top = top; }
     if (pin.color !== color) { button.style.background = color; pin.color = color; }
-    if (pin.title !== title) { button.title = title; pin.title = title; }
+    if (pin.title !== title) {
+      button.title = title;
+      // One name per marker: a page full of "Abrir anotación" tells a screen reader nothing.
+      button.setAttribute("aria-label", "Abrir anotación: " + cut(title, 80));
+      pin.title = title;
+    }
   }
 
   // ---------- popover ----------
 
   let pop = null, popNote = null, conv = null, warned = false;
+  // The last save failed: the text in the popover exists nowhere else.
+  let failedSave = false;
+  const MAX_COMMENT = 20000;
   const UNSAVED = "Tienes texto sin guardar. ";
-  const ESCAPE_AGAIN = "Pulsa Escape otra vez para descartarlo.";
+  const ESCAPE_AGAIN = "Pulsa Guardar para conservarlo, o Escape otra vez para descartarlo.";
   // A new note that was never saved goes with its popover, whatever closed it.
   // Look it up in `notes`: after saving, `popNote` is still the unsaved copy.
   function closePop() {
     if (popNote && !notes.find((n) => n.id === popNote.id)?.saved) dropLocal(popNote.id);
     pop?.remove();
     pop = popNote = conv = null;
-    warned = false;
+    warned = failedSave = false;
   }
 
   // Closing throws the typed text away, so the first try only warns when there is
   // text to lose. The second try always goes through.
-  function closePopSafely(discard = closePop, again = "Repítelo para descartarlo.") {
+  function closePopSafely(discard = closePop, again = "Pulsa Guardar para conservarlo, o repite lo que ibas a hacer para descartarlo.") {
     if (!pop) return true;
     if (hasUnsaved() && !warned) {
       warned = true;
@@ -482,7 +507,7 @@
   }
 
   function hasUnsaved() {
-    return conv.box.value.trim() !== "" || conv.area.value !== (popNote.comment || "");
+    return failedSave || conv.box.value.trim() !== "" || conv.area.value !== (popNote.comment || "");
   }
 
   // Typing again or sending the reply makes the next Escape warn again.
@@ -529,7 +554,7 @@
     const header = document.createElement("header");
     let name = null;
     if (note.target.kind === "text") {
-      const exact = clean(note.target.quote?.exact).slice(0, 300);
+      const exact = cut(clean(note.target.quote?.exact), 300);
       const quote = document.createElement("span");
       quote.className = "quote";
       quote.title = exact;
@@ -546,7 +571,8 @@
       name.setAttribute("aria-label", "Título de la anotación");
       name.title = "Título de la anotación. Haz clic para cambiarlo.";
       name.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); area.focus(); }
+        // Stopped here: the handler of the whole popover would take this Enter as "save".
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); area.focus(); }
       });
       header.append(name);
     }
@@ -572,6 +598,8 @@
     const area = document.createElement("textarea");
     area.placeholder = "Escribe una nota…";
     area.value = note.comment || "";
+    area.maxLength = MAX_COMMENT;
+    area.setAttribute("aria-label", "Comentario");
     pop.append(header, area);
     const list = document.createElement("div");
     list.className = "replies";
@@ -580,6 +608,7 @@
     const box = document.createElement("textarea");
     box.placeholder = "Escribe una respuesta…";
     box.setAttribute("aria-label", "Respuesta");
+    box.maxLength = MAX_COMMENT;
     const err = document.createElement("p");
     err.className = "reply-err";
     err.setAttribute("role", "alert");
@@ -599,6 +628,10 @@
     box.addEventListener("input", hideWarn);
     box.addEventListener("input", markFilled);
     area.addEventListener("input", hideWarn);
+    // After hideWarn, which clears the line this one writes. The field stops at the limit, so say so.
+    const full = "Has llegado al máximo de 20 000 caracteres. No cabe más texto.";
+    area.addEventListener("input", () => { if (area.value.length >= MAX_COMMENT) conv.warn.textContent = full; });
+    box.addEventListener("input", () => { if (box.value.length >= MAX_COMMENT) err.textContent = full; else if (err.textContent === full) err.textContent = ""; });
     const warn = document.createElement("p");
     warn.className = "unsaved";
     warn.setAttribute("role", "alert");
@@ -713,7 +746,13 @@
 
   const newId = () => crypto.randomUUID().slice(0, 8);
 
+  // What a failed save or delete needs to undo: the note as it was, and whether
+  // the person was editing it in the popover.
+  const pending = new Map();
+  const removed = new Map();
+
   function save(note) {
+    pending.set(note.id, { before: notes.find((n) => n.id === note.id) || null, edited: popNote?.id === note.id });
     note.saved = true;
     const i = notes.findIndex((n) => n.id === note.id);
     if (i === -1) notes.push(note); else notes[i] = note;
@@ -729,8 +768,61 @@
   }
 
   function remove(id) {
+    const note = notes.find((n) => n.id === id);
+    if (note?.saved) removed.set(id, note);
     dropLocal(id);
     send({ type: "annot_delete", id });
+  }
+
+  const sentence = (s) => (/[.!?]$/.test(s) ? s : s + ".");
+
+  // The app could not store the note. The text must not be lost: if the person was
+  // editing it, the popover comes back with their text; otherwise the note goes
+  // back to how it was on disk.
+  function saveFailed(id, error) {
+    const job = pending.get(id);
+    pending.delete(id);
+    const mine = notes.find((n) => n.id === id);
+    if (!mine) return;
+    const i = notes.indexOf(mine);
+    if (job?.before) notes[i] = job.before; else mine.saved = false;
+    if (job?.edited && !pop) {
+      paint();
+      openNote(mine, !job.before);
+      failedSave = true;
+      conv.warn.textContent = `No se pudo guardar: ${sentence(error)} Tu texto sigue aquí; pulsa Guardar para intentarlo otra vez.`;
+      return;
+    }
+    if (!job?.before) dropLocal(id); else paint();
+    showToast(`No se pudo guardar la anotación. ${sentence(error)}`);
+  }
+
+  function deleteFailed(id, error) {
+    const note = removed.get(id);
+    removed.delete(id);
+    if (note && !notes.some((n) => n.id === id)) {
+      notes.push(note);
+      resolve();
+    }
+    showToast(`No se pudo borrar la anotación. ${sentence(error)} Sigue en la página.`);
+  }
+
+  // An error that does not belong to an open popover. It stays until dismissed.
+  let toast = null;
+  function closeToast() { toast?.remove(); toast = null; }
+  function showToast(text) {
+    ensureHost();
+    closeToast();
+    toast = document.createElement("div");
+    toast.className = "card toast";
+    toast.setAttribute("role", "alert");
+    const message = document.createElement("span");
+    message.textContent = text;
+    const close = document.createElement("button");
+    close.textContent = "Cerrar";
+    close.onclick = closeToast;
+    toast.append(message, close);
+    ui.append(toast);
   }
 
   // ---------- selection toolbar ----------
@@ -778,7 +870,9 @@
       b.className = "dot";
       b.title = "Resaltar en " + name;
       b.setAttribute("aria-label", "Resaltar en " + name);
-      b.innerHTML = `<span style="background:${value}"></span>`;
+      const swatch = document.createElement("span");
+      swatch.style.background = value;
+      b.append(swatch);
       b.onmousedown = (e) => e.preventDefault();
       b.onclick = () => make(name, false);
       toolbar.append(b);
@@ -866,6 +960,7 @@
     hover.style.display = "none";
     banner = document.createElement("div");
     banner.className = "card banner";
+    banner.setAttribute("role", "status");
     banner.textContent = "Haz clic en un elemento o en un punto para anotarlo. Escape para salir.";
     ui.append(hover, banner);
     document.documentElement.style.cursor = "crosshair";
@@ -887,6 +982,7 @@
     if (picking) stopPicking();
     else if (pop) closePopSafely(closePop, ESCAPE_AGAIN);
     else if (panel) closePanel();
+    else closeToast();
     hideToolbar();
   });
 
@@ -936,7 +1032,7 @@
       const meta = document.createElement("small");
       const n = note.replies?.length || 0;
       meta.textContent = [
-        anchors.has(note.id) ? "" : "Huérfana: no se encuentra en la página",
+        anchors.has(note.id) ? "" : `Ya no se encuentra en la página: ${note.target.kind === "text" ? "el texto" : "el elemento"} cambió o se borró.`,
         n ? `${n} respuesta${n > 1 ? "s" : ""}` : "",
       ].filter(Boolean).join(" · ");
       if (!anchors.has(note.id)) meta.className = "orphan";
@@ -995,7 +1091,7 @@
     new MutationObserver((records) => {
       if (records.every((r) => host && (r.target === host || host.contains(r.target)))) return;
       later();
-    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-visor-editing"] });
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     new ResizeObserver(() => placePins()).observe(document.body);
     // Resize events can come several times a frame; one pass per frame is enough.
     // The body observer may still run in the same frame, which only reads rects now.
@@ -1007,11 +1103,29 @@
     });
   }
 
+  // Ctrl+E (note.js) marks the page while the source is on screen. Own observer,
+  // without the one-second delay of the mutation one: the markers must not sit on the editor.
+  new MutationObserver(() => {
+    const editing = !!document.documentElement.dataset.visorEditing;
+    if (host) host.style.display = editing ? "none" : "";
+    if (!editing) return placePins();
+    // The popover stays, hidden with the layer: it may hold text the person has not saved.
+    // note.js asks leaveOk() before opening the editor, because leaving it reloads the page.
+    if (picking) stopPicking();
+    closePanel();
+    closeToast();
+    hideToolbar();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-visor-editing"] });
+
   window.__visorAnnot = Object.freeze({
     pickElement: startPicking,
     togglePanel,
     reload: load,
     replyFailed,
+    // Ctrl+E asks before it reloads the page away from an open popover with unsaved text.
+    leaveOk: () => closePopSafely(() => {}, "Pulsa Ctrl+E otra vez para abrir el editor y descartarlo."),
+    saveFailed,
+    deleteFailed,
   });
 
   if (document.readyState === "complete") load();

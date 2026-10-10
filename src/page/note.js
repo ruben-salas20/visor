@@ -148,11 +148,13 @@
       opening = false;
       loading = null;
       console.error("No se pudo abrir el editor: " + e.message);
+      notify("No se pudo abrir el editor. Prueba otra vez con Ctrl+E.");
       return;
     }
     editing = true;
     dirty = false;
     typed = false;
+    sent.length = 0;
     edit.hidden = false;
     // Hides the annotation layer while the source is on screen.
     document.documentElement.dataset.visorEditing = "1";
@@ -177,8 +179,14 @@
     clearTimeout(timer);
     if (!dirty) return;
     say("Guardando…");
-    send({ type: "save_note", text: ed.text() });
+    const text = ed.text();
+    sent.push(text);
+    send({ type: "save_note", text });
   }
+
+  // Texts sent and not yet confirmed, oldest first; visor answers in order. Typing
+  // while a save is in flight must not count as saved when its answer arrives.
+  const sent = [];
 
   let back = null;
   function close() {
@@ -213,8 +221,28 @@
     send({ type: "create_note", dir: config.dir, name });
   });
 
+  // A message about something done outside the editor, which has its own status line.
+  // It stays until dismissed: the person may not be looking when it appears.
+  function notify(text) {
+    document.getElementById("aviso")?.remove();
+    const box = document.createElement("div");
+    box.id = "aviso";
+    box.setAttribute("role", "alert");
+    box.dataset.visorSkip = "";
+    const message = document.createElement("span");
+    message.textContent = text;
+    const close = document.createElement("button");
+    close.textContent = "Cerrar";
+    close.onclick = () => box.remove();
+    box.append(message, close);
+    document.body.append(box);
+  }
+
   window.__visorNote = {
     get editing() { return editing; },
+    createFailed(error) {
+      notify(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`);
+    },
     dark,
     // Before visor hides the tab, which it may unload later: saves pending
     // text and returns the reading position for place().
@@ -223,9 +251,18 @@
       return viewAnchor() || { y: scrollY };
     },
     place(target) { place(target); },
-    toggle() { editing ? close() : open(); },
+    toggle() {
+      if (editing) close();
+      else if (!window.__visorAnnot || window.__visorAnnot.leaveOk()) open();
+    },
     saved(ok, error) {
+      const confirmed = sent.shift();
       if (!ok) return say("No se pudo guardar: " + error, true);
+      // The text may have changed since this save was sent; those changes are still pending.
+      if (confirmed !== undefined && ed && ed.text() !== confirmed) {
+        say(sent.length ? "Guardando…" : "Sin guardar");
+        return;
+      }
       dirty = false;
       if (leaving) return reload(back);
       say("Guardado");
