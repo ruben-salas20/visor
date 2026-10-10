@@ -28,6 +28,8 @@ li + li { margin-top: .2em; }
 /* Drawn here: WebKitGTK paints its own check mark off centre. The mark is a mask over the whole box,
    so it is centred by its SVG viewBox and not by placing a fractional-size box. The editor's tasks (.md-task) share it. */
 li > input[type="checkbox"] { margin: 0 .5em 0 -1.4em; }
+/* In ordered lists the number takes the hanging space, so the box follows it. */
+ol > li > input[type="checkbox"] { margin-left: 0; }
 li > input[type="checkbox"], .md-task {
   appearance: none; position: relative; width: 1em; height: 1em; vertical-align: -.125em;
   border: 1.5px solid color-mix(in srgb, var(--fg) 55%, var(--bg)); border-radius: .25em; display: inline-block;
