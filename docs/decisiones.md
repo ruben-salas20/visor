@@ -36,3 +36,4 @@ Cada decisión tiene su ADR en [`docs/adr/`](adr/).
 - [0030. Librerías de assets comprimidas con brotli](adr/0030-assets-con-brotli.md): `assets/` va con brotli; `build-override` optimiza el script de compilación.
 - [0031. Mermaid completo](adr/0031-mermaid-completo.md): Se usa la versión completa de Mermaid (1,15 MB comprimido).
 - [0032. Paquetes de GStreamer para vídeo](adr/0032-requisitos-de-gstreamer.md): El vídeo web y MSE piden paquetes de GStreamer.
+- [0033. webkit2gtk en la misma versión exacta que wry](adr/0033-webkit2gtk-misma-version-que-wry.md): El pin `=2.0.2` copia el que exige wry 0.57.

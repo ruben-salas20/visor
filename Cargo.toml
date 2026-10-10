@@ -19,6 +19,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tao = "0.37.1"
 tiny_http = "0.12.0"
+# Must match the version wry pins (docs/adr/0033).
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 wry = "0.57.0"
 
