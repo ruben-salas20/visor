@@ -1109,8 +1109,9 @@
     const editing = !!document.documentElement.dataset.visorEditing;
     if (host) host.style.display = editing ? "none" : "";
     if (!editing) return placePins();
+    // The popover stays, hidden with the layer: it may hold text the person has not saved.
+    // note.js asks leaveOk() before opening the editor, because leaving it reloads the page.
     if (picking) stopPicking();
-    closePop();
     closePanel();
     closeToast();
     hideToolbar();
@@ -1121,6 +1122,8 @@
     togglePanel,
     reload: load,
     replyFailed,
+    // Ctrl+E asks before it reloads the page away from an open popover with unsaved text.
+    leaveOk: () => closePopSafely(() => {}, "Pulsa Ctrl+E otra vez para abrir el editor y descartarlo."),
     saveFailed,
     deleteFailed,
   });

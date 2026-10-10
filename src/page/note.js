@@ -251,7 +251,10 @@
       return viewAnchor() || { y: scrollY };
     },
     place(target) { place(target); },
-    toggle() { editing ? close() : open(); },
+    toggle() {
+      if (editing) close();
+      else if (!window.__visorAnnot || window.__visorAnnot.leaveOk()) open();
+    },
     saved(ok, error) {
       const confirmed = sent.shift();
       if (!ok) return say("No se pudo guardar: " + error, true);
