@@ -1,4 +1,4 @@
-use crate::{paths, vault};
+use crate::{config, paths, vault};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -101,7 +101,7 @@ fn send(request: &Value) -> Option<Value> {
 /// app shows on its own. Decided here too, so the app starts without the last vault.
 fn loose(request: &Value) -> bool {
     let Some(path) = request["path"].as_str().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
-    path.is_file() && vault::is_html(&path) && vault::Config::load().vault_for(&path).is_none()
+    path.is_file() && vault::is_html(&path) && config::Config::load().vault_for(&path).is_none()
 }
 
 /// Starts the app detached from this terminal and waits until it answers.

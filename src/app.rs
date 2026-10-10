@@ -1,12 +1,13 @@
 use crate::annot;
 use crate::bar::Bar;
+use crate::config::{Config, PaneState, Workspace};
 use crate::files;
 use crate::links;
 use crate::panes::{Pane, Tab};
 use crate::paths;
 use crate::sidebar::{Sidebar, SidebarMsg};
 use crate::theme::{self, Theme};
-use crate::vault::{self, Config, PaneState, Workspace};
+use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
@@ -135,7 +136,7 @@ static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0,
 /// What the socket server can read without going through the event loop.
 #[derive(Default)]
 pub struct Shared {
-    pub vault: Option<PathBuf>,
+    pub vault: Option<Arc<Vault>>,
     /// Folders of the pages opened on their own, which the server may read.
     pub loose: Vec<PathBuf>,
     /// Every live page view, by view id.
@@ -178,7 +179,8 @@ impl Shared {
 
     pub fn status(&self) -> Value {
         let page = self.page();
-        let path = page.file.as_ref().and_then(|f| match &self.vault {
+        let vault = self.vault.as_ref().map(|v| v.path());
+        let path = page.file.as_ref().and_then(|f| match vault {
             _ if vault::is_loose(f) => Some(PathBuf::from(f)),
             Some(v) => Some(v.join(f)),
             None => None,
@@ -186,7 +188,7 @@ impl Shared {
         let errors = page.console.iter().filter(|e| e["level"] == "error").count();
         json!({
             "ok": true,
-            "vault": self.vault,
+            "vault": vault,
             "file": page.file,
             "path": path,
             "url": page.url,
@@ -593,8 +595,12 @@ struct App {
 }
 
 impl App {
-    fn vault(&self) -> Option<PathBuf> {
+    fn vault(&self) -> Option<Arc<Vault>> {
         self.shared.lock().unwrap().vault.clone()
+    }
+
+    fn open_vault(&self) -> Result<Arc<Vault>, String> {
+        self.vault().ok_or_else(|| "No hay ninguna bóveda abierta".into())
     }
 
     fn new_id(&mut self) -> u64 {
@@ -643,10 +649,10 @@ impl App {
 
     /// Shows the vault list and the tree of the current vault in the sidebar.
     fn show_sidebar(&self) {
-        let root = self.vault();
-        let tree = root.as_deref().map(vault::tree);
-        let opened = root.as_ref().and_then(|r| self.config.open_folders.get(r)).map_or(&[][..], Vec::as_slice);
-        self.sidebar.show(&self.config.vaults, root.as_deref(), tree, opened);
+        let vault = self.vault();
+        let tree = vault.as_ref().map(|v| v.tree());
+        let opened = vault.as_ref().and_then(|v| self.config.open_folders.get(v.path())).map_or(&[][..], Vec::as_slice);
+        self.sidebar.show(&self.config.vaults, vault.as_ref().map(|v| v.path()), tree, opened);
     }
 
     fn refresh_sidebar(&self) {
@@ -669,7 +675,7 @@ impl App {
         }
         {
             let mut shared = self.shared.lock().unwrap();
-            shared.vault = root.clone();
+            shared.vault = root.as_deref().map(|r| Arc::new(Vault::open(r)));
             shared.pages.clear();
         }
         self.watcher = None;
@@ -735,7 +741,7 @@ impl App {
             let mut shared = self.shared.lock().unwrap();
             shared.layout = json!({ "list": sides, "focused": self.focused });
             shared.focused = focused;
-            shared.vault.clone()
+            shared.vault.as_ref().map(|v| v.path().to_path_buf())
         };
         self.watch_loose();
         let Some(root) = root else { return };
@@ -862,7 +868,7 @@ impl App {
                 fn has_pages(dir: &vault::Dir) -> bool {
                     !dir.files.is_empty() || dir.dirs.iter().any(has_pages)
                 }
-                if !has_pages(&vault::tree(&root)) {
+                if !has_pages(&root.tree()) {
                     "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
                 } else {
                     "Elige un archivo de la lista."
@@ -980,10 +986,7 @@ impl App {
             }
             return;
         }
-        let in_vault = self.vault().and_then(|root| {
-            let path = vault::resolve(&root, text)?;
-            Some(vault::rel(&root.canonicalize().ok()?, &path))
-        });
+        let in_vault = self.vault().and_then(|v| Some(v.rel(&v.resolve(text)?)));
         if is_web(text) {
             self.open_in(text.to_string(), Place::Here);
         } else if let Some(rel) = in_vault {
@@ -1466,8 +1469,8 @@ impl App {
     fn on_sidebar(&mut self, msg: SidebarMsg) {
         match msg {
             SidebarMsg::OpenFolders(open) => {
-                if let Some(root) = self.vault() {
-                    self.config.open_folders.insert(root, open);
+                if let Some(vault) = self.vault() {
+                    self.config.open_folders.insert(vault.path().to_path_buf(), open);
                     self.config.save();
                 }
             }
@@ -1486,7 +1489,7 @@ impl App {
                 Err(e) => self.sidebar.note_error(&e),
             },
             SidebarMsg::Trash { path } => {
-                let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::trash(&root, &path));
+                let result = self.open_vault().and_then(|v| files::trash(&v, &path));
                 match result {
                     Ok(()) => {
                         self.sidebar.notice(&format!("«{path}» está en la papelera."), false);
@@ -1496,10 +1499,10 @@ impl App {
                 }
             }
             SidebarMsg::Move { path, dir } => {
-                let result = self.vault().ok_or("No hay ninguna bóveda abierta".into()).and_then(|root| files::move_to(&root, &path, &dir));
+                let result = self.open_vault().and_then(|v| files::move_to(&v, &path, &dir));
                 match result {
                     Ok(Some(new)) => {
-                        let root = self.vault().unwrap_or_default();
+                        let root = self.vault().map(|v| v.path().to_path_buf()).unwrap_or_default();
                         match links::relink(&root, &path, &new) {
                             Ok(changed) if !changed.is_empty() => {
                                 let n = changed.len();
@@ -1528,7 +1531,7 @@ impl App {
                 self.config.last.remove(&path);
                 self.config.workspaces.remove(&path);
                 self.config.open_folders.remove(&path);
-                if self.vault().as_deref() == Some(&path) {
+                if self.vault().is_some_and(|v| v.path() == path) {
                     self.config.current = self.config.vaults.first().cloned();
                     self.config.save();
                     // The removed vault must not get its workspace saved back.
@@ -1574,10 +1577,10 @@ impl App {
     /// Only vault and loose pages may log or send events; the empty page may only ask for a folder.
     /// A website could otherwise feed instructions to the agents that read them.
     fn on_page(&mut self, view: u64, url: &str, msg: PageMsg) {
-        let served = vault::rel_from_url(url);
         // Loose pages may log and send events too, but have no vault to write to.
-        let local = served.is_some();
-        let trusted = served.is_some_and(|f| !vault::is_loose(&f));
+        let access = vault::access(url);
+        let local = access != Access::None;
+        let trusted = access == Access::Trusted;
         let reply = |app: &App, code: String| {
             if let Some(v) = app.view_of(view) {
                 let _ = v.evaluate_script(&code);
@@ -1664,52 +1667,33 @@ impl App {
     /// Runs an annotation change for the page at `url`, which must be a real
     /// file of the open vault: the page cannot name any other.
     fn with_page_annotations<T>(&self, url: &str, change: impl FnOnce(&Path, &str) -> Result<T, String>) -> Result<T, String> {
-        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
-        let page = vault::rel_from_url(url).ok_or("La página no es de la bóveda")?;
-        vault::resolve(&root, &page).ok_or("La página no existe en la bóveda")?;
-        change(&root, &page)
+        let vault = self.open_vault()?;
+        let (page, _) = vault.page(url)?;
+        change(vault.path(), &page)
     }
 
     /// Writes a note's text. Only the note itself may save, and only Markdown:
     /// an HTML page in the vault cannot overwrite files through this.
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
-        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
-        let rel = vault::rel_from_url(url).ok_or("La página no es de la bóveda")?;
-        let path = vault::resolve(&root, &rel).filter(|p| vault::is_markdown(p)).ok_or("Solo se pueden guardar notas .md")?;
+        let (_, path) = self.open_vault()?.note(url)?;
         self.own_write = Some((path.clone(), hash(text.as_bytes())));
-        write_atomic(&path, text).map_err(|e| e.to_string())
+        vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }
 
     /// Ticks or unticks one task of the note at `url`. Rust re-reads the file and
     /// checks that a task really starts at `offset`, so the page cannot write anything else.
     fn toggle_task(&mut self, url: &str, offset: usize, checked: bool) -> Result<(), String> {
-        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
-        let rel = vault::rel_from_url(url).ok_or("La página no es de la bóveda")?;
-        let path = vault::resolve(&root, &rel).filter(|p| vault::is_markdown(p)).ok_or("Solo se pueden cambiar notas .md")?;
+        let (_, path) = self.open_vault()?.page(url)?;
+        if !vault::is_markdown(&path) {
+            return Err("Solo se pueden cambiar notas .md".into());
+        }
         let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let text = crate::markdown::toggle_task(&source, offset, checked).ok_or("La tarea ya no está en la nota")?;
         self.save_note(url, &text)
     }
 
-    /// The vault folder `dir` and a checked `name` for something new inside it.
-    fn new_in<'a>(&self, dir: &str, name: &'a str) -> Result<(PathBuf, &'a str), String> {
-        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
-        let name = name.trim();
-        if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
-            return Err("El nombre no puede estar vacío, empezar por punto ni contener «/».".into());
-        }
-        let folder = if dir.is_empty() { root.canonicalize().map_err(|e| e.to_string())? } else {
-            let folder = root.join(dir).canonicalize().map_err(|_| format!("No existe la carpeta {dir}"))?;
-            if !folder.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
-                return Err("La carpeta está fuera de la bóveda.".into());
-            }
-            folder
-        };
-        Ok((folder, name))
-    }
-
     fn create_folder(&mut self, dir: &str, name: &str) -> Result<(), String> {
-        let (folder, name) = self.new_in(dir, name)?;
+        let (folder, name) = self.open_vault()?.new_in(dir, name)?;
         let path = folder.join(name);
         if path.exists() {
             return Err(format!("Ya existe {name}"));
@@ -1719,8 +1703,8 @@ impl App {
 
     /// Creates `name`.md in `dir` and opens it in the editor.
     fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
-        let root = self.vault().ok_or("No hay ninguna bóveda abierta")?;
-        let (folder, name) = self.new_in(dir, name)?;
+        let vault = self.open_vault()?;
+        let (folder, name) = vault.new_in(dir, name)?;
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {
@@ -1729,8 +1713,8 @@ impl App {
         let title = file.trim_end_matches(".md");
         let text = format!("# {title}\n\n");
         self.own_write = Some((path.clone(), hash(text.as_bytes())));
-        fs::write(&path, text).map_err(|e| e.to_string())?;
-        let rel = vault::rel(&root.canonicalize().map_err(|e| e.to_string())?, &path);
+        vault::write_atomic(&path, text).map_err(|e| e.to_string())?;
+        let rel = vault.rel(&path);
         // The name was typed in the sidebar; writing continues in the note.
         self.open_with(rel, Place::Here, "#editar");
         Ok(())
@@ -1739,7 +1723,7 @@ impl App {
     /// Opens a folder as vault or a file inside the vault that contains it.
     /// An HTML page outside every known vault opens on its own.
     fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
-        let current = self.vault();
+        let current = self.vault().map(|v| v.path().to_path_buf());
         let path = path
             .canonicalize()
             .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
@@ -1762,7 +1746,7 @@ impl App {
                     .or_else(|| path.parent().map(Path::to_path_buf))
                     .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
                 let rel = vault::rel(&root, &path);
-                if self.vault().as_ref() != Some(&root) {
+                if self.vault().is_none_or(|v| v.path() != root) {
                     self.show_vault(Some(root));
                 }
                 rel
@@ -1808,19 +1792,20 @@ impl App {
     }
 
     fn vault_changed(&mut self, changed: Vec<PathBuf>) {
-        let Some(root) = self.vault() else { return };
+        let Some(vault) = self.vault() else { return };
+        let root = vault.path();
         // An agent replied or the page saved: the layer re-reads its notes.
         for view in self.live_views() {
             let file = vault::rel_from_url(&view.url().unwrap_or_default());
-            if file.is_some() && changed.iter().any(|p| annot::page_of(&root, p) == file) {
+            if file.is_some() && changed.iter().any(|p| annot::page_of(root, p) == file) {
                 let _ = view.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
             }
         }
-        let changed: Vec<_> = changed.into_iter().filter(|p| !vault::ignored(&root, p)).collect();
+        let changed: Vec<_> = changed.into_iter().filter(|p| !vault::ignored(root, p)).collect();
         if changed.is_empty() {
             return;
         }
-        self.sidebar.set_tree(Some(vault::tree(&root)));
+        self.sidebar.set_tree(Some(vault.tree()));
         // What the app just saved itself is already on screen.
         let own = |p: &PathBuf| {
             self.own_write.as_ref().is_some_and(|(o, h)| o == p && fs::read(p).is_ok_and(|b| hash(&b) == *h))
@@ -1872,19 +1857,11 @@ fn hash(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// Writes through a temporary file, so a crash never leaves a half-written note.
-pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
-    let name = path.file_name().map_or("nota".into(), |n| n.to_string_lossy().into_owned());
-    let tmp = path.with_file_name(format!(".{name}.visor-tmp"));
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, path)
-}
-
 /// Keeps an event for `visor events` and the agents waiting on it, with its id, time and vault.
 fn push_event(shared: &mut Shared, mut event: Value) {
     event["id"] = json!(shared.next_id);
     event["time"] = json!(now());
-    event["vault"] = json!(shared.vault);
+    event["vault"] = json!(shared.vault.as_ref().map(|v| v.path()));
     shared.next_id += 1;
     if shared.events.len() >= MAX_EVENTS {
         shared.events.remove(0);

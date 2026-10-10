@@ -3,29 +3,8 @@
 
 use crate::annot;
 use std::fs;
+use crate::vault::Vault;
 use std::path::{Path, PathBuf};
-
-/// A file or folder of the vault named by the sidebar, never the vault itself
-/// nor anything outside it or hidden.
-fn inside(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    if rel.is_empty() || rel.split('/').any(|seg| seg.starts_with('.') || seg.is_empty()) {
-        return Err(format!("Ruta no válida: {rel}"));
-    }
-    // The parent is canonicalized, not the item, so a link is moved and not its target.
-    let path = root.join(rel);
-    let parent = path.parent().and_then(|p| p.canonicalize().ok()).ok_or_else(|| format!("No existe: {rel}"))?;
-    let path = parent.join(path.file_name().ok_or("Ruta no válida")?);
-    if !parent.starts_with(&root) || fs::symlink_metadata(&path).is_err() {
-        return Err(format!("No existe: {rel}"));
-    }
-    Ok(path)
-}
-
-fn folder(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let dir = if rel.is_empty() { root.canonicalize().map_err(|e| e.to_string())? } else { inside(root, rel)? };
-    if dir.is_dir() { Ok(dir) } else { Err(format!("No es una carpeta: {rel}")) }
-}
 
 /// Annotations of a page (`<page>.json`) or of everything in a folder.
 fn annotations(root: &Path, rel: &str, is_dir: bool) -> PathBuf {
@@ -33,9 +12,9 @@ fn annotations(root: &Path, rel: &str, is_dir: bool) -> PathBuf {
 }
 
 /// Moves `rel` into the folder `dir` and returns its new path, or `None` if it was already there.
-pub fn move_to(root: &Path, rel: &str, dir: &str) -> Result<Option<String>, String> {
-    let from = inside(root, rel)?;
-    let to_dir = folder(root, dir)?;
+pub fn move_to(vault: &Vault, rel: &str, dir: &str) -> Result<Option<String>, String> {
+    let from = vault.entry(rel)?;
+    let to_dir = vault.folder(dir)?;
     if from.parent() == Some(to_dir.as_path()) {
         return Ok(None);
     }
@@ -48,13 +27,12 @@ pub fn move_to(root: &Path, rel: &str, dir: &str) -> Result<Option<String>, Stri
         return Err(format!("Ya hay algo llamado «{}» en esa carpeta.", name.to_string_lossy()));
     }
     fs::rename(&from, &to).map_err(|e| format!("No se pudo mover: {e}"))?;
-    let canonical = root.canonicalize().map_err(|e| e.to_string())?;
-    let new_rel = crate::vault::rel(&canonical, &to);
+    let new_rel = vault.rel(&to);
 
     let is_dir = to.is_dir();
-    let old_notes = annotations(root, rel, is_dir);
+    let old_notes = annotations(vault.root(), rel, is_dir);
     if old_notes.exists() {
-        let new_notes = annotations(root, &new_rel, is_dir);
+        let new_notes = annotations(vault.root(), &new_rel, is_dir);
         let moved = new_notes.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::rename(&old_notes, &new_notes));
         if let Err(e) = moved {
             return Err(format!("Se movió, pero sus anotaciones se quedaron en {}: {e}", old_notes.display()));
@@ -64,10 +42,10 @@ pub fn move_to(root: &Path, rel: &str, dir: &str) -> Result<Option<String>, Stri
 }
 
 /// Sends `rel` and its annotations to the desktop trash, where they can be restored.
-pub fn trash(root: &Path, rel: &str) -> Result<(), String> {
+pub fn trash(vault: &Vault, rel: &str) -> Result<(), String> {
     use gtk::gio::{Cancellable, File, prelude::FileExt};
-    let path = inside(root, rel)?;
-    let notes = annotations(root, rel, path.is_dir());
+    let path = vault.entry(rel)?;
+    let notes = annotations(vault.root(), rel, path.is_dir());
     File::for_path(&path).trash(Cancellable::NONE).map_err(|e| format!("No se pudo mover a la papelera: {e}"))?;
     if notes.exists() {
         let _ = File::for_path(&notes).trash(Cancellable::NONE);
@@ -92,11 +70,11 @@ mod tests {
     #[test]
     fn moves_page_with_annotations() {
         let root = vault("page");
-        assert_eq!(move_to(&root, "a/nota.md", "a/b").unwrap().as_deref(), Some("a/b/nota.md"));
+        assert_eq!(move_to(&Vault::open(&root), "a/nota.md", "a/b").unwrap().as_deref(), Some("a/b/nota.md"));
         assert!(root.join("a/b/nota.md").is_file());
         assert!(annot::file(&root, "a/b/nota.md").is_file());
         assert!(!annot::file(&root, "a/nota.md").exists());
-        assert_eq!(move_to(&root, "a/b/nota.md", "a/b").unwrap(), None);
+        assert_eq!(move_to(&Vault::open(&root), "a/b/nota.md", "a/b").unwrap(), None);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -104,7 +82,7 @@ mod tests {
     fn moves_folder_with_annotations() {
         let root = vault("folder");
         fs::create_dir_all(root.join("c")).unwrap();
-        assert_eq!(move_to(&root, "a", "c").unwrap().as_deref(), Some("c/a"));
+        assert_eq!(move_to(&Vault::open(&root), "a", "c").unwrap().as_deref(), Some("c/a"));
         assert!(annot::file(&root, "c/a/nota.md").is_file());
         fs::remove_dir_all(root).unwrap();
     }
@@ -113,15 +91,15 @@ mod tests {
     fn refuses_bad_moves() {
         let root = vault("bad");
         fs::write(root.join("otra.md"), "").unwrap();
-        assert!(move_to(&root, "a", "a/b").is_err(), "into itself");
-        assert!(move_to(&root, "otra.md", "a").is_ok());
+        assert!(move_to(&Vault::open(&root), "a", "a/b").is_err(), "into itself");
+        assert!(move_to(&Vault::open(&root), "otra.md", "a").is_ok());
         fs::write(root.join("otra.md"), "").unwrap();
-        assert!(move_to(&root, "otra.md", "a").is_err(), "overwrite");
-        assert!(move_to(&root, "../x", "").is_err());
-        assert!(move_to(&root, ".visor", "a").is_err());
-        assert!(move_to(&root, "a/nota.md", "../").is_err());
-        assert!(move_to(&root, "a/nota.md", "a/nota.md").is_err(), "not a folder");
-        assert!(trash(&root, "").is_err());
+        assert!(move_to(&Vault::open(&root), "otra.md", "a").is_err(), "overwrite");
+        assert!(move_to(&Vault::open(&root), "../x", "").is_err());
+        assert!(move_to(&Vault::open(&root), ".visor", "a").is_err());
+        assert!(move_to(&Vault::open(&root), "a/nota.md", "../").is_err());
+        assert!(move_to(&Vault::open(&root), "a/nota.md", "a/nota.md").is_err(), "not a folder");
+        assert!(trash(&Vault::open(&root), "").is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

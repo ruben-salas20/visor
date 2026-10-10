@@ -50,7 +50,7 @@ fn store(root: &Path, page: &str, doc: &Value) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    crate::app::write_atomic(&path, &serde_json::to_string_pretty(doc).unwrap())
+    crate::vault::write_atomic(&path, serde_json::to_string_pretty(doc).unwrap())
 }
 
 fn text(value: &Value) -> Option<String> {

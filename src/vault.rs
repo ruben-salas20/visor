@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -20,75 +19,6 @@ pub struct Dir {
 pub struct File {
     pub name: String,
     pub path: String,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Config {
-    pub vaults: Vec<PathBuf>,
-    pub current: Option<PathBuf>,
-    /// Last file shown in each vault, from before tabs; read when a vault has no workspace.
-    pub last: HashMap<PathBuf, String>,
-    /// Open tabs and split of each vault.
-    pub workspaces: HashMap<PathBuf, Workspace>,
-    pub sidebar_width: Option<i32>,
-    /// Folders open in the panel's tree, per vault.
-    pub open_folders: HashMap<PathBuf, Vec<String>>,
-    /// Where the divider between the two sides sits, as a share of their width.
-    pub split_ratio: Option<f64>,
-    /// Port of the local server, kept so pages keep their origin and storage.
-    pub port: Option<u16>,
-    pub bar_shown: bool,
-    pub zoom: Option<f64>,
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-#[serde(default)]
-pub struct Workspace {
-    /// One entry per side, left first.
-    pub panes: Vec<PaneState>,
-    pub focused: usize,
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-#[serde(default)]
-pub struct PaneState {
-    /// What each tab shows: a vault path, a web address, or empty.
-    pub tabs: Vec<String>,
-    pub active: usize,
-}
-
-impl Config {
-    pub fn load() -> Self {
-        fs::read(crate::paths::config())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn save(&self) {
-        let path = crate::paths::config();
-        if let Some(dir) = path.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let _ = fs::write(path, serde_json::to_vec_pretty(self).unwrap());
-    }
-
-    pub fn add(&mut self, vault: &Path) {
-        if !self.vaults.iter().any(|v| v == vault) {
-            self.vaults.push(vault.to_path_buf());
-        }
-        self.current = Some(vault.to_path_buf());
-    }
-
-    /// The vault that holds `file`, preferring the innermost one.
-    pub fn vault_for(&self, file: &Path) -> Option<PathBuf> {
-        self.vaults
-            .iter()
-            .filter(|v| file.starts_with(v))
-            .max_by_key(|v| v.components().count())
-            .cloned()
-    }
 }
 
 /// Files the viewer lists and shows: HTML pages and Markdown notes.
@@ -210,12 +140,126 @@ fn natural(a: &str, b: &str) -> Ordering {
     }
 }
 
-/// Resolves a request path inside the vault, refusing anything that escapes it.
-pub fn resolve(root: &Path, rel: &str) -> Option<PathBuf> {
-    let root = root.canonicalize().ok()?;
-    let path = root.join(rel.trim_start_matches('/')).canonicalize().ok()?;
-    let path = if path.is_dir() { path.join("index.html") } else { path };
-    (path.starts_with(&root) && path.is_file()).then_some(path)
+/// The open vault. Every path that comes from a page, the panel or the CLI is
+/// checked here, so nothing outside the folder is ever read or written.
+pub struct Vault {
+    /// As it was opened: the key in the configuration and what the file watcher reports under.
+    path: PathBuf,
+    /// Canonical, computed once.
+    root: PathBuf,
+}
+
+impl Vault {
+    /// If the folder cannot be read yet, the root stays as given and nothing resolves in it.
+    pub fn open(path: &Path) -> Self {
+        let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        Vault { path: path.to_path_buf(), root }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn tree(&self) -> Dir {
+        tree(&self.path)
+    }
+
+    /// Path of `path` inside the vault, with `/` separators.
+    pub fn rel(&self, path: &Path) -> String {
+        rel(&self.root, path)
+    }
+
+    /// Resolves a request path inside the vault, refusing anything that escapes it.
+    pub fn resolve(&self, rel: &str) -> Option<PathBuf> {
+        let path = self.root.join(rel.trim_start_matches('/')).canonicalize().ok()?;
+        let path = if path.is_dir() { path.join("index.html") } else { path };
+        (path.starts_with(&self.root) && path.is_file()).then_some(path)
+    }
+
+    /// The file of the page shown at `url`, with its vault path. Websites and
+    /// loose pages are not in the vault, so they are refused.
+    pub fn page(&self, url: &str) -> Result<(String, PathBuf), String> {
+        let rel = rel_from_url(url).filter(|r| !is_loose(r)).ok_or("La página no es de la bóveda")?;
+        let path = self.resolve(&rel).ok_or("La página no existe en la bóveda")?;
+        Ok((rel, path))
+    }
+
+    /// Like [`Vault::page`], but only Markdown notes.
+    pub fn note(&self, url: &str) -> Result<(String, PathBuf), String> {
+        let (rel, path) = self.page(url)?;
+        if is_markdown(&path) { Ok((rel, path)) } else { Err("Solo se pueden guardar notas .md".into()) }
+    }
+
+    /// A file or folder of the vault named by the panel, never the vault itself
+    /// nor anything outside it or hidden.
+    pub fn entry(&self, rel: &str) -> Result<PathBuf, String> {
+        if rel.is_empty() || rel.split('/').any(|seg| seg.starts_with('.') || seg.is_empty()) {
+            return Err(format!("Ruta no válida: {rel}"));
+        }
+        // The parent is canonicalized, not the item, so a link is moved and not its target.
+        let path = self.root.join(rel);
+        let parent = path.parent().and_then(|p| p.canonicalize().ok()).ok_or_else(|| format!("No existe: {rel}"))?;
+        let path = parent.join(path.file_name().ok_or("Ruta no válida")?);
+        if !parent.starts_with(&self.root) || fs::symlink_metadata(&path).is_err() {
+            return Err(format!("No existe: {rel}"));
+        }
+        Ok(path)
+    }
+
+    /// A folder of the vault; the empty path is the vault itself.
+    pub fn folder(&self, rel: &str) -> Result<PathBuf, String> {
+        let dir = if rel.is_empty() { self.root.clone() } else { self.entry(rel)? };
+        if dir.is_dir() { Ok(dir) } else { Err(format!("No es una carpeta: {rel}")) }
+    }
+
+    /// The vault folder `dir` and a checked `name` for something new inside it.
+    pub fn new_in<'a>(&self, dir: &str, name: &'a str) -> Result<(PathBuf, &'a str), String> {
+        let name = name.trim();
+        if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
+            return Err("El nombre no puede estar vacío, empezar por punto ni contener «/».".into());
+        }
+        let folder = if dir.is_empty() {
+            self.root.clone()
+        } else {
+            let folder = self.root.join(dir).canonicalize().map_err(|_| format!("No existe la carpeta {dir}"))?;
+            if !folder.starts_with(&self.root) {
+                return Err("La carpeta está fuera de la bóveda.".into());
+            }
+            folder
+        };
+        Ok((folder, name))
+    }
+}
+
+/// What a page may do, decided by where its URL points.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Access {
+    /// A website or anything else not served by visor.
+    None,
+    /// Served by visor but outside every vault: console and events only.
+    Local,
+    /// A page of the vault: it may also write to it.
+    Trusted,
+}
+
+pub fn access(url: &str) -> Access {
+    match rel_from_url(url) {
+        None => Access::None,
+        Some(rel) if is_loose(&rel) => Access::Local,
+        Some(_) => Access::Trusted,
+    }
+}
+
+/// Writes through a temporary file, so a crash never leaves a half-written file.
+pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let name = path.file_name().map_or("nota".into(), |n| n.to_string_lossy().into_owned());
+    let tmp = path.with_file_name(format!(".{name}.visor-tmp"));
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)
 }
 
 pub fn mime(path: &Path) -> &'static str {
@@ -318,5 +362,117 @@ mod tests {
         let loose = "/tmp/muestra rápida.html";
         assert_eq!(super::url(loose), "http://127.0.0.1:1/s//tmp/muestra%20r%C3%A1pida.html");
         assert_eq!(rel_from_url(&super::url(loose)).as_deref(), Some(loose));
+    }
+
+    const BASE: &str = "http://127.0.0.1:1/s/";
+
+    /// A vault in a temporary folder, plus a file outside it that links try to reach.
+    fn make(name: &str) -> (Vault, PathBuf) {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("visor-vault-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = dir.join("boveda");
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::create_dir_all(root.join("sitio")).unwrap();
+        fs::create_dir_all(root.join(".oculta")).unwrap();
+        fs::write(root.join("a/nota.md"), "# Nota").unwrap();
+        fs::write(root.join("a/pagina.html"), "<p>").unwrap();
+        fs::write(root.join("sitio/index.html"), "<p>").unwrap();
+        fs::write(root.join(".oculta/x.md"), "").unwrap();
+        fs::write(dir.join("fuera.md"), "secreto").unwrap();
+        symlink(dir.join("fuera.md"), root.join("a/enlace.md")).unwrap();
+        symlink(&dir, root.join("salida")).unwrap();
+        (Vault::open(&root), dir)
+    }
+
+    #[test]
+    fn resolve_stays_inside() {
+        let (vault, dir) = make("resolve");
+        assert_eq!(vault.resolve("a/nota.md"), Some(vault.root().join("a/nota.md")));
+        assert_eq!(vault.resolve("/a/nota.md"), Some(vault.root().join("a/nota.md")));
+        assert_eq!(vault.resolve("sitio"), Some(vault.root().join("sitio/index.html")));
+        assert_eq!(vault.resolve("a/falta.md"), None);
+        assert_eq!(vault.resolve("a"), None, "folder without index.html");
+        assert_eq!(vault.resolve("../fuera.md"), None);
+        assert_eq!(vault.resolve("a/../../fuera.md"), None);
+        assert_eq!(vault.resolve(dir.join("fuera.md").to_str().unwrap()), None, "absolute path");
+        assert_eq!(vault.resolve("a/enlace.md"), None, "link out of the vault");
+        assert_eq!(vault.resolve("salida/fuera.md"), None, "folder link out of the vault");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn entry_and_folder() {
+        let (vault, dir) = make("entry");
+        let root = vault.root().to_path_buf();
+        assert_eq!(vault.entry("a/nota.md"), Ok(root.join("a/nota.md")));
+        assert_eq!(vault.entry("sitio"), Ok(root.join("sitio")));
+        assert_eq!(vault.entry("a/enlace.md"), Ok(root.join("a/enlace.md")), "the link itself, not its target");
+        for bad in ["", "../fuera.md", "/a/nota.md", "a//nota.md", ".oculta/x.md", ".visor", "a/.x", "salida/fuera.md"] {
+            assert!(vault.entry(bad).is_err(), "{bad:?}");
+        }
+        assert!(vault.entry("a/falta.md").is_err());
+        assert_eq!(vault.folder(""), Ok(root.clone()));
+        assert_eq!(vault.folder("a/b"), Ok(root.join("a/b")));
+        assert!(vault.folder("a/nota.md").is_err(), "not a folder");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn page_and_note() {
+        set_base(BASE.into());
+        let (vault, dir) = make("page");
+        let (rel, path) = vault.page(&url("a/pagina.html")).unwrap();
+        assert_eq!((rel.as_str(), path), ("a/pagina.html", vault.root().join("a/pagina.html")));
+        assert_eq!(vault.page(&format!("{}#x", url("a/nota.md"))).unwrap().0, "a/nota.md");
+        assert_eq!(vault.note(&url("a/nota.md")).unwrap().1, vault.root().join("a/nota.md"));
+        assert!(vault.note(&url("a/pagina.html")).is_err(), "html is not a note");
+        assert!(vault.page(&url("a/falta.md")).is_err());
+        assert!(vault.note(&url("a/falta.md")).is_err());
+        assert!(vault.page("https://example.com/a/nota.md").is_err());
+        let loose = dir.join("fuera.md");
+        assert!(vault.page(&url(loose.to_str().unwrap())).is_err(), "loose page");
+        assert!(vault.note(&url(loose.to_str().unwrap())).is_err(), "loose page");
+        assert!(vault.page(&url("a/enlace.md")).is_err(), "link out of the vault");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn access_by_url() {
+        set_base(BASE.into());
+        assert_eq!(access("https://example.com/"), Access::None);
+        assert_eq!(access("about:blank"), Access::None);
+        assert_eq!(access(&url("a/nota.md")), Access::Trusted);
+        assert_eq!(access(&format!("{}#x", url("a/nota.md"))), Access::Trusted);
+        assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
+    }
+
+    #[test]
+    fn new_in_checks_name_and_folder() {
+        let (vault, dir) = make("new");
+        let root = vault.root().to_path_buf();
+        assert_eq!(vault.new_in("", " x ").unwrap(), (root.clone(), "x"));
+        assert_eq!(vault.new_in("a/b", "x").unwrap(), (root.join("a/b"), "x"));
+        for name in ["", "  ", ".x", "a/b", "a\\b"] {
+            assert!(vault.new_in("", name).is_err(), "{name:?}");
+        }
+        assert!(vault.new_in("falta", "x").is_err());
+        assert_eq!(vault.new_in("..", "x").unwrap_err(), "La carpeta está fuera de la bóveda.");
+        assert!(vault.new_in(dir.to_str().unwrap(), "x").is_err(), "absolute folder outside");
+        assert!(vault.new_in("salida", "x").is_err(), "link out of the vault");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_replaces_and_leaves_no_temp() {
+        let dir = std::env::temp_dir().join(format!("visor-atomic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("n.md");
+        write_atomic(&file, "uno").unwrap();
+        write_atomic(&file, "dos").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "dos");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
     }
 }
