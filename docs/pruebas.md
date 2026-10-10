@@ -49,20 +49,22 @@ Qué mide y cómo:
 
 ## Referencia
 
-2026-10-09, commit `24ae816`, enchufado, perfil `performance`, `tools/medir/medir.py`. Mediana y, entre paréntesis, mínimo y máximo de 3 rondas alternadas (las cifras de `f2bec3e`, antes de la revisión de arquitectura, son de 5 rondas más).
+2026-10-10, commit `8e4ae91` (fin de la revisión de arquitectura), enchufado, perfil `performance`, `tools/medir/medir.py`. Mediana y, entre paréntesis, mínimo y máximo de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión. En otras 2 rondas el equipo cambió de estado y el arranque se duplicó con los dos binarios por igual; no cuentan.
 
 | Medida | Valor | Antes (`f2bec3e`) |
 |---|---|---|
-| Arranque en frío, nota mínima (`minima.md`) | 221 ms (220–225) | 219–225 ms |
-| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 676 ms (674–725) | 671–723 ms |
-| Arranque en frío, HTML suelto | 221 ms (219–225) | 221–223 ms |
-| Cambio de página | 75 ms | 75–76 ms |
-| Pestaña nueva (`visor open --tab`) | 176 ms | 176–179 ms |
-| Memoria en reposo, nota mínima | 216 MB | 219–220 MB |
-| Memoria en reposo, `ondas.md` | 322 MB | 322–324 MB |
+| Arranque en frío, nota mínima (`minima.md`) | 221 ms (218–222) | 220 ms (220–227) |
+| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 669 ms (665–669) | 669 ms (668–671) |
+| Arranque en frío, HTML suelto | 222 ms (214–565) | 215 ms (215–218) |
+| Cambio de página | 74 ms (73–75) | 76 ms (74–78) |
+| Pestaña nueva (`visor open --tab`) | 175 ms (174–176) | 177 ms (176–177) |
+| Memoria en reposo, nota mínima | 203 MB (202–203) | 206 MB (205–221) |
+| Memoria en reposo, `ondas.md` | 317 MB (315–317) | 317 MB (315–322) |
 | Memoria en reposo, HTML suelto | 186 MB | 186 MB |
-| Memoria con el editor abierto (nota mínima) | 236 MB | 236–239 MB |
-| CPU en reposo, nota mínima u `ondas.md` | 0,03–0,07 % | 0,03–0,07 % |
+| Memoria con el editor abierto (nota mínima) | 223 MB | 223 MB |
+| CPU en reposo, nota mínima u `ondas.md` | 0,03 % | 0,03–0,1 % |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js (2026-10-07) | |
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
-| Binario (`cargo build --release`, con `strip`) | 4 216 608 bytes | 4 221 096 bytes |
+| Binario (`cargo build --release`, con `strip`) | 4 231 712 bytes | 4 221 096 bytes |
+
+La memoria absoluta varía hasta 15 MB entre ejecuciones del mismo día con el mismo binario (el 2026-10-09, la nota mínima daba 216–220 MB). Compara solo rondas alternadas de una misma ejecución.
