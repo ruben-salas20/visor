@@ -34,14 +34,27 @@ Cómo se midió: la misma bóveda en el mismo portátil, 5 rondas alternadas, ca
 
 ## Qué necesitas
 
-- Linux con Wayland, GTK 3 y WebKitGTK 4.1 (versión 2.38 o posterior).
-- Rust 1.89 o posterior. Sirve para compilar visor; no hay versión ya compilada.
+- Linux en x86_64 con Wayland, GTK 3 y WebKitGTK 4.1 (versión 2.38 o posterior).
+- glibc 2.39 o posterior para el programa ya compilado: Arch, Fedora 40, Ubuntu 24.04, Debian 13 o más recientes. En sistemas más antiguos, compílalo tú.
 - Un agente de IA que sepa usar herramientas, como Claude Code.
 - Para ver vídeo de la web, estos paquetes de tu distribución: `gst-libav` y `gst-plugins-bad`. También conviene instalar `gst-plugin-va` (usa la tarjeta gráfica) y `gst-plugin-dav1d` ([por qué](docs/adr/0032-requisitos-de-gstreamer.md)).
 
 ## Instalar
 
-Escribe estas órdenes en una terminal, dentro de la carpeta de visor.
+Escribe estas órdenes en una terminal:
+
+```
+curl -LO https://github.com/ruben-salas20/visor/releases/latest/download/visor-x86_64-linux
+install -m 755 visor-x86_64-linux ~/.local/bin/visor
+```
+
+`~/.local/bin` tiene que ser una carpeta donde tu sistema busque programas. Para comprobar la descarga, compara lo que muestra `sha256sum visor-x86_64-linux` con el `sha256` que aparece junto al archivo en la [página de la versión](https://github.com/ruben-salas20/visor/releases/latest).
+
+Desde ese momento visor se actualiza solo: al arrancar, como mucho una vez al día, busca una versión nueva en GitHub Releases, la comprueba y la instala para el siguiente arranque. Lo puedes desactivar en Ajustes (Ctrl+,).
+
+### Compilarlo tú
+
+Necesitas Rust 1.89 o posterior. Escribe estas órdenes dentro de la carpeta de visor:
 
 1. Compila el programa:
 
@@ -49,9 +62,9 @@ Escribe estas órdenes en una terminal, dentro de la carpeta de visor.
    cargo build --release
    ```
 
-2. Copia el archivo `target/release/visor` a una carpeta donde tu sistema busque programas, por ejemplo `~/.local/bin`.
+2. Copia el archivo `target/release/visor` a `~/.local/bin` o a otra carpeta donde tu sistema busque programas.
 
-Desde ese momento visor se actualiza solo: al arrancar, como mucho una vez al día, busca una versión nueva en GitHub Releases y la instala para el siguiente arranque. Lo puedes desactivar en Ajustes (Ctrl+,). El binario dentro de `target/` nunca se actualiza.
+El binario dentro de `target/` nunca se actualiza.
 
 El paquete de CodeMirror ya está en `assets/`. Solo hace falta regenerarlo con `npm ci && npm run build` en `tools/codemirror/`.
 

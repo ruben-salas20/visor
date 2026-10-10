@@ -34,14 +34,27 @@ How it was measured: the same vault on the same laptop, 5 alternating rounds, ea
 
 ## What you need
 
-- Linux with Wayland, GTK 3 and WebKitGTK 4.1 (version 2.38 or later).
-- Rust 1.89 or later. You need it to build visor; there is no prebuilt version.
+- Linux on x86_64 with Wayland, GTK 3 and WebKitGTK 4.1 (version 2.38 or later).
+- glibc 2.39 or later for the ready-made program: Arch, Fedora 40, Ubuntu 24.04, Debian 13 or newer. On older systems, build it yourself.
 - An AI agent that can use tools, such as Claude Code.
 - To play web video, these packages from your distribution: `gst-libav` and `gst-plugins-bad`. Also install `gst-plugin-va` (uses the graphics card) and `gst-plugin-dav1d` ([why](docs/adr/0032-requisitos-de-gstreamer.md)).
 
 ## Install
 
-Type these commands in a terminal, inside the visor folder.
+Type these commands in a terminal:
+
+```
+curl -LO https://github.com/ruben-salas20/visor/releases/latest/download/visor-x86_64-linux
+install -m 755 visor-x86_64-linux ~/.local/bin/visor
+```
+
+`~/.local/bin` must be a folder where your system looks for programs. To check the download, compare the output of `sha256sum visor-x86_64-linux` with the `sha256` shown next to the file on the [releases page](https://github.com/ruben-salas20/visor/releases/latest).
+
+From then on visor updates itself: when it starts, at most once a day, it looks for a new version on GitHub Releases, checks it and installs it for the next start. You can turn this off in Settings (Ctrl+,).
+
+### Build it yourself
+
+You need Rust 1.89 or later. Type these commands inside the visor folder:
 
 1. Build the program:
 
@@ -49,9 +62,9 @@ Type these commands in a terminal, inside the visor folder.
    cargo build --release
    ```
 
-2. Copy the file `target/release/visor` to a folder where your system looks for programs, for example `~/.local/bin`.
+2. Copy the file `target/release/visor` to `~/.local/bin` or another folder where your system looks for programs.
 
-From then on visor updates itself: when it starts, at most once a day, it looks for a new version on GitHub Releases and installs it for the next start. You can turn this off in Settings (Ctrl+,). The binary inside `target/` is never updated.
+The binary inside `target/` is never updated.
 
 The CodeMirror bundle is already in `assets/`. Regenerate it only when needed, with `npm ci && npm run build` in `tools/codemirror/`.
 
