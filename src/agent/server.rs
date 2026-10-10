@@ -163,7 +163,7 @@ fn notes(scope: &NotesScope, shared: &SharedRef) -> Value {
             note["anchored"] = json!(!orphans.iter().any(|o| note["id"] == *o.as_str()));
         }
     }
-    json!({ "ok": true, "vault": vault.path(), "notes": list })
+    json!({ "ok": true, "vault": vault.path().to_string_lossy(), "notes": list })
 }
 
 fn events(after: Option<u64>, wait: Option<f64>, limit: Option<u64>, shared: &SharedRef) -> Value {

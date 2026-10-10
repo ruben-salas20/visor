@@ -5,10 +5,14 @@ pub mod config;
 pub mod files;
 pub mod links;
 pub mod markdown;
+#[cfg(test)]
+mod walk_tests;
 
 use serde::Serialize;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
@@ -63,7 +67,8 @@ pub fn ignored(root: &Path, path: &Path) -> bool {
 }
 
 pub fn tree(root: &Path) -> Dir {
-    walk(root, root).unwrap_or_else(|| Dir {
+    let mut walk = Walk::new(root, root);
+    scan(&mut walk, root, root).unwrap_or_else(|| Dir {
         name: name_of(root),
         path: String::new(),
         dirs: vec![],
@@ -71,17 +76,12 @@ pub fn tree(root: &Path) -> Dir {
     })
 }
 
-fn walk(root: &Path, dir: &Path) -> Option<Dir> {
+fn scan(walk: &mut Walk, root: &Path, dir: &Path) -> Option<Dir> {
     let mut dirs = vec![];
     let mut files = vec![];
-    for entry in fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if hidden(&name) {
-            continue;
-        }
-        if path.is_dir() {
-            if let Some(sub) = walk(root, &path) {
+    for (path, is_dir) in walk.read(dir)? {
+        if is_dir {
+            if let Some(sub) = scan(walk, root, &path) {
                 dirs.push(sub);
             }
         } else if is_page(&path) {
@@ -99,6 +99,92 @@ fn walk(root: &Path, dir: &Path) -> Option<Dir> {
         dirs,
         files,
     })
+}
+
+/// The one way to walk a folder tree, so the panel, the `[[links]]` index and
+/// the annotation listing agree on what is there: names that `hidden` skips
+/// are not entered, a real folder is entered once whatever links point at it,
+/// and a link to a folder outside `limit` is not followed.
+pub struct Walk {
+    limit: PathBuf,
+    seen: HashSet<(u64, u64)>,
+}
+
+impl Walk {
+    /// Walks from `start`, inside the vault at `root`.
+    pub fn new(root: &Path, start: &Path) -> Self {
+        let limit = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let seen = fs::metadata(start).map(|m| (m.dev(), m.ino())).into_iter().collect();
+        Walk { limit, seen }
+    }
+
+    /// The visible entries of `dir` with whether each is a folder to enter, or
+    /// `None` if it cannot be read. Real folders come before links so that
+    /// the real one is the one listed when a link points at a sibling.
+    pub fn read(&mut self, dir: &Path) -> Option<Vec<(PathBuf, bool)>> {
+        let mut real = vec![];
+        let mut linked = vec![];
+        for entry in fs::read_dir(dir).ok()?.flatten() {
+            if hidden(&entry.file_name().to_string_lossy()) {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_symlink() {
+                linked.push(path);
+            } else {
+                real.push((path, kind.is_dir()));
+            }
+        }
+        let mut out = vec![];
+        for (path, is_dir) in real {
+            if !is_dir || self.enter(&path) {
+                out.push((path, is_dir));
+            }
+        }
+        for path in linked {
+            match fs::metadata(&path) {
+                Ok(m) if m.is_dir() => {
+                    let inside = path.canonicalize().is_ok_and(|p| p.starts_with(&self.limit));
+                    if inside && self.enter(&path) {
+                        out.push((path, true));
+                    }
+                }
+                _ => out.push((path, false)),
+            }
+        }
+        Some(out)
+    }
+
+    /// False if this real folder was already entered.
+    fn enter(&mut self, dir: &Path) -> bool {
+        fs::metadata(dir).is_ok_and(|m| self.seen.insert((m.dev(), m.ino())))
+    }
+}
+
+/// Every file under `from` that `keep` accepts, walked by [`Walk`] within the vault at `root`.
+pub fn files(root: &Path, from: &Path, keep: fn(&Path) -> bool) -> Vec<PathBuf> {
+    fn go(walk: &mut Walk, dir: &Path, keep: fn(&Path) -> bool, out: &mut Vec<PathBuf>) {
+        for (path, is_dir) in walk.read(dir).unwrap_or_default() {
+            if is_dir {
+                go(walk, &path, keep, out);
+            } else if keep(&path) {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = vec![];
+    go(&mut Walk::new(root, from), from, keep, &mut out);
+    out
+}
+
+/// Whether the vault at `root` has any page; stops at the first one.
+pub fn has_pages(root: &Path) -> bool {
+    fn go(walk: &mut Walk, dir: &Path) -> bool {
+        let Some(entries) = walk.read(dir) else { return false };
+        entries.iter().any(|(path, is_dir)| if *is_dir { go(walk, path) } else { is_page(path) })
+    }
+    go(&mut Walk::new(root, root), root)
 }
 
 fn name_of(path: &Path) -> String {
@@ -174,6 +260,10 @@ impl Vault {
 
     pub fn tree(&self) -> Dir {
         tree(&self.path)
+    }
+
+    pub fn has_pages(&self) -> bool {
+        has_pages(&self.path)
     }
 
     /// Path of `path` inside the vault, with `/` separators.
@@ -264,11 +354,27 @@ pub fn access(url: &str) -> Access {
 }
 
 /// Writes through a temporary file, so a crash never leaves a half-written file.
+/// A link is written through to its target, which keeps its permissions.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let real;
+    let path = if fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
+        real = path.canonicalize()?;
+        &real
+    } else {
+        path
+    };
     let name = path.file_name().map_or("nota".into(), |n| n.to_string_lossy().into_owned());
     let tmp = path.with_file_name(format!(".{name}.visor-tmp"));
     fs::write(&tmp, contents)?;
-    fs::rename(&tmp, path)
+    let done = match fs::metadata(path) {
+        Ok(old) => fs::set_permissions(&tmp, old.permissions()),
+        Err(_) => Ok(()),
+    }
+    .and_then(|()| fs::rename(&tmp, path));
+    if done.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    done
 }
 
 pub fn mime(path: &Path) -> &'static str {
@@ -511,6 +617,28 @@ mod tests {
         write_atomic(&file, "dos").unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "dos");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_goes_through_links_and_keeps_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = std::env::temp_dir().join(format!("visor-atomic-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("otra")).unwrap();
+        let real = dir.join("otra/real.md");
+        fs::write(&real, "uno").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o640)).unwrap();
+        let link = dir.join("enlace.md");
+        symlink(&real, &link).unwrap();
+        write_atomic(&link, "dos").unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink(), "the link stays a link");
+        assert_eq!(fs::read_to_string(&real).unwrap(), "dos");
+        assert_eq!(fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o640);
+        assert!(write_atomic(&dir.join("roto.md"), "x").is_ok());
+        symlink(dir.join("no-existe"), dir.join("colgante.md")).unwrap();
+        assert!(write_atomic(&dir.join("colgante.md"), "x").is_err());
+        assert_eq!(fs::read_dir(dir.join("otra")).unwrap().count(), 1, "no temp left");
         fs::remove_dir_all(dir).unwrap();
     }
 }

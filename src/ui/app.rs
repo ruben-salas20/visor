@@ -9,6 +9,7 @@ use crate::ui::page_calls;
 use crate::ui::page_view::{build_page, clean_position, is_web};
 use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
+use crate::agent::socket::{ClaimError, claim};
 use crate::paths;
 use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
@@ -21,7 +22,6 @@ use serde_json::{Value, json};
 use std::cell::Cell;
 use std::fs;
 
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -60,19 +60,18 @@ enum PageMsg {
 }
 
 pub fn launch() -> i32 {
-    let socket = paths::socket();
-    if UnixStream::connect(&socket).is_ok() {
-        eprintln!("visor ya está abierto.");
-        return 0;
-    }
-    let _ = fs::remove_file(&socket);
-    let listener = match UnixListener::bind(&socket) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("No se pudo crear {}: {e}", socket.display());
+    let (listener, claim) = match claim(&paths::socket()) {
+        Ok(claimed) => claimed,
+        Err(ClaimError::Running) => {
+            eprintln!("visor ya está abierto.");
+            return 0;
+        }
+        Err(ClaimError::Failed(e)) => {
+            eprintln!("{e}");
             return 1;
         }
     };
+    let mut claim = Some(claim);
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -183,7 +182,9 @@ pub fn launch() -> i32 {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 app.save_layout();
                 app.flush_config();
-                let _ = fs::remove_file(paths::socket());
+                if let Some(claim) = claim.take() {
+                    claim.release();
+                }
                 *flow = ControlFlow::Exit;
             }
             Event::UserEvent(event) => app.handle(event),
@@ -336,6 +337,10 @@ impl App {
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
     fn show_vault(&mut self, root: Option<PathBuf>) {
+        if let Some(Err(e)) = root.as_deref().map(Config::check_vault) {
+            eprintln!("{e}");
+            return;
+        }
         if root.is_some() && self.vault().is_none() {
             // It was hidden for loose pages.
             self.sidebar.root.show();
@@ -543,10 +548,7 @@ impl App {
         match self.vault() {
             None => "Abre una carpeta con archivos HTML para empezar.",
             Some(root) => {
-                fn has_pages(dir: &vault::Dir) -> bool {
-                    !dir.files.is_empty() || dir.dirs.iter().any(has_pages)
-                }
-                if !has_pages(&root.tree()) {
+                if !root.has_pages() {
                     "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
                 } else {
                     "Elige un archivo de la lista."
@@ -1240,6 +1242,7 @@ impl App {
             .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
             .map_err(|_| format!("No existe: {raw}"))?;
         if path.is_dir() {
+            Config::check_vault(&path)?;
             self.show_vault(Some(path));
             return Ok(None);
         }
@@ -1259,6 +1262,7 @@ impl App {
                     .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
                 let rel = vault::rel(&root, &path);
                 if self.vault().is_none_or(|v| v.path() != root) {
+                    Config::check_vault(&root)?;
                     self.show_vault(Some(root));
                 }
                 rel

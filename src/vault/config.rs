@@ -39,8 +39,20 @@ pub struct PaneState {
     pub active: usize,
 }
 
+/// `config.json.bak`, or with the time added if that copy exists: an older
+/// copy is never overwritten, since it may hold the only good data.
+fn backup_name(path: &Path) -> PathBuf {
+    let name = path.file_name().map_or("config.json".into(), |n| n.to_string_lossy().into_owned());
+    let first = path.with_file_name(format!("{name}.bak"));
+    if first.exists() {
+        path.with_file_name(format!("{name}.{}.bak", crate::session::now()))
+    } else {
+        first
+    }
+}
+
 impl Config {
-    pub fn load() -> Self {
+    pub fn load()-> Self {
         Self::load_from(&crate::paths::config())
     }
 
@@ -48,20 +60,41 @@ impl Config {
         self.save_to(&crate::paths::config());
     }
 
+    /// A file that exists but cannot be parsed is copied aside before it is
+    /// treated as empty, because the next save would overwrite it.
     fn load_from(path: &Path) -> Self {
-        fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        let Ok(bytes) = fs::read(path) else { return Self::default() };
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            let copy = backup_name(path);
+            match fs::write(&copy, &bytes) {
+                Ok(()) => eprintln!("La configuración {} no se puede leer ({e}). Se guardó una copia en {}.", path.display(), copy.display()),
+                Err(w) => eprintln!("La configuración {} no se puede leer ({e}) y no se pudo guardar una copia ({w}).", path.display()),
+            }
+            Self::default()
+        })
     }
 
     /// Atomic: a cut mid-write must not leave broken JSON, which `load` would
-    /// answer with an empty list of vaults.
+    /// answer with an empty list of vaults. A vault path that is not UTF-8
+    /// cannot be written as JSON; `check_vault` stops those earlier.
     fn save_to(&self, path: &Path) {
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
         }
-        let _ = crate::vault::write_atomic(path, serde_json::to_vec_pretty(self).unwrap());
+        match serde_json::to_vec_pretty(self) {
+            Ok(json) => {
+                let _ = crate::vault::write_atomic(path, json);
+            }
+            Err(e) => eprintln!("No se pudo guardar la configuración: {e}"),
+        }
+    }
+
+    /// Refuses a folder that the configuration could not keep.
+    pub fn check_vault(path: &Path) -> Result<(), String> {
+        match path.to_str() {
+            Some(_) => Ok(()),
+            None => Err(format!("El nombre de la carpeta no es UTF-8 y no se puede abrir como bóveda: {}", path.to_string_lossy())),
+        }
     }
 
     pub fn add(&mut self, vault: &Path) {
@@ -108,5 +141,36 @@ mod tests {
         assert!(!dir.join("nueva/.config.json.visor-tmp").exists());
         assert!(Config::load_from(&dir.join("no-existe.json")).vaults.is_empty());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unreadable_config_is_copied_before_it_is_replaced() {
+        let dir = std::env::temp_dir().join(format!("visor-config-bak-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, "{ \"vaults\": [").unwrap();
+        assert!(Config::load_from(&path).vaults.is_empty());
+        assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
+        // A second broken file does not replace the first copy.
+        fs::write(&path, "otro").unwrap();
+        Config::load_from(&path);
+        assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn non_utf8_vault_is_refused_and_saving_does_not_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let bad = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec()));
+        assert!(Config::check_vault(&bad).is_err());
+        assert!(Config::check_vault(Path::new("/tmp/ok")).is_ok());
+        let dir = std::env::temp_dir().join(format!("visor-config-utf8-{}", std::process::id()));
+        let mut config = Config::default();
+        config.add(&bad);
+        config.save_to(&dir.join("config.json"));
+        assert!(!dir.join("config.json").exists());
+        let _ = fs::remove_dir_all(dir);
     }
 }

@@ -4,8 +4,8 @@
 use crate::vault;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd, html};
-use std::fs;
-use std::path::Path;
+use std::cell::OnceCell;
+use std::path::{Path, PathBuf};
 
 const STYLE: &str = include_str!("../page/note.css");
 const SCRIPT: &str = include_str!("../page/note.js");
@@ -69,7 +69,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
         }
     }
     // Walking the vault costs a stat per file; most notes have no [[links]].
-    let mut index = None;
+    let index = Index::new(root);
     let (mut math, mut code, mut mermaid) = (false, false, false);
     let mut title = None;
 
@@ -138,7 +138,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
                     *text = text.replacen('#', " › ", 1).into();
                 }
                 if let Event::Start(Tag::Link { dest_url, title, .. }) = &mut events[i] {
-                    match wiki_target(dest_url, rel, index.get_or_insert_with(|| pages(root))) {
+                    match wiki_target(dest_url, rel, index.pages()) {
                         Some(url) => *dest_url = url.into(),
                         None => {
                             *title = CowStr::from(format!("Crear la nota «{dest_url}»"));
@@ -150,7 +150,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
             }
             Some(Fix::Embed) => {
                 if let Event::Start(Tag::Image { dest_url, .. }) = &mut events[i]
-                    && let Some(url) = embed_url(dest_url, rel, root)
+                    && let Some(url) = embed_in(dest_url, rel, &index)
                 {
                     *dest_url = url.into();
                 }
@@ -247,27 +247,37 @@ pub fn toggle_task(source: &str, offset: usize, checked: bool) -> Option<String>
 
 /// Every page in the vault, as relative paths, for resolving `[[wiki]]` links.
 pub(crate) fn pages(root: &Path) -> Vec<String> {
-    files(root, vault::is_page)
+    Index::new(root).pages().to_vec()
 }
 
-fn files(root: &Path, keep: fn(&Path) -> bool) -> Vec<String> {
-    fn walk(root: &Path, dir: &Path, keep: fn(&Path) -> bool, out: &mut Vec<String>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if entry.file_name().to_string_lossy().starts_with('.') {
-                continue;
-            }
-            if path.is_dir() {
-                walk(root, &path, keep, out);
-            } else if keep(&path) {
-                out.push(vault::rel(root, &path));
-            }
-        }
+/// The pages and images of a vault, found by one walk the first time either is
+/// asked for and shared by every link of a note.
+struct Index<'a> {
+    root: &'a Path,
+    found: OnceCell<(Vec<String>, Vec<String>)>,
+}
+
+impl<'a> Index<'a> {
+    fn new(root: &'a Path) -> Self {
+        Index { root, found: OnceCell::new() }
     }
-    let mut out = vec![];
-    walk(root, root, keep, &mut out);
-    out
+
+    fn found(&self) -> &(Vec<String>, Vec<String>) {
+        self.found.get_or_init(|| {
+            let all = vault::files(self.root, self.root, |p| vault::is_page(p) || is_image(p));
+            let rel = |paths: Vec<&PathBuf>| paths.into_iter().map(|p| vault::rel(self.root, p)).collect();
+            let (pages, images) = all.iter().partition(|p| vault::is_page(p));
+            (rel(pages), rel(images))
+        })
+    }
+
+    fn pages(&self) -> &[String] {
+        &self.found().0
+    }
+
+    fn images(&self) -> &[String] {
+        &self.found().1
+    }
 }
 
 fn is_image(path: &Path) -> bool {
@@ -277,17 +287,21 @@ fn is_image(path: &Path) -> bool {
 /// URL of the image that `![[name]]` in the note at `rel` shows: found by name
 /// anywhere in the vault, like `[[links]]`, preferring the note's own folder.
 pub fn embed_url(name: &str, rel: &str, root: &Path) -> Option<String> {
+    embed_in(name, rel, &Index::new(root))
+}
+
+fn embed_in(name: &str, rel: &str, index: &Index) -> Option<String> {
     let name = name.split('|').next().unwrap_or(name);
     if !is_image(Path::new(name.trim())) {
         return None;
     }
-    wiki_page(name, rel, &files(root, is_image)).map(|p| vault::url(p))
+    wiki_page(name, rel, index.images()).map(|p| vault::url(p))
 }
 
 /// URL of the `[[target]]` written in the note at `rel`, for the editor, which
 /// sees links as they are typed. `None` if no page matches.
 pub fn wiki_url(target: &str, rel: &str, root: &Path) -> Option<String> {
-    wiki_target(target, rel, &pages(root))
+    wiki_target(target, rel, Index::new(root).pages())
 }
 
 /// Resolves `[[name]]`, `[[folder/name]]` or `[[name#Section]]` like Obsidian:
@@ -346,6 +360,7 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn wiki_links_and_images_found_by_name() {

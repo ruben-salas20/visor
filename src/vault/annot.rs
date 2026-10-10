@@ -31,12 +31,19 @@ pub fn page_of(root: &Path, path: &Path) -> Option<String> {
     rel.strip_suffix(".json").map(str::to_string)
 }
 
-fn load(root: &Path, page: &str) -> Value {
-    fs::read(file(root, page))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .filter(|doc| doc["annotations"].is_array())
-        .unwrap_or_else(|| json!({ "page": page, "annotations": [] }))
+/// The annotations of `page`; none if it has no file yet. A file that exists
+/// but cannot be read is an error, never "empty": the next change would
+/// overwrite what the person wrote.
+fn load(root: &Path, page: &str) -> Result<Value, String> {
+    let path = file(root, page);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(json!({ "page": page, "annotations": [] })),
+        Err(e) => return Err(format!("No se pueden leer las anotaciones de {page}: {e}")),
+    };
+    serde_json::from_slice::<Value>(&bytes).ok().filter(|doc| doc["annotations"].is_array()).ok_or_else(|| {
+        format!("El archivo de anotaciones de {page} no se puede leer y no se ha tocado. Corrígelo o bórralo: {}", path.display())
+    })
 }
 
 fn store(root: &Path, page: &str, doc: &Value) -> io::Result<()> {
@@ -99,7 +106,7 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String>
     }
 
     let _guard = LOCK.lock().unwrap();
-    let mut doc = load(root, page);
+    let mut doc = load(root, page)?;
     let list = doc["annotations"].as_array_mut().unwrap();
     let now = crate::session::now();
     let mut before = String::new();
@@ -151,7 +158,7 @@ fn add_message(note: &mut Value, author: &str, text: &str) -> Result<(), String>
 /// its own notes, and only add a message.
 pub fn person_reply(root: &Path, page: &str, id: &str, text: &str) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap();
-    let mut doc = load(root, page);
+    let mut doc = load(root, page)?;
     let note = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id);
     let note = note.ok_or_else(|| format!("No hay ninguna anotación con id {id}"))?;
     add_message(note, "persona", text)?;
@@ -160,7 +167,7 @@ pub fn person_reply(root: &Path, page: &str, id: &str, text: &str) -> Result<(),
 
 pub fn delete(root: &Path, page: &str, id: &str) -> Result<(), String> {
     let _guard = LOCK.lock().unwrap();
-    let mut doc = load(root, page);
+    let mut doc = load(root, page)?;
     doc["annotations"].as_array_mut().unwrap().retain(|a| a["id"] != id);
     store(root, page, &doc).map_err(|e| e.to_string())
 }
@@ -180,15 +187,16 @@ pub fn list(root: &Path, page: Option<&str>) -> Vec<Value> {
     let pages = match page {
         Some(page) => vec![page.to_string()],
         None => {
-            let mut files = vec![];
-            collect(&root.join(DIR), &mut files);
-            files.iter().filter_map(|f| page_of(root, f)).collect()
+            collect(root).iter().filter_map(|f| page_of(root, f)).collect()
         }
     };
     pages
         .iter()
         .flat_map(|page| {
-            let doc = load(root, page);
+            let doc = load(root, page).unwrap_or_else(|e| {
+                eprintln!("{e}");
+                json!({ "annotations": [] })
+            });
             doc["annotations"]
                 .as_array()
                 .cloned()
@@ -203,25 +211,23 @@ pub fn list(root: &Path, page: Option<&str>) -> Vec<Value> {
         .collect()
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect(&path, out);
-        } else if path.extension().is_some_and(|e| e == "json") {
-            out.push(path);
-        }
-    }
+/// Every annotation file of the vault, found by the same walk as the panel's.
+fn collect(root: &Path) -> Vec<PathBuf> {
+    crate::vault::files(root, &root.join(DIR), |p| p.extension().is_some_and(|e| e == "json"))
 }
 
 /// Adds an agent's reply to the annotation `id`, wherever it is. Returns its page.
 pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
     let _guard = LOCK.lock().unwrap();
-    let mut files = vec![];
-    collect(&root.join(DIR), &mut files);
-    for page in files.iter().filter_map(|f| page_of(root, f)) {
-        let mut doc = load(root, &page);
+    let mut unreadable = None;
+    for page in collect(root).iter().filter_map(|f| page_of(root, f)) {
+        let mut doc = match load(root, &page) {
+            Ok(doc) => doc,
+            Err(e) => {
+                unreadable.get_or_insert(e);
+                continue;
+            }
+        };
         let Some(note) = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id) else {
             continue;
         };
@@ -229,7 +235,7 @@ pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
         store(root, &page, &doc).map_err(|e| e.to_string())?;
         return Ok(page);
     }
-    Err(format!("No hay ninguna anotación con id {id}"))
+    Err(unreadable.unwrap_or_else(|| format!("No hay ninguna anotación con id {id}")))
 }
 
 #[cfg(test)]
@@ -283,6 +289,23 @@ mod tests {
         assert!(upsert(&root, "p.html", &json!({ "id": "../x", "target": { "kind": "text" } })).is_err());
         assert!(upsert(&root, "p.html", &json!({ "id": "ok", "target": { "kind": "script" } })).is_err());
         assert!(reply(&root, "nada", "hola").is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unreadable_file_is_an_error_and_is_not_written() {
+        let root = vault();
+        for broken in ["{ no es json", "{}", "[]"] {
+            let path = file(&root, "p.html");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, broken).unwrap();
+            assert!(upsert(&root, "p.html", &quote_note("a1", "hola")).is_err());
+            assert!(person_reply(&root, "p.html", "a1", "hola").is_err());
+            assert!(delete(&root, "p.html", "a1").is_err());
+            assert!(reply(&root, "a1", "hola").unwrap_err().contains("no se puede leer"));
+            assert!(list(&root, None).is_empty());
+            assert_eq!(fs::read_to_string(&path).unwrap(), broken, "left as it was");
+        }
         let _ = fs::remove_dir_all(&root);
     }
 

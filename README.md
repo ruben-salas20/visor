@@ -10,7 +10,7 @@ Rust + tao + wry on WebKitGTK. Linux only, native Wayland.
 
 - Linux with Wayland, GTK 3, WebKitGTK 4.1 (2.38 or later).
 - Web video: `gst-libav` and `gst-plugins-bad`; `gst-plugin-va` and `gst-plugin-dav1d` recommended ([why](docs/adr/0032-requisitos-de-gstreamer.md)).
-- Rust 1.88 or later to build.
+- Rust 1.89 or later to build.
 
 ## Build
 
