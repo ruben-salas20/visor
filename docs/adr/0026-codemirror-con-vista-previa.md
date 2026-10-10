@@ -1,8 +1,6 @@
 # 0026. CodeMirror 6 ligero con vista previa en vivo
 
-**Estado:** Aceptada
-
-**Fecha:** 2026-10-07
+**Estado:** Aceptada · **Fecha:** 2026-10-07
 
 ## Contexto
 
@@ -10,11 +8,7 @@ Las notas necesitan un editor. La alternativa era un `<textarea>`.
 
 ## Decisión
 
-CodeMirror 6 ligero con vista previa en vivo, como Obsidian, en lugar del `<textarea>`. La lectura no cambia: Ctrl+E alterna con el editor, y CodeMirror solo se descarga al entrar en edición.
-
-## Consecuencias
-
-Leer no cuesta nada extra. Editar cuesta memoria (ver «Cifras»).
+CodeMirror 6 ligero con vista previa en vivo, como Obsidian. La lectura no cambia: Ctrl+E alterna con el editor, y CodeMirror solo se carga al editar. Leer no cuesta nada extra; editar cuesta memoria.
 
 ## Cifras
 

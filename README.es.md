@@ -2,17 +2,20 @@
 
 [English](README.md)
 
-visor es una aplicación de escritorio para estudiar con inteligencia artificial (IA). Muestra una **bóveda**, que es una carpeta con páginas HTML y notas Markdown. Tú lees, subrayas y comentas. Tu agente de IA lee tus anotaciones y te responde en la misma página.
+visor es una aplicación para estudiar con inteligencia artificial (IA). Muestra una **bóveda**: una carpeta con páginas HTML y notas Markdown. Tú lees, subrayas y comentas. Tu agente de IA lee tus anotaciones y te responde en la misma página.
 
-Funciona solo en Linux con Wayland.
+visor funciona solo en Linux con Wayland.
 
 ## Qué necesitas
 
 - Linux con Wayland, GTK 3 y WebKitGTK 4.1 (versión 2.38 o posterior).
-- Rust 1.88 o posterior, para compilar.
-- Para ver vídeo de la web: los paquetes `gst-libav` y `gst-plugins-bad`. Se recomiendan también `gst-plugin-va` (decodifica con la tarjeta gráfica) y `gst-plugin-dav1d`.
+- Rust 1.88 o posterior. Sirve para compilar visor; no hay versión ya compilada.
+- Un agente de IA que sepa usar herramientas, como Claude Code.
+- Para ver vídeo de la web, estos paquetes de tu distribución: `gst-libav` y `gst-plugins-bad`. También conviene instalar `gst-plugin-va` (usa la tarjeta gráfica) y `gst-plugin-dav1d`.
 
 ## Instalar
+
+Escribe estas órdenes en una terminal, dentro de la carpeta de visor.
 
 1. Compila el programa:
 
@@ -20,12 +23,12 @@ Funciona solo en Linux con Wayland.
    cargo build --release
    ```
 
-2. Copia `target/release/visor` a una carpeta de tu `PATH`, por ejemplo `~/.local/bin`.
+2. Copia el archivo `target/release/visor` a una carpeta donde tu sistema busque programas, por ejemplo `~/.local/bin`.
 
 ## Abrir una bóveda
 
-- Desde la aplicación: abre `visor` y pulsa Ctrl+O para elegir una carpeta.
-- Desde la terminal: `visor open <carpeta>`.
+- Desde la aplicación: escribe `visor` en la terminal y pulsa Ctrl+O para elegir una carpeta.
+- Desde la terminal: `visor open <carpeta>`, con la ruta de tu carpeta en lugar de `<carpeta>`.
 
 Para ver un solo archivo HTML sin crear una bóveda, usa `visor open <archivo.html>`. Ese archivo no admite anotaciones.
 
@@ -57,19 +60,18 @@ visor guarda las anotaciones en `<bóveda>/.visor/anotaciones/`. No modifican tu
 
 ## Conectar tu agente
 
-Tu agente controla visor por la terminal o por MCP, el protocolo con el que los agentes usan herramientas. Para registrarlo en Claude Code:
+Tu agente controla visor con órdenes de terminal o por MCP, un protocolo para que los agentes usen programas externos. Para registrar visor en Claude Code, escribe:
 
 ```
 claude mcp add visor -- visor mcp
 ```
 
-Después pide a tu agente que llame a la herramienta `guide`. Le explica qué órdenes tiene y cómo escribir páginas para visor.
+Después pide a tu agente que use la herramienta `guide`. Esa herramienta le explica qué puede hacer con visor y cómo escribir páginas para visor.
 
 ## Problemas frecuentes
 
-- **Un vídeo de la web no se reproduce.** Instala los paquetes de GStreamer de la sección «Qué necesitas».
-- **Una página pierde sus datos guardados.** visor usa siempre el mismo puerto local. Si otro programa lo ocupa, visor elige otro y las páginas empiezan sin sus datos esa sesión. Cierra el programa que ocupa el puerto.
-- **Una orden de prueba abre páginas en tu ventana.** La terminal habla con la instancia de visor que tienes abierta. Para probar sin tocarla, sigue `docs/pruebas.md`.
+- **Un vídeo de la web no se reproduce.** Instala los paquetes `gst-libav` y `gst-plugins-bad` que indica la sección «Qué necesitas».
+- **Una página pierde sus datos guardados.** visor usa siempre la misma conexión interna de tu equipo (el puerto). Si otro programa la ocupa, visor elige otra y las páginas empiezan sin sus datos esa sesión. Cierra el otro programa y reinicia visor.
 
 ## Más documentación
 

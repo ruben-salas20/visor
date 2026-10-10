@@ -2,18 +2,12 @@
 
 **Estado:** Aceptada
 
-## Contexto
-
-El paquete de CodeMirror vive en `assets/codemirror/codemirror.min.js` y se genera a partir de dependencias fijadas.
-
 ## Decisión
 
-En `tools/codemirror/`, `npm ci && npm run build` escribe `assets/codemirror/codemirror.min.js`. Las versiones están fijadas en `package.json` y `package-lock.json`. `entry.js` exporta en `window.CM` lo que usa `src/page/editor.js`. Si este necesita algo más, se añade allí y se vuelve a generar.
+`npm ci && npm run build` en `tools/codemirror/` escribe `assets/codemirror/codemirror.min.js`. Las versiones están fijadas en `package.json` y `package-lock.json`. `entry.js` exporta en `window.CM` lo que usa `src/page/editor.js`; si este necesita algo más, se añade allí y se regenera.
 
-## Consecuencias
-
-`entry.js` exporta además `EditorSelection` y `styleTags`, que `src/page/editor.js` no usa. Se dejan porque quitarlos agranda el paquete comprimido en 49 bytes.
+`entry.js` exporta además `EditorSelection` y `styleTags`, que nadie usa: quitarlos agranda el paquete en 49 bytes.
 
 ## Cifras
 
-- Paquete comprimido con brotli: 89 406 bytes con `EditorSelection` y `styleTags`, y 89 455 bytes sin ellos (+49 bytes). Medido el 2026-10-09.
+Paquete con brotli (2026-10-09): 89 406 bytes con esos dos exports, 89 455 sin ellos.

@@ -5,8 +5,8 @@
 El CLI habla con la instancia que escucha en el socket. Si el usuario tiene visor abierto, un `visor open` sin aislar abre páginas en su ventana y escribe en su `~/.config/visor`. Aísla siempre:
 
 ```sh
-export TMP=$(mktemp -d)                                  # carpeta de la prueba
-export VISOR_SOCKET=$XDG_RUNTIME_DIR/visor-prueba.sock   # ruta corta: los sockets Unix admiten ~108 caracteres
+export TMP=$(mktemp -d)
+export VISOR_SOCKET=$XDG_RUNTIME_DIR/visor-prueba.sock   # corta: los sockets Unix admiten ~108 caracteres
 export XDG_CONFIG_HOME=$TMP/cfg XDG_STATE_HOME=$TMP/state XDG_DATA_HOME=$TMP/data XDG_CACHE_HOME=$TMP/cache
 target/release/visor & echo $! > $TMP/pid      # ciérrala con kill $(cat $TMP/pid)
 ```
@@ -15,15 +15,13 @@ Cierra solo por PID: `pkill -f` con un patrón presente en tu propia orden mata 
 
 ## Interactuar sin ratón
 
-- Teclas reales a una ventana (Hyprland usa configuración en Lua):
-  `hyprctl dispatch 'hl.dsp.send_key_state({ mods = "CTRL", key = "E", state = "down", window = "address:0x…" })'` y lo mismo con `state = "up"`. La dirección sale de `hyprctl clients -j` filtrando por `pid`.
+- Teclas reales (Hyprland usa configuración en Lua):
+  `hyprctl dispatch 'hl.dsp.send_key_state({ mods = "CTRL", key = "E", state = "down", window = "address:0x…" })'`, y lo mismo con `state = "up"`. La dirección sale de `hyprctl clients -j` filtrando por `pid`.
 - Captura: `grim -g "x,y anchoxalto"` con la geometría de `hyprctl clients -j`.
-- Para gestos que no se pueden enviar (selección de texto, clics), escribe una página de prueba en la bóveda que los reproduzca por script (`dispatchEvent`, `.click()` dentro de `document.querySelector("visor-capa").shadowRoot`) y lee el resultado con `visor console`.
-- URL base del servidor (lleva una clave que cambia en cada arranque): una página con `visor.send({ href: location.href })` y `visor events --limit 1`.
+- Gestos imposibles de enviar (selección de texto, clics): una página de prueba en la bóveda que los reproduzca por script (`dispatchEvent`, `.click()` dentro de `document.querySelector("visor-capa").shadowRoot`); lee el resultado con `visor console`.
+- URL base del servidor (lleva una clave nueva en cada arranque): una página con `visor.send({ href: location.href })` y `visor events --limit 1`.
 
 ## Medir
-
-Usa `tools/medir/medir.py`. Mide con una instancia aislada y una bóveda fija (`tools/medir/boveda/`, copiada en `${TMPDIR:-/tmp}/visor-medir` en cada ejecución), alternando binarios:
 
 ```sh
 cp target/release/visor /tmp/visor-antes        # cargo sobrescribe el binario al compilar
@@ -33,23 +31,18 @@ tools/medir/medir.py --rondas 3 /tmp/visor-antes /tmp/visor-despues
 tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 ```
 
-Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. 3 rondas para comprobar un cambio; 5 para una referencia o si una cifra se sale del ruido.
+`medir.py` aísla la instancia, copia la bóveda `tools/medir/boveda/`, alterna los binarios y mide arranque en frío, memoria (PSS del árbol de procesos, 10 s tras cargar), CPU en reposo (30 s), cambio de página, pestaña nueva y editor. Three.js escribe sus fps en la consola cada segundo (`visor console`).
 
-Qué mide y cómo:
-
-- **Arranque en frío**: tiempo de `visor open <archivo>` con la app cerrada; ya espera a que la página cargue. La configuración se restablece antes de cada arranque.
-- **Memoria**: suma de `Pss` (`/proc/<pid>/smaps_rollup`) del proceso y de sus hijos y nietos (WebKitNetworkProcess, WebKitWebProcess), 10 s después de cargar. El RSS cuenta doble.
-- **CPU en reposo**: suma de `utime + stime` (campos 14 y 15 de `/proc/<pid>/stat`) del árbol de procesos al empezar y tras 30 s sin tocar nada. CPU = diferencia / `getconf CLK_TCK` / 30. La ventana debe estar visible en el escritorio activo: WebKit frena las páginas ocultas. El resumen descarta las rondas en que no lo estaba. Mover el ratón sobre la ventana la hace redibujar y la sube a ~2 %.
-- **Cambio de página y pestaña nueva**: tiempo de `visor open otra.md` y de `visor open --tab tareas.md` con la app abierta.
-- **Editor**: memoria 10 s después de Ctrl+E en la nota mínima.
-- **Three.js**: la página escribe sus fps en la consola cada segundo; se leen con `visor console`.
-- **La página manda en la memoria**: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
-- **El ruido supera a menudo el efecto**: con diferencias de pocos milisegundos, compara solo rondas alternadas. El arranque con `ondas.md` cae en dos valores (~670 y ~725 ms) con cualquier binario.
-- **El perfil de energía manda**: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
+- Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. 3 rondas para comprobar un cambio; 5 para una referencia o si una cifra se sale del ruido.
+- La ventana debe estar visible en el escritorio activo: WebKit frena las páginas ocultas y falsea la CPU. El resumen descarta esas rondas. Mover el ratón sobre la ventana la redibuja y sube la CPU a ~2 %.
+- Memoria en PSS, no RSS (el RSS cuenta doble).
+- La página manda en la memoria: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
+- El ruido supera a menudo el efecto: con diferencias de pocos ms, compara solo rondas alternadas. El arranque con `ondas.md` es bimodal con cualquier binario (~670 y ~725 ms).
+- El perfil de energía manda: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
 
 ## Referencia
 
-2026-10-10, commit `8e4ae91` (fin de la revisión de arquitectura), enchufado, perfil `performance`, `tools/medir/medir.py`. Mediana (mínimo–máximo) de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión. Otras 2 rondas no cuentan: el equipo cambió de estado y el arranque se duplicó con ambos binarios.
+2026-10-10, commit `8e4ae91` (fin de la revisión de arquitectura), enchufado, perfil `performance`. Mediana (mínimo–máximo) de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión. Otras 2 rondas no cuentan: el equipo cambió de estado y el arranque se duplicó con ambos binarios.
 
 | Medida | Valor | Antes (`f2bec3e`) |
 |---|---|---|
