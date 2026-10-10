@@ -3,6 +3,7 @@ pub mod action;
 pub mod app;
 pub mod bar;
 pub mod icons;
+pub mod page_calls;
 pub mod page_view;
 pub mod panes;
 pub mod sidebar;

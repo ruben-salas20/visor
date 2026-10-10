@@ -5,6 +5,7 @@ use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
+use crate::ui::page_calls;
 use crate::ui::page_view::{build_page, clean_position, is_web};
 use crate::ui::panes::{Pane, Tab};
 use crate::paths;
@@ -577,7 +578,7 @@ impl App {
             {
                 let (proxy, id) = (self.proxy.clone(), *id);
                 let _ = view.evaluate_script_with_callback(
-                    "window.__visorNote ? __visorNote.hide() : { y: scrollY }",
+                    page_calls::hide(),
                     move |json| {
                         let _ = proxy.send_event(UserEvent::Position { view: id, json });
                     },
@@ -774,9 +775,7 @@ impl App {
                 if let Some(position) = tab.restore.take()
                     && let Some((_, v)) = &tab.view
                 {
-                    let _ = v.evaluate_script(&format!(
-                        "(t => window.__visorNote ? __visorNote.place(t) : scrollTo(0, t.y))({position})"
-                    ));
+                    let _ = v.evaluate_script(&page_calls::place(&position));
                 }
                 if is_web(&tab.target)
                     && let Some((_, v)) = &tab.view
@@ -889,9 +888,9 @@ impl App {
                 pane.bar.show(&pane.tab().target);
             }
             Action::Go(text) => self.go(&text),
-            Action::PickElement => self.page_call("window.__visorAnnot && window.__visorAnnot.pickElement()"),
-            Action::ToggleAnnotations => self.page_call("window.__visorAnnot && window.__visorAnnot.togglePanel()"),
-            Action::ToggleEdit => self.page_call("window.__visorNote && window.__visorNote.toggle()"),
+            Action::PickElement => self.page_call(page_calls::annot_pick_element()),
+            Action::ToggleAnnotations => self.page_call(page_calls::annot_toggle_panel()),
+            Action::ToggleEdit => self.page_call(page_calls::note_toggle()),
             Action::NewNote => {
                 if self.vault().is_none() {
                     return;
@@ -978,24 +977,7 @@ impl App {
     fn frost(&self, p: usize, zone: Option<u8>) {
         let Some((_, view)) = &self.panes[p].tab().view else { return };
         let accent = self.theme.as_ref().map_or("#3584e4", |t| t.accent.as_str());
-        let (left, right) = match zone {
-            Some(0) => ("8px", "calc(50% + 4px)"),
-            Some(1) => ("calc(50% + 4px)", "8px"),
-            _ => ("8px", "8px"),
-        };
-        let code = format!(
-            r#"(() => {{
-  let d = document.getElementById("__visor_drop");
-  if (!{on}) {{ d?.remove(); return; }}
-  if (!d) {{ d = document.createElement("div"); d.id = "__visor_drop"; document.documentElement.append(d); }}
-  d.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;top:8px;bottom:8px;left:{left};right:{right};"
-    + "border-radius:10px;border:2px solid color-mix(in srgb, {accent} 70%, transparent);"
-    + "background:color-mix(in srgb, {accent} 12%, transparent);"
-    + "backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2)";
-}})()"#,
-            on = zone.is_some(),
-        );
-        let _ = view.evaluate_script(&code);
+        let _ = view.evaluate_script(&page_calls::frost(zone, accent));
     }
 
     /// Opens the dragged file where it was dropped. On an unsplit window it
@@ -1282,11 +1264,11 @@ impl App {
                     Ok(()) => (true, String::new()),
                     Err(e) => (false, e),
                 };
-                reply(self, format!("window.__visorNote && window.__visorNote.saved({ok}, {})", json!(error)));
+                reply(self, page_calls::note_saved(ok, &error));
             }
             PageMsg::ToggleTask { offset, checked } if trusted => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
-                reply(self, format!("window.__visorNote && window.__visorNote.toggled({})", json!(error)));
+                reply(self, page_calls::note_toggled(&error));
             }
             PageMsg::AnnotSave { annotation } if trusted => {
                 match self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
@@ -1309,10 +1291,7 @@ impl App {
                 match self.with_page_annotations(url, |root, page| annot::person_reply(root, page, &id, &text)) {
                     Ok(()) => self.note_annotation(&file, &id, "reply", &text),
                     // The page took the message as sent; it takes it back and shows why.
-                    Err(e) => reply(self, format!(
-                        "window.__visorAnnot && window.__visorAnnot.replyFailed({}, {}, {})",
-                        json!(id), json!(text), json!(e)
-                    )),
+                    Err(e) => reply(self, page_calls::annot_reply_failed(&id, &text, &e)),
                 }
             }
             PageMsg::AnnotStatus { orphans, total } if trusted => {
@@ -1489,7 +1468,7 @@ impl App {
         let reaction = watch::vault_reaction(vault.path(), &changed, self.own_write.as_ref(), &pages, &RealDisk);
         for view in reaction.reload_annotations {
             if let Some(v) = self.view_of(view) {
-                let _ = v.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
+                let _ = v.evaluate_script(page_calls::annot_reload());
             }
         }
         if reaction.refresh_tree {
@@ -1502,7 +1481,7 @@ impl App {
                 PageAction::ReloadEmpty => self.load_into(v, "", ""),
                 // A note being edited must not lose its text to a reload.
                 PageAction::NoteChanged => {
-                    let _ = v.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
+                    let _ = v.evaluate_script(page_calls::note_changed());
                 }
                 PageAction::Reload => {
                     let _ = v.reload();
