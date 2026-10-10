@@ -56,7 +56,7 @@ visor recuerda las pestañas de cada bóveda y la reabre como la dejaste. Si un 
 2. Para anotar un gráfico o una imagen, pulsa Ctrl+Shift+A y haz clic en el elemento.
 3. Tu agente lee la anotación y responde. Ves la respuesta al momento en tu nota y puedes contestar.
 
-visor guarda las anotaciones en `<bóveda>/.visor/anotaciones/`. No modifican tus páginas. Si tu agente cambia el texto anotado, la anotación se recoloca sola. Si lo borra, queda huérfana y la ves en la lista de anotaciones.
+visor guarda las anotaciones en `<bóveda>/.visor/anotaciones/`. No modifican tus páginas. Si el texto anotado cambia de sitio en la página, la anotación lo sigue. Si el texto cambia o desaparece, la anotación queda huérfana y la ves en la lista de anotaciones.
 
 ## Conectar tu agente
 
