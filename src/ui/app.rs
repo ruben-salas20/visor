@@ -7,7 +7,8 @@ use crate::vault::files;
 use crate::vault::links;
 use crate::ui::page_calls;
 use crate::ui::page_view::{build_page, clean_position, is_web};
-use crate::ui::panes::{Pane, Tab};
+use crate::ui::panes::Pane;
+use crate::ui::tabs::{Effect, Tabs};
 use crate::paths;
 use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
@@ -36,9 +37,6 @@ use wry::{WebContext, WebView, WebViewExtUnix};
 const SIDEBAR_WIDTH: i32 = 260;
 const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
-/// Pages kept loaded across all tabs. Each one is a WebKit process of
-/// 60–90 MB; the two on screen always count. See docs/decisiones.md.
-const MAX_LIVE: usize = 3;
 
 /// Messages from vault pages. Websites never get to send these.
 #[derive(Deserialize)]
@@ -141,9 +139,10 @@ pub fn launch() -> i32 {
     }
     paned.pack1(&sidebar.root, false, false);
     paned.pack2(&split, true, true);
-    let first = Pane::new(1, &proxy);
-    first.bar.set_visible(config.bar_shown);
-    split.pack1(&first.root, true, false);
+    let tabs = Tabs::new();
+    let first = Pane::new(tabs.side(0).id(), &proxy);
+    first.bar().set_visible(config.bar_shown);
+    split.pack1(first.root(), true, false);
     split.show();
     paned.show();
 
@@ -152,11 +151,10 @@ pub fn launch() -> i32 {
         context,
         background,
         panes: vec![first],
-        focused: 0,
+        tabs,
+        views: vec![],
         split,
         place_split,
-        next_id: 2,
-        clock: 0,
         mono: None,
         dragging: None,
         sidebar_before_fullscreen: None,
@@ -177,6 +175,7 @@ pub fn launch() -> i32 {
     // Load the page now instead of after the sidebar: both webviews start in parallel.
     let current = app.config.current.clone().filter(|p| !loose && p.is_dir());
     app.show_vault(current);
+    app.draw_strips();
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
         match event {
@@ -256,17 +255,15 @@ struct App {
     sidebar: Sidebar,
     context: WebContext,
     background: (u8, u8, u8, u8),
-    /// The left side and, when split, the right one.
+    /// The widgets of the left side and, when split, of the right one. They
+    /// follow the sides of `tabs`, which the effects keep in step.
     panes: Vec<Pane>,
-    /// Index in `panes` of the side keys and agents act on.
-    focused: usize,
+    tabs: Tabs,
+    /// The live pages' views, by view id.
+    views: Vec<(u64, WebView)>,
     split: gtk::Paned,
     /// The share of the width for the left side, applied once the new right side has a size.
     place_split: Rc<Cell<Option<f64>>>,
-    /// Source of ids for panes, tabs and views.
-    next_id: u64,
-    /// Counts tab switches, to find the tab used longest ago.
-    clock: u64,
     mono: Option<String>,
     /// The file being dragged from the sidebar.
     dragging: Option<String>,
@@ -299,18 +296,13 @@ impl App {
         self.vault().ok_or_else(|| "No hay ninguna bóveda abierta".into())
     }
 
-    fn new_id(&mut self) -> u64 {
-        self.next_id += 1;
-        self.next_id
-    }
-
     fn pane(&self) -> &Pane {
-        &self.panes[self.focused]
+        &self.panes[self.tabs.focused()]
     }
 
     /// The view of the focused side's active tab. It is always loaded.
     fn view(&self) -> Option<&WebView> {
-        self.pane().tab().view.as_ref().map(|(_, v)| v)
+        self.view_of(self.tabs.focused_view()?)
     }
 
     fn eval(&self, code: &str) {
@@ -324,23 +316,8 @@ impl App {
         shared.page().file.clone()
     }
 
-    /// The side and tab of a view.
-    fn find_view(&self, view: u64) -> Option<(usize, usize)> {
-        self.panes.iter().enumerate().find_map(|(p, pane)| {
-            pane.tabs.iter().position(|t| t.view_id() == Some(view)).map(|i| (p, i))
-        })
-    }
-
-    fn find_tab(&self, id: u64) -> Option<(usize, usize)> {
-        self.panes
-            .iter()
-            .enumerate()
-            .find_map(|(p, pane)| pane.tabs.iter().position(|t| t.id == id).map(|i| (p, i)))
-    }
-
     fn view_of(&self, view: u64) -> Option<&WebView> {
-        let (p, i) = self.find_view(view)?;
-        self.panes[p].tabs[i].view.as_ref().map(|(_, v)| v)
+        self.views.iter().find(|(id, _)| *id == view).map(|(_, v)| v)
     }
 
     /// Shows the vault list and the tree of the current vault in the sidebar.
@@ -363,12 +340,6 @@ impl App {
             self.sidebar.root.show();
         }
         self.publish();
-        while self.panes.len() > 1 {
-            self.remove_pane(1);
-        }
-        for tab in std::mem::take(&mut self.panes[0].tabs) {
-            self.drop_view(tab);
-        }
         {
             let mut shared = self.shared.lock().unwrap();
             shared.vault = root.as_deref().map(|r| Arc::new(Vault::open(r)));
@@ -382,83 +353,41 @@ impl App {
         }
         self.show_sidebar();
 
-        let workspace = root.as_ref().and_then(|r| self.restore(r)).unwrap_or_default();
-        for (p, state) in workspace.panes.iter().enumerate().take(2) {
-            if p == 1 {
-                self.add_pane();
-            }
-            let tabs: Vec<Tab> = state.tabs.iter().map(|t| Tab::new(self.new_id(), t.clone())).collect();
-            let pane = &mut self.panes[p];
-            pane.tabs = tabs;
-            pane.active = state.active.min(pane.tabs.len().saturating_sub(1));
-        }
-        if self.panes[0].tabs.is_empty() {
-            let id = self.new_id();
-            self.panes[0].tabs.push(Tab::new(id, String::new()));
-            self.panes[0].active = 0;
-        }
-        self.focused = workspace.focused.min(self.panes.len() - 1);
-        for p in 0..self.panes.len() {
-            self.show_pane(p);
-        }
+        let saved = root.as_deref().and_then(|r| self.saved_workspace(r));
+        let effects = self.tabs.reset(saved, |t| root.as_deref().is_some_and(|r| r.join(t).is_file()));
+        self.apply(effects);
         self.focus_changed();
-        // Otherwise GTK gives the keys to whichever view it finds first.
-        self.focus_pane(self.focused, true);
     }
 
-    /// The saved tabs of `root`, without files that no longer exist.
-    fn restore(&mut self, root: &Path) -> Option<Workspace> {
-        let keep = |t: &String| t.is_empty() || is_web(t) || root.join(t).is_file();
-        let mut workspace = self.config.workspaces.get(root).cloned().or_else(|| {
+    /// The workspace saved for `root`, or one tab with the last file opened
+    /// there, from before the workspaces.
+    fn saved_workspace(&self, root: &Path) -> Option<Workspace> {
+        self.config.workspaces.get(root).cloned().or_else(|| {
             let last = self.config.last.get(root)?.clone();
             Some(Workspace { panes: vec![PaneState { tabs: vec![last], active: 0 }], focused: 0 })
-        })?;
-        for pane in &mut workspace.panes {
-            let active = pane.tabs.get(pane.active).cloned();
-            pane.tabs.retain(keep);
-            pane.active = active.and_then(|a| pane.tabs.iter().position(|t| *t == a)).unwrap_or(0);
-        }
-        workspace.panes.retain(|p| !p.tabs.is_empty());
-        (!workspace.panes.is_empty()).then_some(workspace)
+        })
     }
 
     /// Records the sides and tabs for `visor status` and in the vault's workspace.
     fn publish(&mut self) {
-        let sides: Vec<Value> = self
-            .panes
-            .iter()
-            .map(|pane| {
-                let tabs: Vec<&str> = pane.tabs.iter().map(|t| t.target.as_str()).collect();
-                json!({ "tabs": tabs, "active": pane.active })
-            })
-            .collect();
-        let focused = self.pane().tabs.get(self.pane().active).and_then(Tab::view_id).unwrap_or(0);
+        let focused = self.tabs.focused_view().unwrap_or(0);
         let root = {
             let mut shared = self.shared.lock().unwrap();
-            shared.layout = json!({ "list": sides, "focused": self.focused });
+            shared.layout = self.tabs.layout();
             shared.focused = focused;
             shared.vault.as_ref().map(|v| v.path().to_path_buf())
         };
         self.watch_loose();
         let Some(root) = root else { return };
-        let workspace = Workspace {
-            panes: self
-                .panes
-                .iter()
-                .map(|p| PaneState { tabs: p.tabs.iter().map(|t| t.target.clone()).collect(), active: p.active })
-                .collect(),
-            focused: self.focused,
-        };
-        self.config.workspaces.insert(root, workspace);
+        self.config.workspaces.insert(root, self.tabs.workspace());
         self.save_config_soon();
     }
 
     /// Adds the right side, empty.
-    fn add_pane(&mut self) {
-        let id = self.new_id();
+    fn add_pane(&mut self, id: u64) {
         let pane = Pane::new(id, &self.proxy);
-        pane.bar.set_visible(self.config.bar_shown);
-        self.split.pack2(&pane.root, true, false);
+        pane.bar().set_visible(self.config.bar_shown);
+        self.split.pack2(pane.root(), true, false);
         self.place_split.set(Some(self.config.split_ratio.unwrap_or(0.5)));
         self.split.queue_resize();
         self.panes.push(pane);
@@ -466,75 +395,127 @@ impl App {
 
     fn remove_pane(&mut self, p: usize) {
         self.save_split();
-        let mut pane = self.panes.remove(p);
-        for tab in std::mem::take(&mut pane.tabs) {
-            self.drop_view(tab);
-        }
-        self.split.remove(&pane.root);
+        let pane = self.panes.remove(p);
+        self.split.remove(pane.root());
         // The right side moves to the left.
         if p == 0
             && let Some(left) = self.panes.first()
         {
-            self.split.remove(&left.root);
-            self.split.pack1(&left.root, true, false);
+            self.split.remove(left.root());
+            self.split.pack1(left.root(), true, false);
         }
-        self.focused = 0;
     }
 
-    fn drop_view(&mut self, mut tab: Tab) -> Tab {
-        tab.ready = false;
-        if let Some((id, _)) = tab.view.take() {
-            self.shared.lock().unwrap().pages.remove(&id);
+    fn swap_panes(&mut self) {
+        self.panes.swap(0, 1);
+        for pane in &self.panes {
+            self.split.remove(pane.root());
         }
-        tab
+        self.split.pack1(self.panes[0].root(), true, false);
+        self.split.pack2(self.panes[1].root(), true, false);
     }
 
-    /// Loads the view of a tab if it has none, and unloads the tab hidden
-    /// longest ago when there are more than MAX_LIVE.
-    fn ensure_live(&mut self, p: usize, i: usize) {
-        self.clock += 1;
-        self.panes[p].tabs[i].used = self.clock;
-        if self.panes[p].tabs[i].view.is_none() {
-            let id = self.new_id();
-            let built = build_page(&self.panes[p].views, &mut self.context, self.background, self.proxy.clone(), id);
-            let view = match built {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("No se pudo crear el webview: {e}");
-                    return;
+    /// Does what the tabs model asks, in order. Returns the load of the first
+    /// view it creates or points elsewhere: the one `open` waits for.
+    fn apply(&mut self, effects: Vec<Effect>) -> Option<Loading> {
+        let mut loading = None;
+        for effect in effects {
+            match effect {
+                Effect::AddSide { id } => self.add_pane(id),
+                Effect::RemoveSide { side } => self.remove_pane(side),
+                Effect::SwapSides => self.swap_panes(),
+                Effect::Create { side, view, target, fragment } => {
+                    if self.create_view(side, view, &target, &fragment) {
+                        loading.get_or_insert((view, 0));
+                    } else {
+                        self.tabs.abort_view(view);
+                    }
                 }
-            };
-            view.webview().set_visible(false);
-            self.style_view(&view);
-            view.webview().set_zoom_level(self.config.zoom.unwrap_or(1.0));
-            self.shared.lock().unwrap().pages.insert(id, Page::default());
-            let tab = &mut self.panes[p].tabs[i];
-            let (target, fragment) = (tab.target.clone(), std::mem::take(&mut tab.fragment));
-            self.load_into(&view, &target, &fragment);
-            self.panes[p].tabs[i].view = Some((id, view));
-        }
-        loop {
-            let live: Vec<(usize, usize, u64)> = self
-                .panes
-                .iter()
-                .enumerate()
-                .flat_map(|(p, pane)| {
-                    pane.tabs.iter().enumerate().filter(|(_, t)| t.view.is_some()).map(move |(i, t)| (p, i, t.used))
-                })
-                .collect();
-            if live.len() <= MAX_LIVE {
-                break;
+                Effect::Unload { view } => {
+                    self.views.retain(|(id, _)| *id != view);
+                    self.shared.lock().unwrap().pages.remove(&view);
+                }
+                Effect::MoveView { view, from, to } => {
+                    // Views move to the other side's container; WebKit keeps the page loaded.
+                    if let Some(v) = self.view_of(view) {
+                        let widget = v.webview();
+                        self.panes[from].views().remove(&widget);
+                        self.panes[to].views().pack_start(&widget, true, true, 0);
+                    }
+                }
+                Effect::Navigate { view, target, fragment } => {
+                    if let Some(v) = self.view_of(view) {
+                        let before = self.shared.lock().unwrap().page_of(view).load_seq;
+                        self.load_into(v, &target, &fragment);
+                        loading.get_or_insert((view, before));
+                    }
+                }
+                Effect::SavePosition { view } => {
+                    // Asked while still on screen: the tab may be unloaded later.
+                    if let Some(v) = self.view_of(view)
+                        && v.webview().is_visible()
+                    {
+                        let proxy = self.proxy.clone();
+                        let _ = v.evaluate_script_with_callback(page_calls::hide(), move |json| {
+                            let _ = proxy.send_event(UserEvent::Position { view, json });
+                        });
+                    }
+                }
+                Effect::Show { side } => {
+                    self.show_active(side);
+                    self.panes[side].bar().set_text(self.tabs.side(side).tab().target());
+                    self.update_nav(side);
+                }
+                Effect::Focus => {
+                    if let Some(view) = self.view() {
+                        view.webview().grab_focus();
+                    }
+                }
             }
-            let oldest = live
-                .into_iter()
-                .filter(|(p, i, _)| self.panes[*p].active != *i)
-                .min_by_key(|(_, _, used)| *used);
-            let Some((p, i, _)) = oldest else { break };
-            let tab = &mut self.panes[p].tabs[i];
-            tab.restore = tab.position.take();
-            tab.ready = false;
-            if let Some((id, _)) = tab.view.take() {
-                self.shared.lock().unwrap().pages.remove(&id);
+        }
+        loading
+    }
+
+    /// Builds the hidden view of a tab. False if the system could not.
+    fn create_view(&mut self, side: usize, id: u64, target: &str, fragment: &str) -> bool {
+        let built = build_page(self.panes[side].views(), &mut self.context, self.background, self.proxy.clone(), id);
+        let view = match built {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("No se pudo crear el webview: {e}");
+                return false;
+            }
+        };
+        view.webview().set_visible(false);
+        self.style_view(&view);
+        view.webview().set_zoom_level(self.config.zoom.unwrap_or(1.0));
+        self.shared.lock().unwrap().pages.insert(id, Page::default());
+        self.load_into(&view, target, fragment);
+        self.views.push((id, view));
+        true
+    }
+
+    /// Shows the active view of side `p` and hides the others, which stay loaded.
+    /// A new view stays hidden until its page starts loading: on screen,
+    /// WebKitGTK blocks the app up to 500 ms waiting for its first paint while
+    /// the new process waits for the app, twice per new view.
+    fn show_active(&self, p: usize) {
+        let side = self.tabs.side(p);
+        if !side.tab().is_ready() {
+            return;
+        }
+        for (i, tab) in side.tabs().iter().enumerate() {
+            if let Some(view) = tab.view().and_then(|id| self.view_of(id)) {
+                view.webview().set_visible(i == side.active());
+            }
+        }
+    }
+
+    /// Draws again the tab strips that changed since the last time, once per event.
+    fn draw_strips(&mut self) {
+        for (p, pane) in self.panes.iter().enumerate() {
+            if self.tabs.take_dirty(p) {
+                pane.render(self.tabs.side(p), p == self.tabs.focused());
             }
         }
     }
@@ -573,44 +554,14 @@ impl App {
         }
     }
 
-    /// Loads the active tab of side `p` if needed, shows it and updates the side's controls.
-    fn show_pane(&mut self, p: usize) {
-        let active = self.panes[p].active;
-        self.ensure_live(p, active);
-        let pane = &self.panes[p];
-        // Asked while still on screen: the tab may be unloaded later.
-        for (i, tab) in pane.tabs.iter().enumerate() {
-            if let Some((id, view)) = &tab.view
-                && i != active
-                && view.webview().is_visible()
-            {
-                let (proxy, id) = (self.proxy.clone(), *id);
-                let _ = view.evaluate_script_with_callback(
-                    page_calls::hide(),
-                    move |json| {
-                        let _ = proxy.send_event(UserEvent::Position { view: id, json });
-                    },
-                );
-            }
-        }
-        pane.show_active();
-        pane.render(p == self.focused);
-        pane.bar.set_text(&pane.tab().target);
-        self.update_nav(p);
-    }
-
-    /// Updates what depends on the focused side: the sidebar, the strips and the agents' view.
+    /// Updates what depends on the focused side: the sidebar and the agents' view.
     fn focus_changed(&mut self) {
-        for (p, pane) in self.panes.iter().enumerate() {
-            pane.render(p == self.focused);
-        }
         self.publish();
         self.sidebar.current(self.focused_file());
     }
 
     fn focus_pane(&mut self, p: usize, grab: bool) {
-        if p != self.focused {
-            self.focused = p;
+        if self.tabs.focus(p) {
             self.focus_changed();
         }
         if grab && let Some(view) = self.view() {
@@ -625,47 +576,9 @@ impl App {
     }
 
     fn open_with(&mut self, target: String, place: Place, fragment: &str) -> Option<Loading> {
-        let p = match place {
-            Place::Here | Place::NewTab => self.focused,
-            Place::Beside => {
-                if self.panes.len() == 1 {
-                    self.add_pane();
-                }
-                1 - self.focused
-            }
-        };
-        let i = if place == Place::Here && !self.panes[p].tabs.is_empty() {
-            self.panes[p].active
-        } else {
-            let at = if self.panes[p].tabs.is_empty() { 0 } else { self.panes[p].active + 1 };
-            let id = self.new_id();
-            self.panes[p].tabs.insert(at, Tab::new(id, String::new()));
-            at
-        };
-        self.panes[p].active = i;
-        let tab = &mut self.panes[p].tabs[i];
-        tab.target = target.clone();
-        tab.title = None;
-        tab.position = None;
-        tab.restore = None;
-        let loading = match &self.panes[p].tabs[i].view {
-            Some((id, view)) => {
-                let before = self.shared.lock().unwrap().page_of(*id).load_seq;
-                self.load_into(view, &target, fragment);
-                Some((*id, before))
-            }
-            None => {
-                self.panes[p].tabs[i].fragment = fragment.to_string();
-                self.ensure_live(p, i);
-                self.panes[p].tabs[i].view_id().map(|id| (id, 0))
-            }
-        };
-        self.show_pane(p);
-        self.focused = p;
+        let effects = self.tabs.open(target, place, fragment);
+        let loading = self.apply(effects);
         self.focus_changed();
-        if let Some(view) = self.view() {
-            view.webview().grab_focus();
-        }
         loading
     }
 
@@ -678,7 +591,7 @@ impl App {
         }
         if vault::is_loose(text) {
             if self.open(PathBuf::from(text), text, Place::Here).is_err() {
-                self.pane().bar.set_error();
+                self.pane().bar().set_error();
             }
             return;
         }
@@ -690,15 +603,14 @@ impl App {
         } else if !text.contains(char::is_whitespace) && text.contains('.') {
             self.open_in(format!("https://{text}"), Place::Here);
         } else {
-            self.pane().bar.set_error();
+            self.pane().bar().set_error();
         }
     }
 
     fn update_nav(&self, p: usize) {
-        let pane = &self.panes[p];
-        let Some((_, view)) = &pane.tab().view else { return };
+        let Some(view) = self.tabs.side(p).tab().view().and_then(|id| self.view_of(id)) else { return };
         let view = view.webview();
-        pane.bar.set_nav(view.can_go_back(), view.can_go_forward());
+        self.panes[p].bar().set_nav(view.can_go_back(), view.can_go_forward());
     }
 
     fn style_view(&self, view: &WebView) {
@@ -720,7 +632,7 @@ impl App {
     }
 
     fn live_views(&self) -> impl Iterator<Item = &WebView> {
-        self.panes.iter().flat_map(|p| p.tabs.iter().filter_map(|t| t.view.as_ref().map(|(_, v)| v)))
+        self.views.iter().map(|(_, v)| v)
     }
 
     fn apply_theme(&mut self) {
@@ -783,6 +695,11 @@ impl App {
     }
 
     fn handle(&mut self, event: UserEvent) {
+        self.dispatch(event);
+        self.draw_strips();
+    }
+
+    fn dispatch(&mut self, event: UserEvent) {
         match event {
             UserEvent::Sidebar(msg) => self.on_sidebar(msg),
             UserEvent::Page { view, url, body } => {
@@ -798,25 +715,20 @@ impl App {
                     page.loaded = true;
                     page.load_seq += 1;
                 }
-                let Some((p, i)) = self.find_view(view) else { return };
-                let tab = &mut self.panes[p].tabs[i];
-                if let Some(position) = tab.restore.take()
-                    && let Some((_, v)) = &tab.view
+                let Some(loaded) = self.tabs.loaded(view) else { return };
+                if let Some(position) = &loaded.restore
+                    && let Some(v) = self.view_of(view)
                 {
-                    let _ = v.evaluate_script(&page_calls::place(&position));
+                    let _ = v.evaluate_script(&page_calls::place(position));
                 }
-                if is_web(&tab.target)
-                    && let Some((_, v)) = &tab.view
-                {
-                    tab.title = v.webview().title().map(|t| t.to_string());
-                    self.panes[p].render(p == self.focused);
+                if loaded.web {
+                    let title = self.view_of(view).and_then(|v| v.webview().title()).map(|t| t.to_string());
+                    self.tabs.set_title(view, title);
                 }
-                self.update_nav(p);
+                self.update_nav(loaded.side);
             }
             UserEvent::Focused(view) => {
-                if let Some((p, i)) = self.find_view(view)
-                    && self.panes[p].active == i
-                {
+                if let Some((p, true)) = self.tabs.locate(view) {
                     self.focus_pane(p, false);
                 }
             }
@@ -836,14 +748,12 @@ impl App {
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Dropped { pane, half } => self.dropped(pane, half),
             UserEvent::DropHover { pane, zone } => {
-                if let Some(p) = self.panes.iter().position(|x| x.id == pane) {
+                if let Some(p) = self.panes.iter().position(|x| x.id() == pane) {
                     self.frost(p, zone);
                 }
             }
             UserEvent::Position { view, json } => {
-                if let Some((p, i)) = self.find_view(view) {
-                    self.panes[p].tabs[i].position = clean_position(&json);
-                }
+                self.tabs.set_position(view, clean_position(&json));
             }
             UserEvent::MonoFont(font) => {
                 self.mono = font;
@@ -875,13 +785,13 @@ impl App {
                 side.set_visible(!side.is_visible());
             }
             Action::FocusAddress => {
-                self.pane().bar.focus_address();
+                self.pane().bar().focus_address();
             }
             Action::AddressDone => {
                 if !self.config.bar_shown {
                     for pane in &self.panes {
-                        if !pane.bar.is_typing() {
-                            pane.bar.set_visible(false);
+                        if !pane.bar().is_typing() {
+                            pane.bar().set_visible(false);
                         }
                     }
                 }
@@ -889,9 +799,9 @@ impl App {
             Action::ToggleBar => {
                 self.config.bar_shown = !self.config.bar_shown;
                 self.save_config_soon();
-                let typing = self.panes.iter().any(|p| p.bar.is_typing());
+                let typing = self.panes.iter().any(|p| p.bar().is_typing());
                 for pane in &self.panes {
-                    pane.bar.set_visible(self.config.bar_shown);
+                    pane.bar().set_visible(self.config.bar_shown);
                 }
                 if !self.config.bar_shown && typing && let Some(view) = self.view() {
                     view.webview().grab_focus();
@@ -914,8 +824,7 @@ impl App {
                 if let Some(view) = self.view() {
                     view.webview().grab_focus();
                 }
-                let pane = self.pane();
-                pane.bar.set_text(&pane.tab().target);
+                self.pane().bar().set_text(self.tabs.focused_side().tab().target());
             }
             Action::Go(text) => self.go(&text),
             Action::PickElement => self.page_call(page_calls::annot_pick_element()),
@@ -934,34 +843,23 @@ impl App {
                 self.open_in(String::new(), Place::NewTab);
             }
             Action::CloseTab(id) => {
-                let found = match id {
-                    Some(id) => self.find_tab(id),
-                    None => Some((self.focused, self.pane().active)),
-                };
-                if let Some((p, i)) = found {
-                    self.close_tab(p, i);
-                }
+                let effects = self.tabs.close(id);
+                self.apply_and_publish(effects);
             }
             Action::CycleTab(step) => {
-                let pane = &mut self.panes[self.focused];
-                let n = pane.tabs.len() as isize;
-                pane.active = (pane.active as isize + step as isize).rem_euclid(n) as usize;
-                self.show_pane(self.focused);
-                self.focus_changed();
-                self.focus_pane(self.focused, true);
+                let effects = self.tabs.cycle(step);
+                self.apply_and_publish(effects);
             }
             Action::SelectTab(id) => {
-                if let Some((p, i)) = self.find_tab(id) {
-                    self.panes[p].active = i;
-                    self.show_pane(p);
-                    self.focused = p;
-                    self.focus_changed();
-                    self.focus_pane(p, true);
-                }
+                let effects = self.tabs.select(id);
+                self.apply_and_publish(effects);
             }
-            Action::ToggleSplit => self.toggle_split(),
+            Action::ToggleSplit => {
+                let effects = self.tabs.toggle_split();
+                self.apply_and_publish(effects);
+            }
             Action::FocusPane(id) => {
-                if let Some(p) = self.panes.iter().position(|pane| pane.id == id) {
+                if let Some(p) = self.panes.iter().position(|pane| pane.id() == id) {
                     self.focus_pane(p, false);
                 }
             }
@@ -976,20 +874,28 @@ impl App {
     /// Opens a link from a page in a new tab on the page's side. A background
     /// tab is not loaded until it is shown, so it costs nothing until then.
     fn open_tab(&mut self, view: u64, url: &str, background: bool) {
-        let Some((p, _)) = self.find_view(view) else { return };
+        let Some((p, _)) = self.tabs.locate(view) else { return };
         let (address, fragment) = url.split_once('#').map_or((url, ""), |(a, f)| (a, f));
         let target = vault::rel_from_url(address).unwrap_or_else(|| url.to_string());
         let fragment = if target == url || fragment.is_empty() { String::new() } else { format!("#{fragment}") };
         if background {
-            let mut tab = Tab::new(self.new_id(), target);
-            tab.fragment = fragment;
-            self.panes[p].tabs.push(tab);
-            self.panes[p].render(p == self.focused);
-            self.publish();
+            if self.tabs.open_background(view, target, fragment) {
+                self.publish();
+            }
         } else {
-            self.focused = p;
+            self.tabs.focus(p);
             self.open_with(target, Place::NewTab, &fragment);
         }
+    }
+
+    /// Applies what an intent on the tabs asks for, if it did anything, and
+    /// tells the agents and the saved workspace.
+    fn apply_and_publish(&mut self, effects: Vec<Effect>) {
+        if effects.is_empty() {
+            return;
+        }
+        self.apply(effects);
+        self.focus_changed();
     }
 
     fn end_drag(&mut self) {
@@ -1000,39 +906,27 @@ impl App {
         self.dragging = None;
     }
 
-    /// Marks where a dragged file would land with frosted glass over the page
-    /// of side `p`: a half (0, 1), the whole side (2), or nothing. GTK 3 cannot
-    /// blur what is under a widget, so the page draws it with backdrop-filter.
-    /// The page only receives the mark; nothing is read back from it.
     fn frost(&self, p: usize, zone: Option<u8>) {
-        let Some((_, view)) = &self.panes[p].tab().view else { return };
+        let Some(view) = self.tabs.side(p).tab().view().and_then(|id| self.view_of(id)) else { return };
         let accent = self.theme.as_ref().map_or("#3584e4", |t| t.accent.as_str());
         let _ = view.evaluate_script(&page_calls::frost(zone, accent));
     }
 
-    /// Opens the dragged file where it was dropped. On an unsplit window it
-    /// splits it and takes the half it fell on; on a split one, a new tab of that side.
     fn dropped(&mut self, pane: u64, half: Option<usize>) {
         let target = self.dragging.take();
         self.end_drag();
-        let (Some(target), Some(p)) = (target, self.panes.iter().position(|x| x.id == pane)) else { return };
+        let (Some(target), Some(p)) = (target, self.panes.iter().position(|x| x.id() == pane)) else { return };
         if self.panes.len() == 2 {
-            self.focused = p;
+            self.tabs.focus(p);
             self.open_in(target, Place::NewTab);
             return;
         }
-        self.focused = 0;
+        self.tabs.focus(0);
         self.open_in(target, Place::Beside);
         if half == Some(0) {
             // The new side was added on the right; the file goes on the left.
-            self.panes.swap(0, 1);
-            for pane in &self.panes {
-                self.split.remove(&pane.root);
-            }
-            self.split.pack1(&self.panes[0].root, true, false);
-            self.split.pack2(&self.panes[1].root, true, false);
-            self.focused = 0;
-            self.focus_changed();
+            let effects = self.tabs.swap_sides();
+            self.apply_and_publish(effects);
         }
     }
 
@@ -1044,77 +938,18 @@ impl App {
         self.eval(code);
     }
 
-    fn close_tab(&mut self, p: usize, i: usize) {
-        let tab = self.panes[p].tabs.remove(i);
-        self.drop_view(tab);
-        if self.panes[p].tabs.is_empty() {
-            if self.panes.len() > 1 {
-                self.remove_pane(p);
-                self.show_pane(0);
-                self.focus_changed();
-                self.focus_pane(0, true);
-                return;
-            }
-            let id = self.new_id();
-            self.panes[p].tabs.push(Tab::new(id, String::new()));
-        }
-        let pane = &mut self.panes[p];
-        if i < pane.active || pane.active >= pane.tabs.len() {
-            pane.active = pane.active.saturating_sub(1);
-        }
-        self.show_pane(p);
-        self.focus_changed();
-        if p == self.focused {
-            self.focus_pane(p, true);
-        }
-    }
-
-    /// Splits the window, with the focused document on both sides, or joins
-    /// the two sides keeping every tab on the left.
-    fn toggle_split(&mut self) {
-        if self.panes.len() == 1 {
-            let target = self.pane().tab().target.clone();
-            self.open_in(target, Place::Beside);
-            return;
-        }
-        let right_active = self.panes[1].active;
-        let was_right = self.focused == 1;
-        let moved = std::mem::take(&mut self.panes[1].tabs);
-        let offset = self.panes[0].tabs.len();
-        // Views move to the left side's container; WebKit keeps the page loaded.
-        for tab in &moved {
-            if let Some((_, view)) = &tab.view {
-                let widget = view.webview();
-                self.panes[1].views.remove(&widget);
-                self.panes[0].views.pack_start(&widget, true, true, 0);
-            }
-        }
-        self.panes[0].tabs.extend(moved);
-        self.remove_pane(1);
-        if was_right {
-            self.panes[0].active = offset + right_active;
-        }
-        self.show_pane(0);
-        self.focus_changed();
-        self.focus_pane(0, true);
-    }
-
     fn fullscreen(&mut self, view: u64, on: bool) {
         let side = self.sidebar.root.clone();
-        let holder = self.find_view(view).map(|(p, _)| p);
+        let holder = self.tabs.locate(view).map(|(p, _)| p);
         if on {
             self.sidebar_before_fullscreen.get_or_insert(side.is_visible());
             side.hide();
             for (p, pane) in self.panes.iter().enumerate() {
-                pane.strip.hide();
-                pane.bar.set_visible(false);
-                pane.root.set_visible(Some(p) == holder);
+                pane.fullscreen(Some(p) == holder);
             }
         } else {
             for pane in &self.panes {
-                pane.strip.show();
-                pane.bar.set_visible(self.config.bar_shown);
-                pane.root.show();
+                pane.windowed(self.config.bar_shown);
             }
             if self.sidebar_before_fullscreen.take().unwrap_or(true) {
                 side.show();
@@ -1123,15 +958,16 @@ impl App {
     }
 
     fn navigated(&mut self, view: u64, url: String) {
-        let Some((p, i)) = self.find_view(view) else { return };
-        if !self.panes[p].tabs[i].ready {
-            self.panes[p].tabs[i].ready = true;
-            self.panes[p].show_active();
-            if p == self.focused && self.panes[p].active == i {
-                self.focus_pane(p, true);
+        let file = vault::rel_from_url(&url);
+        let target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
+        let Some(nav) = self.tabs.navigated(view, target) else { return };
+        let focused_active = nav.active && nav.side == self.tabs.focused();
+        if nav.revealed {
+            self.show_active(nav.side);
+            if focused_active {
+                self.focus_pane(nav.side, true);
             }
         }
-        let file = vault::rel_from_url(&url);
         {
             let mut shared = self.shared.lock().unwrap();
             if let Some(page) = shared.pages.get_mut(&view) {
@@ -1142,17 +978,12 @@ impl App {
                 page.orphans = None;
             }
         }
-        let tab = &mut self.panes[p].tabs[i];
-        tab.target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
-        tab.title = None;
-        let pane = &self.panes[p];
-        pane.render(p == self.focused);
-        if pane.active == i {
-            pane.bar.set_text(&pane.tab().target);
-            self.update_nav(p);
+        if nav.active {
+            self.panes[nav.side].bar().set_text(self.tabs.side(nav.side).tab().target());
+            self.update_nav(nav.side);
         }
         self.publish();
-        if p == self.focused && self.panes[p].active == i {
+        if focused_active {
             self.sidebar.current(file);
         }
     }
@@ -1249,26 +1080,8 @@ impl App {
     /// Points the tabs showing `old`, or a file inside the folder `old`, at
     /// where it moved, or at the empty page if it was deleted.
     fn retarget(&mut self, old: &str, new: Option<&str>) {
-        let inside = |t: &str| t == old || t.starts_with(&format!("{old}/"));
-        let mut hidden_changed = false;
-        for p in 0..self.panes.len() {
-            for i in 0..self.panes[p].tabs.len() {
-                let target = self.panes[p].tabs[i].target.clone();
-                if !inside(&target) {
-                    continue;
-                }
-                let next = new.map_or(String::new(), |n| format!("{n}{}", &target[old.len()..]));
-                let tab = &mut self.panes[p].tabs[i];
-                tab.target = next.clone();
-                tab.position = None;
-                tab.restore = None;
-                match &self.panes[p].tabs[i].view {
-                    Some((_, view)) => self.load_into(view, &next, ""),
-                    None => hidden_changed = true,
-                }
-            }
-            self.panes[p].render(p == self.focused);
-        }
+        let (effects, hidden_changed) = self.tabs.retarget(old, new);
+        self.apply(effects);
         if hidden_changed {
             self.publish();
         }
@@ -1450,7 +1263,8 @@ impl App {
             }
         };
         // A lone empty tab, as in a vault opened for the first time, is used rather than kept.
-        let lone_empty = self.panes.len() == 1 && self.pane().tabs.len() == 1 && self.pane().tab().target.is_empty();
+        let side = self.tabs.focused_side();
+        let lone_empty = self.tabs.sides().len() == 1 && side.tabs().len() == 1 && side.tab().target().is_empty();
         Ok(self.open_in(target, if lone_empty { Place::Here } else { place }))
     }
 
@@ -1458,8 +1272,8 @@ impl App {
     /// The server may read exactly those folders.
     fn watch_loose(&mut self) {
         let mut dirs: Vec<PathBuf> = Vec::new();
-        for tab in self.panes.iter().flat_map(|p| &p.tabs).filter(|t| vault::is_loose(&t.target)) {
-            if let Some(dir) = Path::new(&tab.target).parent()
+        for target in self.tabs.targets().filter(|t| vault::is_loose(t)) {
+            if let Some(dir) = Path::new(target).parent()
                 && !dirs.iter().any(|d| d == dir)
             {
                 dirs.push(dir.to_path_buf());
@@ -1469,14 +1283,12 @@ impl App {
         self.shared.lock().unwrap().loose = dirs;
     }
 
-    /// The live pages, for the decisions in `watch`.
     fn live_pages(&self) -> Vec<(u64, Option<String>, &str)> {
-        self.panes
-            .iter()
-            .flat_map(|p| &p.tabs)
-            .filter_map(|t| {
-                let (id, view) = t.view.as_ref()?;
-                Some((*id, vault::rel_from_url(&view.url().unwrap_or_default()), t.target.as_str()))
+        self.tabs
+            .live()
+            .filter_map(|(id, target)| {
+                let view = self.view_of(id)?;
+                Some((id, vault::rel_from_url(&view.url().unwrap_or_default()), target))
             })
             .collect()
     }
