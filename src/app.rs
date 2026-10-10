@@ -859,11 +859,10 @@ impl App {
         match self.vault() {
             None => "Abre una carpeta con archivos HTML para empezar.",
             Some(root) => {
-                fn has_pages(dir: &Value) -> bool {
-                    dir["files"].as_array().is_some_and(|f| !f.is_empty())
-                        || dir["dirs"].as_array().is_some_and(|d| d.iter().any(has_pages))
+                fn has_pages(dir: &vault::Dir) -> bool {
+                    !dir.files.is_empty() || dir.dirs.iter().any(has_pages)
                 }
-                if !has_pages(&json!(vault::tree(&root))) {
+                if !has_pages(&vault::tree(&root)) {
                     "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
                 } else {
                     "Elige un archivo de la lista."
@@ -925,8 +924,7 @@ impl App {
 
     fn open_with(&mut self, target: String, place: Place, fragment: &str) -> Option<Loading> {
         let p = match place {
-            Place::Here => self.focused,
-            Place::NewTab => self.focused,
+            Place::Here | Place::NewTab => self.focused,
             Place::Beside => {
                 if self.panes.len() == 1 {
                     self.add_pane();

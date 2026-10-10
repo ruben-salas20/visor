@@ -5,12 +5,12 @@
 #editor { flex: 1; min-height: 0; }
 /* At the bottom, so the text starts at the same height as in the view. */
 #status { order: 1; padding: 5px 16px; min-height: 28px; font: 12px/1.4 system-ui, sans-serif; color: var(--muted); border-top: 1px solid var(--line); }
-#status.error { color: var(--visor-red, #c0392b); }
+#status.error { color: var(--red); }
 
 #editor .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
 #editor .cm-editor.cm-focused { outline: none; }
 #editor .cm-scroller { font-family: inherit; line-height: inherit; }
-#editor .cm-content { width: 100%; max-width: 74ch; margin: 0 auto; padding: 40px 28px 96px; caret-color: var(--accent); }
+#editor .cm-content { width: 100%; max-width: var(--col-width); margin: 0 auto; padding: var(--col-pad); caret-color: var(--accent); }
 #editor .cm-line { padding: 0; }
 #editor .cm-cursor { border-left: 2px solid var(--accent); }
 #editor .cm-selectionBackground,
@@ -35,9 +35,9 @@
 .md-meta, .md-comment { color: var(--muted); }
 .md-mark { color: var(--muted); text-decoration: none; font-weight: normal; font-style: normal; }
 .md-bullet { display: inline-block; width: 1em; color: var(--muted); }
-/* The text column starts 1.6em in. With the line's -1em text-indent the number's box starts at .6em,
-   so the margin brings it to 0; the box ends at 1.6em, where wrapped lines start. */
-.md-ordinal { display: inline-block; width: 1.6em; margin-left: -.6em; padding-right: .4em; box-sizing: border-box; text-align: right; }
+/* The text column starts --list-indent in. With the line's -1em text-indent the number's box starts at .6em,
+   so the margin brings it to 0; the box ends at --list-indent, where wrapped lines start. */
+.md-ordinal { display: inline-block; width: var(--list-indent); margin-left: -.6em; padding-right: .4em; box-sizing: border-box; text-align: right; }
 .md-task { margin: 0 .5em 0 0; }
 /* Hung 1.4em like the reading view's checkboxes; after a number it follows it, as there. */
 #editor .cm-list .md-task { margin-left: -.4em; }
@@ -48,15 +48,15 @@
 /* blocks. Lines and block widgets take padding, never margins: CodeMirror
    measures their boxes, and a margin would shift every position below. */
 /* hanging indent: the marker sits left of the text column, as in the view */
-#editor .cm-list { padding-left: calc(1.6em * var(--depth, 1)); text-indent: -1em; }
+#editor .cm-list { padding-left: calc(var(--list-indent) * var(--depth, 1)); text-indent: -1em; }
 #editor .cm-list * { text-indent: 0; }
-#editor .cm-quote { border-left: 3px solid var(--line); padding-left: 1em; color: var(--muted); }
-#editor .cm-quote.cm-list { padding-left: calc(1em + 1.6em * var(--depth, 1)); }
+#editor .cm-quote { border-left: var(--quote-rule); padding-left: 1em; color: var(--muted); }
+#editor .cm-quote.cm-list { padding-left: calc(1em + var(--list-indent) * var(--depth, 1)); }
 #editor .cm-hr { background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
-#editor .cm-codeblock { font-family: var(--mono); font-size: .875em; line-height: 1.5; background: var(--soft); padding: 0 16px; }
-#editor .cm-codeblock-first { border-radius: 8px 8px 0 0; padding-top: 6px; }
-#editor .cm-codeblock-last { border-radius: 0 0 8px 8px; padding-bottom: 6px; }
-#editor .cm-codeblock-first.cm-codeblock-last { border-radius: 8px; }
+#editor .cm-codeblock { font-family: var(--mono); font-size: .875em; line-height: 1.5; background: var(--soft); padding: 0 var(--code-pad-x); }
+#editor .cm-codeblock-first { border-radius: var(--code-radius) var(--code-radius) 0 0; padding-top: 6px; }
+#editor .cm-codeblock-last { border-radius: 0 0 var(--code-radius) var(--code-radius); padding-bottom: 6px; }
+#editor .cm-codeblock-first.cm-codeblock-last { border-radius: var(--code-radius); }
 #editor .cm-codeblock .md-code { background: none; font-size: inherit; padding: 0; }
 .md-lang { float: right; font-size: .85em; color: var(--muted); }
 #editor .cm-mathsrc, #editor .cm-tablesrc { font-family: var(--mono); font-size: .9em; }
@@ -64,9 +64,9 @@
 .md-math-block { overflow-x: auto; padding: .4em 0; text-align: center; cursor: text; }
 .md-mermaid { padding: .4em 0; text-align: center; color: var(--muted); cursor: text; }
 .md-mermaid svg { max-width: 100%; height: auto; }
-.md-error { color: var(--visor-red, #c0392b); text-align: left; }
+.md-error { color: var(--red); text-align: left; }
 .md-image { padding: .3em 0; }
-.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: 1px solid light-dark(oklch(0 0 0 / .1), oklch(1 0 0 / .1)); outline-offset: -1px; }
+.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
 .md-table { padding: .3em 0; cursor: text; }
 .md-table table { margin: 0; }
 .md-table a { color: var(--accent); }

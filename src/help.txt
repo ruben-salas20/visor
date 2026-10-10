@@ -104,7 +104,8 @@ NOTAS EN MARKDOWN
     en la vista, y visor lo guarda en el .md. Vuelve a leer el archivo
     antes de cambiarlo: puede tener casillas distintas.
   - Si editas una nota que la persona tiene abierta en el editor, verá
-    un aviso; no pierde su texto.
+    un aviso y su editor no cambia. Si sigue escribiendo, su texto
+    sustituye al tuyo: avísale antes de editar una nota que tenga abierta.
 
 ANOTACIONES
   La persona puede resaltar texto, comentarlo o anotar un elemento o

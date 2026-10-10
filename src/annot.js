@@ -792,6 +792,36 @@
   let picking = false;
   let hover = null, banner = null, picked = null;
 
+  function target(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
+  }
+
+  function onPickMove(e) {
+    picked = target(e);
+    if (!picked) return (hover.style.display = "none");
+    const r = picked.getBoundingClientRect();
+    Object.assign(hover.style, { display: "", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  }
+
+  // Capture phase, so the page never sees the click that places the note.
+  function onPickClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = target(e);
+    stopPicking();
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const point = { x: r.width ? (e.clientX - r.left) / r.width : 0.5, y: r.height ? (e.clientY - r.top) / r.height : 0.5 };
+    const note = { id: newId(), color: "amarillo", title: defaultTitle(el), comment: "", replies: [], target: { kind: "element", element: describe(el), point } };
+    notes.push(note);
+    anchors.set(note.id, { el, point });
+    paint();
+    openNote(note, true);
+  }
+
+  // The listeners exist only while picking: otherwise every mouse move and click
+  // on the page would call into this code just to return.
   function startPicking() {
     if (picking) return stopPicking();
     if (!closePopSafely()) return;
@@ -805,44 +835,18 @@
     banner.textContent = "Haz clic en un elemento o en un punto para anotarlo. Escape para salir.";
     ui.append(hover, banner);
     document.documentElement.style.cursor = "crosshair";
+    addEventListener("mousemove", onPickMove, true);
+    addEventListener("click", onPickClick, true);
   }
 
   function stopPicking() {
     picking = false;
+    removeEventListener("mousemove", onPickMove, true);
+    removeEventListener("click", onPickClick, true);
     hover?.remove(); banner?.remove();
     hover = banner = picked = null;
     document.documentElement.style.cursor = "";
   }
-
-  function target(e) {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
-  }
-
-  addEventListener("mousemove", (e) => {
-    if (!picking) return;
-    picked = target(e);
-    if (!picked) return (hover.style.display = "none");
-    const r = picked.getBoundingClientRect();
-    Object.assign(hover.style, { display: "", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
-  }, true);
-
-  // Capture phase, so the page never sees the click that places the note.
-  addEventListener("click", (e) => {
-    if (!picking) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const el = target(e);
-    stopPicking();
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const point = { x: r.width ? (e.clientX - r.left) / r.width : 0.5, y: r.height ? (e.clientY - r.top) / r.height : 0.5 };
-    const note = { id: newId(), color: "amarillo", title: defaultTitle(el), comment: "", replies: [], target: { kind: "element", element: describe(el), point } };
-    notes.push(note);
-    anchors.set(note.id, { el, point });
-    paint();
-    openNote(note, true);
-  }, true);
 
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;

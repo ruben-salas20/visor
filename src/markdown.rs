@@ -68,7 +68,8 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
             _ => events.push(event),
         }
     }
-    let pages = pages(root);
+    // Walking the vault costs a stat per file; most notes have no [[links]].
+    let mut index = None;
     let (mut math, mut code, mut mermaid) = (false, false, false);
     let mut title = None;
 
@@ -137,7 +138,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
                     *text = text.replacen('#', " › ", 1).into();
                 }
                 if let Event::Start(Tag::Link { dest_url, title, .. }) = &mut events[i] {
-                    match wiki_target(dest_url, rel, &pages) {
+                    match wiki_target(dest_url, rel, index.get_or_insert_with(|| pages(root))) {
                         Some(url) => *dest_url = url.into(),
                         None => {
                             *title = CowStr::from(format!("Crear la nota «{dest_url}»"));
@@ -327,7 +328,7 @@ pub(crate) fn wiki_page<'a>(name: &str, from: &str, pages: &'a [String]) -> Opti
 }
 
 /// Heading anchor: lowercase words joined by dashes, accents kept.
-pub fn slug(text: &str) -> String {
+fn slug(text: &str) -> String {
     let mut out = String::new();
     for word in text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
         if !out.is_empty() {
@@ -347,13 +348,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_image_found_by_name() {
+    fn wiki_links_and_images_found_by_name() {
         vault::set_base("http://127.0.0.1:1/s/".into());
         let root = std::env::temp_dir().join(format!("visor-embed-{}", std::process::id()));
         fs::create_dir_all(root.join("img")).unwrap();
         fs::write(root.join("img/foto.png"), "").unwrap();
-        let html = page("![[foto.png]] ![[nota]]\n", "x.md", &root);
+        fs::write(root.join("img/nota.md"), "").unwrap();
+        let html = page("![[foto.png]] ![[nota]] [[nota]] [[otra]]\n", "x.md", &root);
         assert!(html.contains("src=\"http://127.0.0.1:1/s/img/foto.png\""), "{html}");
+        assert!(html.contains("href=\"http://127.0.0.1:1/s/img/nota.md\""), "{html}");
+        assert!(html.contains("href=\"#visor-new:otra\""), "{html}");
         assert_eq!(embed_url("nota", "x.md", &root), None, "only images");
         fs::remove_dir_all(root).unwrap();
     }

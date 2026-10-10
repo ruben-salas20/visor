@@ -184,11 +184,6 @@
     return null;
   }
 
-  const dark = () => {
-    const mode = getComputedStyle(document.documentElement).getPropertyValue("--visor-mode").trim();
-    return mode ? mode === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  };
-
   // ---------- links ----------
 
   // [[target]] → URL, or null if no page matches; asked to http.rs once per target.
@@ -355,7 +350,7 @@
       }
       el.textContent = "Dibujando el diagrama…";
       if (!mermaidReady) {
-        window.mermaid.initialize({ startOnLoad: false, theme: dark() ? "dark" : "default" });
+        window.mermaid.initialize({ startOnLoad: false, theme: window.__visorNote.dark() ? "dark" : "default" });
         mermaidReady = true;
       }
       window.mermaid.render("visor-diagram-" + ++diagramId, this.source).then(

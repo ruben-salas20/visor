@@ -18,6 +18,12 @@
     status.classList.toggle("error", error);
   };
 
+  // Dark theme: the mode visor sends, else the system's. Shared with editor.js.
+  const dark = () => {
+    const mode = getComputedStyle(document.documentElement).getPropertyValue("--visor-mode").trim();
+    return mode ? mode === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  };
+
   function render() {
     if (config.math && window.katex) {
       for (const el of view.querySelectorAll(".math")) {
@@ -28,9 +34,7 @@
       for (const el of view.querySelectorAll("pre code[class*='language-']")) hljs.highlightElement(el);
     }
     if (config.mermaid && window.mermaid) {
-      const mode = getComputedStyle(document.documentElement).getPropertyValue("--visor-mode").trim();
-      const dark = mode ? mode === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-      mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default" });
+      mermaid.initialize({ startOnLoad: false, theme: dark() ? "dark" : "default" });
       mermaid.run({ querySelector: "pre.mermaid" }).catch((e) => console.error("Mermaid: " + e.message));
     }
     const saved = sessionStorage.getItem(scrollKey);
@@ -80,12 +84,24 @@
     const within = Math.min(1, (target.line - start) / (end - start));
     scrollTo(0, scrollY + r.top + within * r.height - target.y);
     placed = target;
+    hold();
   }
-  // Images, maths and diagrams change heights after the first placement, until
-  // the person scrolls by hand.
-  new ResizeObserver(() => placed && place(placed)).observe(view);
-  for (const type of ["wheel", "keydown", "mousedown", "touchstart"]) {
-    addEventListener(type, () => { placed = null; }, { passive: true });
+
+  // Images, maths and diagrams change heights after a placement, until the
+  // person scrolls by hand. Installed by each place(), removed by the first gesture.
+  const gestures = ["wheel", "keydown", "mousedown", "touchstart"];
+  let guard = null;
+  function hold() {
+    if (guard) return;
+    guard = new ResizeObserver(() => placed && place(placed));
+    guard.observe(view);
+    for (const type of gestures) addEventListener(type, release, { passive: true });
+  }
+  function release() {
+    placed = null;
+    guard.disconnect();
+    guard = null;
+    for (const type of gestures) removeEventListener(type, release, { passive: true });
   }
 
   // Reloads the rendered view, keeping the reading position.
@@ -199,6 +215,7 @@
 
   window.__visorNote = {
     get editing() { return editing; },
+    dark,
     // Before visor hides the tab, which it may unload later: saves pending
     // text and returns the reading position for place().
     hide() {
