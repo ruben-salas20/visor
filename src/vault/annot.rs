@@ -180,9 +180,7 @@ pub fn list(root: &Path, page: Option<&str>) -> Vec<Value> {
     let pages = match page {
         Some(page) => vec![page.to_string()],
         None => {
-            let mut files = vec![];
-            collect(&root.join(DIR), &mut files);
-            files.iter().filter_map(|f| page_of(root, f)).collect()
+            collect(root).iter().filter_map(|f| page_of(root, f)).collect()
         }
     };
     pages
@@ -203,24 +201,15 @@ pub fn list(root: &Path, page: Option<&str>) -> Vec<Value> {
         .collect()
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect(&path, out);
-        } else if path.extension().is_some_and(|e| e == "json") {
-            out.push(path);
-        }
-    }
+/// Every annotation file of the vault, found by the same walk as the panel's.
+fn collect(root: &Path) -> Vec<PathBuf> {
+    crate::vault::files(root, &root.join(DIR), |p| p.extension().is_some_and(|e| e == "json"))
 }
 
 /// Adds an agent's reply to the annotation `id`, wherever it is. Returns its page.
 pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
     let _guard = LOCK.lock().unwrap();
-    let mut files = vec![];
-    collect(&root.join(DIR), &mut files);
-    for page in files.iter().filter_map(|f| page_of(root, f)) {
+    for page in collect(root).iter().filter_map(|f| page_of(root, f)) {
         let mut doc = load(root, &page);
         let Some(note) = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id) else {
             continue;

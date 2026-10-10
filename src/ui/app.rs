@@ -542,10 +542,7 @@ impl App {
         match self.vault() {
             None => "Abre una carpeta con archivos HTML para empezar.",
             Some(root) => {
-                fn has_pages(dir: &vault::Dir) -> bool {
-                    !dir.files.is_empty() || dir.dirs.iter().any(has_pages)
-                }
-                if !has_pages(&root.tree()) {
+                if !root.has_pages() {
                     "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
                 } else {
                     "Elige un archivo de la lista."
