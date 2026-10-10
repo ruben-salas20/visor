@@ -121,55 +121,75 @@ Los atajos de teclado, la CLI, la división, el límite de páginas, la posició
 
 Ya probado: al soltar, la ventana se divide, el archivo va al lado correcto y las páginas se ven bien. Aquí queda el arrastre con el ratón.
 
-- [ ] **Sin dividir**: arrastra una nota del panel sobre la página. Mientras la arrastras se marca la mitad que hay bajo el puntero. Suéltala en la derecha: la ventana se divide y la nota sale a la derecha. Une con Ctrl+| y repite soltando en la izquierda: la nota sale a la izquierda y lo que veías pasa a la derecha.
-- [ ] **Con la ventana dividida**: arrastra un HTML sobre un lado. Se marca el lado entero y, al soltar, se abre en una pestaña nueva de ese lado.
-- [ ] **Dentro del panel**: mover una nota a una carpeta sigue funcionando igual. Al soltarla en el panel, la marca de las páginas desaparece.
+- [x] **Sin dividir**: arrastra una nota del panel sobre la página. Mientras la arrastras se marca la mitad que hay bajo el puntero. Suéltala en la derecha: la ventana se divide y la nota sale a la derecha. Une con Ctrl+| y repite soltando en la izquierda: la nota sale a la izquierda y lo que veías pasa a la derecha.
+- [x] **Con la ventana dividida**: arrastra un HTML sobre un lado. Se marca el lado entero y, al soltar, se abre en una pestaña nueva de ese lado.
+- [x] **Dentro del panel**: mover una nota a una carpeta sigue funcionando igual. Al soltarla en el panel, la marca de las páginas desaparece.
 
 ## 12. Panel nativo
 
 El panel ya no es una página web: ahora es GTK nativo y gasta unos 65 MB menos. Comprueba que todo sigue funcionando igual.
 
-- [ ] **Aspecto**: el panel tiene los colores del tema, las carpetas en gris y el archivo abierto resaltado. Cambia de tema en Omarchy: el panel cambia con él.
-- [ ] **Abrir**: un clic en una nota la abre. Ctrl+clic la abre en una pestaña nueva y Ctrl+Alt+clic, en el otro lado.
-- [ ] **Carpetas**: un clic en el nombre o en la flecha abre y cierra la carpeta. Abre una subcarpeta, cierra la carpeta que la contiene y vuelve a abrirla: la subcarpeta sigue abierta. Cierra visor y ábrelo: las mismas carpetas siguen abiertas.
-- [ ] **Teclado**: haz clic en el panel y muévete con las flechas. Intro abre la nota o la carpeta; Supr manda a la papelera la que tiene el foco.
-- [ ] **Menú de bóvedas**: haz clic en el nombre de la bóveda. Cambia a otra, quita una de la lista con «×» y usa «Abrir carpeta…».
-- [ ] **Nota y carpeta nuevas**: usa los botones «+» y de carpeta, y «Nueva nota aquí» y «Nueva carpeta aquí» en el menú del clic derecho sobre una carpeta. Escribe un nombre que ya existe: sale el error debajo. Escape cierra el cuadro.
-- [ ] **Arrastrar dentro del panel**: arrastra una nota sobre una carpeta: la carpeta se resalta y, si está cerrada, se abre al poco. Al soltarla en el espacio vacío de abajo, va a la raíz de la bóveda.
-- [ ] **Avisos**: al mover o borrar sale un aviso bajo el árbol que desaparece solo.
+- [x] **Aspecto**: el panel tiene los colores del tema, las carpetas en gris y el archivo abierto resaltado. Cambia de tema en Omarchy: el panel cambia con él.
+- [x] **Abrir**: un clic en una nota la abre. Ctrl+clic la abre en una pestaña nueva y Ctrl+Alt+clic, en el otro lado.
+- [x] **Carpetas**: un clic en el nombre o en la flecha abre y cierra la carpeta. Abre una subcarpeta, cierra la carpeta que la contiene y vuelve a abrirla: la subcarpeta sigue abierta. Cierra visor y ábrelo: las mismas carpetas siguen abiertas.
+- [x] **Teclado**: haz clic en el panel y muévete con las flechas. Intro abre la nota o la carpeta; Supr manda a la papelera la que tiene el foco.
+- [x] **Menú de bóvedas**: haz clic en el nombre de la bóveda. Cambia a otra, quita una de la lista con «×» y usa «Abrir carpeta…».
+- [x] **Nota y carpeta nuevas**: usa los botones «+» y de carpeta, y «Nueva nota aquí» y «Nueva carpeta aquí» en el menú del clic derecho sobre una carpeta. Escribe un nombre que ya existe: sale el error debajo. Escape cierra el cuadro.
+- [x] **Arrastrar dentro del panel**: arrastra una nota sobre una carpeta: la carpeta se resalta y, si está cerrada, se abre al poco. Al soltarla en el espacio vacío de abajo, va a la raíz de la bóveda.
+- [x] **Avisos**: al mover o borrar sale un aviso bajo el árbol que desaparece solo.
 
 ## 13. Archivos sueltos
 
 Ya probado: `visor open` con un HTML fuera de las bóvedas lo abre sin panel, carga su CSS, se recarga al cambiar y no toca la lista de bóvedas. Los botones de anotaciones solo salen en las páginas de la bóveda. Aquí queda lo que necesita teclado y ratón. Crea antes un archivo fuera de tus bóvedas, por ejemplo `/tmp/muestra.html`.
 
-- [ ] **En frío**: cierra visor y ejecuta `visor open /tmp/muestra.html`. La ventana sale sin panel y con una sola pestaña. Pulsa Ctrl+B: aparece el panel con «Sin bóveda». Elige una bóveda en su menú: se abre con sus pestañas.
-- [ ] **Con una bóveda abierta**: ejecuta `visor open /tmp/muestra.html --tab`. La bóveda y su panel siguen igual y la muestra sale en una pestaña nueva.
-- [ ] **Barra de direcciones**: en la pestaña de la muestra, pulsa Ctrl+L. La barra enseña la ruta absoluta. Pulsa Intro: la página se vuelve a abrir sin error.
-- [ ] **Atajos de anotaciones**: en la muestra, Ctrl+Shift+A y Ctrl+Shift+L no hacen nada.
+- [x] **En frío**: cierra visor y ejecuta `visor open /tmp/muestra.html`. La ventana sale sin panel y con una sola pestaña. Pulsa Ctrl+B: aparece el panel con «Sin bóveda». Elige una bóveda en su menú: se abre con sus pestañas.
+- [x] **Con una bóveda abierta**: ejecuta `visor open /tmp/muestra.html --tab`. La bóveda y su panel siguen igual y la muestra sale en una pestaña nueva.
+- [x] **Barra de direcciones**: en la pestaña de la muestra, pulsa Ctrl+L. La barra enseña la ruta absoluta. Pulsa Intro: la página se vuelve a abrir sin error.
+- [x] **Atajos de anotaciones**: en la muestra, Ctrl+Shift+A y Ctrl+Shift+L no hacen nada.
 
 ## 14. Iconos propios
 
 Los iconos de la barra, las pestañas y las flechas de las carpetas ahora los dibuja visor. Antes salían del tema, y cargarlos costaba un proceso aparte, unos 15 MB y unos 50 ms al abrir. Ya probado: los iconos se ven nítidos y en su sitio, y la sangría del panel es igual que antes.
 
-- [ ] **Flecha de las carpetas**: un clic justo en la flecha abre y cierra la carpeta, igual que un clic en el nombre. La flecha apunta a la derecha si la carpeta está cerrada y hacia abajo si está abierta.
-- [ ] **Teclado en el panel**: haz clic en el panel y abre y cierra una carpeta con Intro. La flecha cambia al momento.
-- [ ] **Botones**: atrás, adelante, recargar, anotar, lista de anotaciones, cerrar pestaña («×») y nueva pestaña («+») hacen lo mismo que antes. Al pasar el ratón por encima sale su descripción.
-- [ ] **Tema**: cambia de tema en Omarchy. Los iconos y las flechas cambian de color con él.
+- [x] **Flecha de las carpetas**: un clic justo en la flecha abre y cierra la carpeta, igual que un clic en el nombre. La flecha apunta a la derecha si la carpeta está cerrada y hacia abajo si está abierta.
+- [x] **Teclado en el panel**: haz clic en el panel y abre y cierra una carpeta con Intro. La flecha cambia al momento.
+- [x] **Botones**: atrás, adelante, recargar, anotar, lista de anotaciones, cerrar pestaña («×») y nueva pestaña («+») hacen lo mismo que antes. Al pasar el ratón por encima sale su descripción.
+- [x] **Tema**: cambia de tema en Omarchy. Los iconos y las flechas cambian de color con él.
 
 ## 15. Conversación en las anotaciones
 
 Cada anotación es ahora una conversación: el comentario y luego las respuestas, de la persona y del agente, en orden. Abre [[anotaciones]] y ten a mano una terminal en esta bóveda. Para las órdenes de la terminal, usa el `id` de una anotación que tenga comentario.
 
-- [ ] **Responder**: abre una anotación guardada con comentario. Escribe en «Escribe una respuesta…» y pulsa «Responder». El mensaje sale con «Tú», el campo se vacía y la lista baja hasta el último mensaje. El popover sigue abierto.
-- [ ] **Enter en la respuesta**: escribe una respuesta y pulsa Enter. Se envía, pero la nota no se guarda: el popover sigue abierto y el comentario no cambia. Shift+Enter hace un salto de línea sin enviar.
-- [ ] **Enter en el comentario**: cambia el comentario y pulsa Enter. Guarda y cierra el popover. Shift+Enter hace un salto de línea sin guardar.
-- [ ] **Sin campo de respuesta**: una anotación nueva, sin guardar, no muestra el campo de respuesta. Tampoco lo muestra una anotación de elemento guardada solo con su título, sin comentario ni respuestas.
-- [ ] **Respuesta del agente con el popover abierto**: escribe a medias en el campo de respuesta. En la terminal, ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta sale con «Agente» sin cerrar el popover, y lo que habías escrito sigue en el campo.
-- [ ] **Eventos**: en la terminal, `visor events` muestra tu respuesta con `annotation` y `action` «reply», y no con `data`. Al guardar un comentario nuevo, aparece otro evento con `action` «comment». En `visor notes`, la nota tiene `pending: true` mientras espera tu respuesta del agente, y `false` después.
-- [ ] **Desplazamiento**: con 8 mensajes o más, la lista tiene barra de desplazamiento, se abre en el último mensaje y no tapa el resto del popover.
-- [ ] **Colores**: «Tú» y «Agente» se distinguen en modo claro y en modo oscuro. Cambia de tema en Omarchy para comprobarlo.
-- [ ] **Recargar**: cierra visor y vuelve a abrirlo: la conversación sigue igual.
-- [ ] **Texto a medias**: abre una anotación guardada y escribe en la respuesta, o cambia el comentario sin guardar. Pulsa Escape: aparece un aviso en rojo sobre los botones y el popover sigue abierto. Pulsa Escape otra vez: se cierra y el texto se descarta. Vuelve a escribir y el aviso desaparece. «Cancelar» cierra sin preguntar.
+- [x] **Responder**: abre una anotación guardada con comentario. Escribe en «Escribe una respuesta…» y pulsa «Responder». El mensaje sale con «Tú», el campo se vacía y la lista baja hasta el último mensaje. El popover sigue abierto.
+- [x] **Enter en la respuesta**: escribe una respuesta y pulsa Enter. Se envía, pero la nota no se guarda: el popover sigue abierto y el comentario no cambia. Shift+Enter hace un salto de línea sin enviar.
+- [x] **Enter en el comentario**: cambia el comentario y pulsa Enter. Guarda y cierra el popover. Shift+Enter hace un salto de línea sin guardar.
+- [x] **Sin campo de respuesta**: una anotación nueva, sin guardar, no muestra el campo de respuesta. Tampoco lo muestra una anotación de elemento guardada solo con su título, sin comentario ni respuestas.
+- [x] **Respuesta del agente con el popover abierto**: escribe a medias en el campo de respuesta. En la terminal, ejecuta `visor notes reply <id> Hola desde la terminal`. La respuesta sale con «Agente» sin cerrar el popover, y lo que habías escrito sigue en el campo.
+- [x] **Eventos**: en la terminal, `visor events` muestra tu respuesta con `annotation` y `action` «reply», y no con `data`. Al guardar un comentario nuevo, aparece otro evento con `action` «comment». En `visor notes`, la nota tiene `pending: true` mientras espera tu respuesta del agente, y `false` después.
+- [x] **Desplazamiento**: con 8 mensajes o más, la lista tiene barra de desplazamiento, se abre en el último mensaje y no tapa el resto del popover.
+- [x] **Colores**: «Tú» y «Agente» se distinguen en modo claro y en modo oscuro. Cambia de tema en Omarchy para comprobarlo.
+- [x] **Recargar**: cierra visor y vuelve a abrirlo: la conversación sigue igual.
+- [x] **Texto a medias**: abre una anotación guardada y escribe en la respuesta, o cambia el comentario sin guardar. Pulsa Escape: aparece un aviso en rojo sobre los botones y el popover sigue abierto. Pulsa Escape otra vez: se cierra y el texto se descarta. Vuelve a escribir y el aviso desaparece. «Cancelar» cierra sin preguntar.
+
+## 16. Pulido de la interfaz
+
+Ya probado: el grosor de los iconos, las esquinas del menú de bóvedas y del cuadro «Nueva nota», el contorno de las imágenes y el aspecto de la ventana de anotar, en tema claro y oscuro. Aquí queda lo que necesita el ratón. Haz cada prueba con un tema claro y con uno oscuro.
+
+- [x] **Menú del clic derecho**: haz clic derecho sobre una nota del panel. Las esquinas del menú son redondeadas y no se ve un cuadrado de otro color detrás. Al pasar el ratón por una opción, su fondo redondeado queda a la misma distancia del borde en todo su contorno.
+- [x] **Menú de bóvedas**: haz clic en el nombre de la bóveda y pasa el ratón por las opciones. El fondo de cada opción sigue la curva de las esquinas del menú.
+- [x] **Botones al pulsar**: abre una anotación de [[anotaciones]] y mantén pulsado «Cancelar», «Responder» y un círculo de color de la barrita de resaltar. El botón se encoge un poco mientras lo pulsas y vuelve a su tamaño al soltar, sin saltos. Si arrastras fuera del botón antes de soltar, también vuelve suave.
+- [x] **Botones al pasar el ratón**: en la misma ventana, el contorno de «Cancelar» y «Responder» se marca un poco más. El de «Eliminar» pasa de rojo suave a rojo intenso.
+
+## 17. Segundo pulido
+
+Ya probado: la ✓ centrada, la casilla detrás del número en las listas numeradas, la cita centrada respecto a su barra, el tamaño de las flechas del panel, los márgenes de la ✕ de las pestañas y la ventana de anotar con una sola fila de botones. El botón «Responder» es ahora una flecha dentro del campo de respuesta. Aquí queda lo que necesita el ratón.
+
+- [ ] **Enviar con la flecha**: abre una anotación guardada de [[anotaciones]]. La flecha del campo de respuesta está gris; al escribir se pone del color de acento. Haz clic en ella: la respuesta se envía y la flecha vuelve a gris. El tirador de la esquina sigue sirviendo para cambiar el alto del campo.
+- [ ] **Menú del clic derecho**: haz clic derecho sobre una carpeta y luego sobre una nota. El menú sale donde hiciste clic; sobre una nota solo muestra «Mover a la papelera». Las tres opciones funcionan, y Escape o un clic fuera lo cierran.
+- [ ] **Flechas de las carpetas**: un clic justo en la flecha, ahora más pequeña, sigue abriendo y cerrando la carpeta.
+- [ ] **Cerrar pestañas**: la ✕, ahora más pequeña, cierra la pestaña con un clic.
+- [ ] **Selección visible**: con un tema oscuro, selecciona texto arrastrando el ratón en una nota y luego en el editor (Ctrl+E). La selección se distingue bien del fondo. Repite con un tema claro.
+- [ ] **Editor como la lectura**: abre [[tareas]] y pulsa Ctrl+E. Las subtareas tienen la misma sangría que en lectura, el «1.» queda a la izquierda de su casilla y la casilla de la cita no toca la barra. Al poner el cursor en esas líneas aparecen los `-`, `1.` y `>` del texto, y al salir vuelven a ocultarse.
 
 ## Si algo falla
 
