@@ -468,7 +468,12 @@
     if (pin.left !== left) { button.style.left = left + "px"; pin.left = left; }
     if (pin.top !== top) { button.style.top = top + "px"; pin.top = top; }
     if (pin.color !== color) { button.style.background = color; pin.color = color; }
-    if (pin.title !== title) { button.title = title; pin.title = title; }
+    if (pin.title !== title) {
+      button.title = title;
+      // One name per marker: a page full of "Abrir anotación" tells a screen reader nothing.
+      button.setAttribute("aria-label", "Abrir anotación: " + cut(title, 80));
+      pin.title = title;
+    }
   }
 
   // ---------- popover ----------
@@ -478,7 +483,7 @@
   let failedSave = false;
   const MAX_COMMENT = 20000;
   const UNSAVED = "Tienes texto sin guardar. ";
-  const ESCAPE_AGAIN = "Pulsa Escape otra vez para descartarlo.";
+  const ESCAPE_AGAIN = "Pulsa Guardar para conservarlo, o Escape otra vez para descartarlo.";
   // A new note that was never saved goes with its popover, whatever closed it.
   // Look it up in `notes`: after saving, `popNote` is still the unsaved copy.
   function closePop() {
@@ -490,7 +495,7 @@
 
   // Closing throws the typed text away, so the first try only warns when there is
   // text to lose. The second try always goes through.
-  function closePopSafely(discard = closePop, again = "Repítelo para descartarlo.") {
+  function closePopSafely(discard = closePop, again = "Pulsa Guardar para conservarlo, o repite lo que ibas a hacer para descartarlo.") {
     if (!pop) return true;
     if (hasUnsaved() && !warned) {
       warned = true;
@@ -955,6 +960,7 @@
     hover.style.display = "none";
     banner = document.createElement("div");
     banner.className = "card banner";
+    banner.setAttribute("role", "status");
     banner.textContent = "Haz clic en un elemento o en un punto para anotarlo. Escape para salir.";
     ui.append(hover, banner);
     document.documentElement.style.cursor = "crosshair";
@@ -1026,7 +1032,7 @@
       const meta = document.createElement("small");
       const n = note.replies?.length || 0;
       meta.textContent = [
-        anchors.has(note.id) ? "" : "Huérfana: no se encuentra en la página",
+        anchors.has(note.id) ? "" : `Ya no se encuentra en la página: ${note.target.kind === "text" ? "el texto" : "el elemento"} cambió o se borró.`,
         n ? `${n} respuesta${n > 1 ? "s" : ""}` : "",
       ].filter(Boolean).join(" · ");
       if (!anchors.has(note.id)) meta.className = "orphan";
