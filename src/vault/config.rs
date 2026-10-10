@@ -39,8 +39,20 @@ pub struct PaneState {
     pub active: usize,
 }
 
+/// `config.json.bak`, or with the time added if that copy exists: an older
+/// copy is never overwritten, since it may hold the only good data.
+fn backup_name(path: &Path) -> PathBuf {
+    let name = path.file_name().map_or("config.json".into(), |n| n.to_string_lossy().into_owned());
+    let first = path.with_file_name(format!("{name}.bak"));
+    if first.exists() {
+        path.with_file_name(format!("{name}.{}.bak", crate::session::now()))
+    } else {
+        first
+    }
+}
+
 impl Config {
-    pub fn load() -> Self {
+    pub fn load()-> Self {
         Self::load_from(&crate::paths::config())
     }
 
@@ -48,11 +60,18 @@ impl Config {
         self.save_to(&crate::paths::config());
     }
 
+    /// A file that exists but cannot be parsed is copied aside before it is
+    /// treated as empty, because the next save would overwrite it.
     fn load_from(path: &Path) -> Self {
-        fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        let Ok(bytes) = fs::read(path) else { return Self::default() };
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            let copy = backup_name(path);
+            match fs::write(&copy, &bytes) {
+                Ok(()) => eprintln!("La configuración {} no se puede leer ({e}). Se guardó una copia en {}.", path.display(), copy.display()),
+                Err(w) => eprintln!("La configuración {} no se puede leer ({e}) y no se pudo guardar una copia ({w}).", path.display()),
+            }
+            Self::default()
+        })
     }
 
     /// Atomic: a cut mid-write must not leave broken JSON, which `load` would
@@ -107,6 +126,23 @@ mod tests {
         assert_eq!(loaded.workspaces[Path::new("/a/b")].panes[0].tabs, ["x.md"]);
         assert!(!dir.join("nueva/.config.json.visor-tmp").exists());
         assert!(Config::load_from(&dir.join("no-existe.json")).vaults.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unreadable_config_is_copied_before_it_is_replaced() {
+        let dir = std::env::temp_dir().join(format!("visor-config-bak-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, "{ \"vaults\": [").unwrap();
+        assert!(Config::load_from(&path).vaults.is_empty());
+        assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
+        // A second broken file does not replace the first copy.
+        fs::write(&path, "otro").unwrap();
+        Config::load_from(&path);
+        assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
         fs::remove_dir_all(dir).unwrap();
     }
 }

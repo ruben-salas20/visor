@@ -353,11 +353,27 @@ pub fn access(url: &str) -> Access {
 }
 
 /// Writes through a temporary file, so a crash never leaves a half-written file.
+/// A link is written through to its target, which keeps its permissions.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let real;
+    let path = if fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
+        real = path.canonicalize()?;
+        &real
+    } else {
+        path
+    };
     let name = path.file_name().map_or("nota".into(), |n| n.to_string_lossy().into_owned());
     let tmp = path.with_file_name(format!(".{name}.visor-tmp"));
     fs::write(&tmp, contents)?;
-    fs::rename(&tmp, path)
+    let done = match fs::metadata(path) {
+        Ok(old) => fs::set_permissions(&tmp, old.permissions()),
+        Err(_) => Ok(()),
+    }
+    .and_then(|()| fs::rename(&tmp, path));
+    if done.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    done
 }
 
 pub fn mime(path: &Path) -> &'static str {
@@ -571,6 +587,28 @@ mod tests {
         write_atomic(&file, "dos").unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "dos");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_goes_through_links_and_keeps_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = std::env::temp_dir().join(format!("visor-atomic-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("otra")).unwrap();
+        let real = dir.join("otra/real.md");
+        fs::write(&real, "uno").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o640)).unwrap();
+        let link = dir.join("enlace.md");
+        symlink(&real, &link).unwrap();
+        write_atomic(&link, "dos").unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink(), "the link stays a link");
+        assert_eq!(fs::read_to_string(&real).unwrap(), "dos");
+        assert_eq!(fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o640);
+        assert!(write_atomic(&dir.join("roto.md"), "x").is_ok());
+        symlink(dir.join("no-existe"), dir.join("colgante.md")).unwrap();
+        assert!(write_atomic(&dir.join("colgante.md"), "x").is_err());
+        assert_eq!(fs::read_dir(dir.join("otra")).unwrap().count(), 1, "no temp left");
         fs::remove_dir_all(dir).unwrap();
     }
 }
