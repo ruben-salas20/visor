@@ -150,6 +150,7 @@ impl Pane {
             let select = gtk::Button::new();
             select.add(&label);
             select.set_can_focus(false);
+            select.style_context().add_class("visor-tab-name");
             select.set_tooltip_text(Some(if tab.target.is_empty() { "Nueva pestaña" } else { &tab.target }));
             let (proxy, id) = (self.proxy.clone(), tab.id);
             select.connect_clicked(move |_| {
@@ -164,8 +165,9 @@ impl Pane {
                 gtk::glib::Propagation::Stop
             });
             let close = gtk::Button::new();
-            close.add(&drawn_icon(14, draw_close));
+            close.add(&drawn_icon(12, draw_close));
             close.set_can_focus(false);
+            close.style_context().add_class("visor-tab-close");
             close.set_tooltip_text(Some("Cerrar pestaña (Ctrl+W)"));
             let proxy = self.proxy.clone();
             close.connect_clicked(move |_| {
@@ -207,6 +209,8 @@ impl Pane {
             ".visor-strip {{ padding: 4px 6px; }}
 .visor-tab {{ border-radius: 6px; padding: 0 2px; }}
 .visor-tab button {{ min-height: 24px; color: {muted}; }}
+.visor-tab button.visor-tab-name {{ padding: 0 6px 0 10px; }}
+.visor-tab button.visor-tab-close {{ padding: 0 8px 0 2px; min-width: 0; }}
 .visor-tab button:hover {{ background: none; color: {fg}; }}
 .visor-tab.active {{ background: {active}; }}
 .visor-strip.focused .visor-tab.active {{ box-shadow: inset 0 -2px {accent}; }}

@@ -129,10 +129,10 @@ pub fn draw_list(cr: &gtk::cairo::Context) {
 }
 
 pub fn draw_close(cr: &gtk::cairo::Context) {
-    // Drawn on a 16-unit grid and scaled to the 14 px tab icon; the line
-    // width is in grid units, so it comes out at ~1.4 px.
-    cr.scale(14.0 / 16.0, 14.0 / 16.0);
-    cr.set_line_width(1.6);
+    // Drawn on a 16-unit grid and scaled to the 12 px tab icon; the line
+    // width is in grid units, so it comes out at 1.5 px.
+    cr.scale(12.0 / 16.0, 12.0 / 16.0);
+    cr.set_line_width(1.5 * 16.0 / 12.0);
     cr.move_to(3.5, 3.5);
     cr.line_to(12.5, 12.5);
     cr.move_to(12.5, 3.5);
