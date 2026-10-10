@@ -1,3 +1,4 @@
 /target
 node_modules/
 /boveda-prueba/
+__pycache__/

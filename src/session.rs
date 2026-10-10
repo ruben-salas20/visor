@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSOLE: usize = 500;
-pub const MAX_EVENTS: usize = 1000;
+const MAX_EVENTS: usize = 1000;
 
 /// The view that will load and the load count it had before, to wait for the next one.
 pub type Loading = (u64, u64);
@@ -47,7 +47,7 @@ pub struct Page {
     pub orphans: Option<Vec<String>>,
 }
 
-pub static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
+static NO_PAGE: Page = Page { file: None, url: None, loaded: false, load_seq: 0, console: Vec::new(), orphans: None };
 
 /// What the socket server can read without going through the event loop.
 #[derive(Default)]

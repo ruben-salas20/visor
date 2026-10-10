@@ -16,4 +16,4 @@ Ctrl+Shift+B muestra u oculta la barra y se recuerda. Ctrl+L la muestra mientras
 
 ## Antes
 
-El campo se llamaba `bar_hidden`. decisiones.md solo dice «antes `bar_hidden`» y no recoge por qué se invirtió.
+El campo se llamaba `bar_hidden`. No consta por qué se invirtió.

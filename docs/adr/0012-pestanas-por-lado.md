@@ -8,7 +8,7 @@ La ventana puede dividirse en dos lados.
 
 ## Decisión
 
-Cada lado tiene sus pestañas, como Obsidian. Las pestañas, la barra y los botones de anotaciones son GTK nativo (`panes.rs`), igual que la barra. La CLI y los atajos actúan sobre el lado con el foco.
+Cada lado tiene sus pestañas, como Obsidian. Las pestañas, la barra y los botones de anotaciones son GTK nativo (`panes.rs` y `bar.rs`), igual que el panel. La CLI y los atajos actúan sobre el lado con el foco.
 
 ## Consecuencias
 

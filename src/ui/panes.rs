@@ -107,7 +107,7 @@ impl Pane {
         self.root.show();
     }
 
-    /// Rebuilds the tab strip from `side`. `focused` marks the pane that keys and agents act on.
+    /// Rebuilds the tab strip from `side`. `focused` marks the side that keys and agents act on.
     pub fn render(&self, side: &Side, focused: bool) {
         for child in self.tab_list.children() {
             self.tab_list.remove(&child);
