@@ -95,16 +95,17 @@ fn arrow(rgba: &gdk::RGBA, scale: i32, turn: Option<f64>) -> ImageSurface {
     cr.set_source_rgba(rgba.red(), rgba.green(), rgba.blue(), rgba.alpha());
     cr.set_line_cap(gtk::cairo::LineCap::Round);
     cr.set_line_join(gtk::cairo::LineJoin::Round);
-    // The glyph is drawn on the 16-unit grid and enlarged to about 10 px;
-    // its line width is set after the path, in grid units, to stay at 1.4 px.
-    // The 1.4 px nudge puts it where GTK's expander was, measured on screen.
-    const GROW: f64 = 1.7;
-    cr.translate(ARROW_W / 2.0 - 1.4, ARROW_H / 2.0);
+    // The glyph is drawn on the 16-unit grid and enlarged to about 7 px;
+    // its line width is set after the path, in grid units, to stay at 1.5 px.
+    // The 1.5 px nudge evens the gaps on both sides of the arrow: the names
+    // start 4 px after the cell, so a centred arrow sits too far from them.
+    const GROW: f64 = 1.2;
+    cr.translate(ARROW_W / 2.0 + 1.5, ARROW_H / 2.0);
     cr.rotate(turn);
     cr.scale(GROW, GROW);
     cr.translate(-5.0, -5.0);
     draw_chevron(&cr);
-    cr.set_line_width(1.4 / GROW);
+    cr.set_line_width(1.5 / GROW);
     let _ = cr.stroke();
     surface
 }
