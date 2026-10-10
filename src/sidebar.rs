@@ -1,7 +1,7 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/decisiones.md.
 use crate::app::UserEvent;
-use crate::icons::{draw_chevron, draw_new_folder, draw_plus, drawn_icon, icon_button};
+use crate::icons::{draw_chevron, draw_chevron_bold, draw_new_folder, draw_plus, drawn_icon, icon_button};
 use crate::theme::Theme;
 use crate::vault::Dir;
 use gtk::cairo::{Context, Format, ImageSurface};
@@ -166,7 +166,7 @@ impl Sidebar {
         vault_name.set_xalign(0.0);
         let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         inner.pack_start(&vault_name, true, true, 0);
-        inner.pack_start(&drawn_icon(10, draw_chevron), false, false, 0);
+        inner.pack_start(&drawn_icon(10, draw_chevron_bold), false, false, 0);
         let vault_button = gtk::MenuButton::new();
         vault_button.add(&inner);
         vault_button.set_tooltip_text(Some("Cambiar de bóveda"));
@@ -830,11 +830,11 @@ impl Sidebar {
 .visor-sidebar button:hover, .visor-vaults button:hover {{ background: {hover}; }}
 .visor-side-head button {{ color: {muted}; }}
 .visor-side-head button.visor-vault {{ color: {fg}; font-weight: 600; }}
-.visor-vaults {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 8px; padding: 4px; }}
+.visor-vaults {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 10px; padding: 4px; }}
 .visor-vaults .current {{ color: {accent}; font-weight: 600; }}
 .visor-vaults separator {{ background: {line}; min-height: 1px; }}
 .visor-muted {{ color: {muted}; font-size: smaller; }}
-.visor-new {{ margin: 0 8px 6px; padding: 8px; border-radius: 8px; background: {hover}; }}
+.visor-new {{ margin: 0 8px 6px; padding: 8px; border-radius: 14px; background: {hover}; }}
 .visor-new > label {{ color: {muted}; font-size: smaller; }}
 .visor-new entry {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 6px;
   box-shadow: none; min-height: 26px; padding: 0 8px; caret-color: {fg}; }}

@@ -58,7 +58,7 @@
 .md-mermaid svg { max-width: 100%; height: auto; }
 .md-error { color: var(--visor-red, #c0392b); text-align: left; }
 .md-image { padding: .3em 0; }
-.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: 1px solid light-dark(oklch(0 0 0 / .1), oklch(1 0 0 / .1)); outline-offset: -1px; }
 .md-table { padding: .3em 0; cursor: text; }
 .md-table table { margin: 0; }
 .md-table a { color: var(--accent); }

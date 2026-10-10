@@ -234,13 +234,16 @@
     * { box-sizing: border-box; }
     /* Theme muted, red and accent often fall below 4.5:1 on the theme background;
        mixing them with the text color keeps small text readable in every theme. */
-    .ui { font: 13px/1.45 system-ui, sans-serif; color: var(--visor-fg, #222);
+    .ui { font: 13px/1.45 system-ui, sans-serif; color: var(--visor-fg, #222); color-scheme: var(--visor-mode, light dark);
       --soft: color-mix(in srgb, var(--visor-fg, #222) 80%, var(--visor-bg, #fff));
       --danger: color-mix(in srgb, var(--visor-red, #c0392b) 60%, var(--visor-fg, #222));
-      --strong: color-mix(in srgb, var(--visor-accent, #1a6cc4) 65%, var(--visor-fg, #222)); }
+      --strong: color-mix(in srgb, var(--visor-accent, #1a6cc4) 65%, var(--visor-fg, #222));
+      /* Transparent rings instead of opaque borders: the layer sits over pages of any colour. */
+      --ring: 0 0 0 1px light-dark(oklch(0 0 0 / .06), oklch(1 0 0 / .08)), 0 1px 2px -1px light-dark(oklch(0 0 0 / .06), transparent), 0 2px 4px 0 light-dark(oklch(0 0 0 / .04), transparent);
+      --ring-hover: 0 0 0 1px light-dark(oklch(0 0 0 / .08), oklch(1 0 0 / .13)), 0 1px 2px -1px light-dark(oklch(0 0 0 / .08), transparent), 0 2px 4px 0 light-dark(oklch(0 0 0 / .06), transparent); }
     .card { background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); color: var(--visor-fg, #222);
-      border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 28%, var(--visor-bg, #fff));
-      border-radius: 10px; z-index: 1; box-shadow: 0 2px 6px rgb(0 0 0 / .18), 0 12px 32px rgb(0 0 0 / .28); }
+      border-radius: 10px; z-index: 1;
+      box-shadow: 0 0 0 1px light-dark(oklch(0 0 0 / .1), oklch(1 0 0 / .12)), 0 2px 6px rgb(0 0 0 / .18), 0 12px 32px rgb(0 0 0 / .28); }
     button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; border-radius: 6px; }
     button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--visor-accent, #1a6cc4); outline-offset: 1px; }
     .pin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
@@ -255,7 +258,7 @@
     .toolbar .text { padding: 0 10px; }
     /* minmax(0, 1fr): without it the column grows to the unwrapped quote and the content spills out of the card. */
     .pop { position: fixed; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
-      padding: 12px; pointer-events: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      padding: 12px; border-radius: 18px; pointer-events: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
     .pop header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
     .quote { flex: 1 1 0; min-width: 0; display: flex; color: var(--soft); font-size: 12px; white-space: nowrap; }
     .quote span { overflow: hidden; text-overflow: ellipsis; }
@@ -287,18 +290,20 @@
     .unsaved { margin: 0; color: var(--danger); font-size: 12px; }
     .unsaved:empty { display: none; }
     .actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
-    .actions button { padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 30%, var(--visor-bg, #fff));
+    .actions button { padding: 5px 10px; box-shadow: var(--ring);
       background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); }
-    .actions button:hover { background: color-mix(in srgb, var(--visor-fg, #222) 10%, var(--visor-bg, #fff)); }
-    .actions .primary, .actions .primary:hover { background: var(--strong); border-color: var(--strong);
+    .actions button:hover { background: color-mix(in srgb, var(--visor-fg, #222) 10%, var(--visor-bg, #fff)); box-shadow: var(--ring-hover); }
+    .actions .primary, .actions .primary:hover { background: var(--strong); box-shadow: none;
       color: var(--visor-bg, #fff); font-weight: 600; }
     .actions .primary:hover { filter: brightness(1.1); }
     .actions .danger { color: var(--danger); margin-right: auto;
-      border-color: color-mix(in srgb, var(--danger) 50%, var(--visor-bg, #fff)); }
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 50%, var(--visor-bg, #fff)); }
+    /* Without this, the generic :hover rule above replaces the red ring on hover. */
+    .actions .danger:hover { box-shadow: 0 0 0 1px var(--danger); }
     .hover { position: fixed; pointer-events: none; border: 2px solid var(--visor-accent, #1a6cc4); border-radius: 4px;
       background: color-mix(in srgb, var(--visor-accent, #1a6cc4) 12%, transparent); }
     .banner { position: fixed; top: 12px; left: 50%; translate: -50% 0; padding: 8px 14px; pointer-events: auto; }
-    .panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(330px, calc(100vw - 24px)); padding: 12px; pointer-events: auto;
+    .panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(330px, calc(100vw - 24px)); padding: 12px; border-radius: 18px; pointer-events: auto;
       display: flex; flex-direction: column; gap: 8px; }
     .panel header { display: flex; align-items: center; font-weight: 600; }
     .panel header span { flex: 1; }
@@ -316,6 +321,8 @@
   const ICON = `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5h7a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H7.2L6 10 4.8 8.5H2.5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z" fill="currentColor"/></svg>`;
 
   function ensureHost() {
+    .actions button, .send, .toolbar .dot, .toolbar .text { transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+    .actions button:active, .send:active, .toolbar .dot:active, .toolbar .text:active { scale: 0.96; }
     if (host) return;
     host = document.createElement("visor-capa");
     host.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none";

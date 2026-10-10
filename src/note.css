@@ -21,7 +21,7 @@ a { color: var(--accent); text-underline-offset: .15em; }
 a[href^="#visor-new:"] { color: var(--muted); text-decoration-style: dashed; }
 strong { font-weight: 650; }
 hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
-img, video { max-width: 100%; height: auto; border-radius: 6px; }
+img, video { max-width: 100%; height: auto; border-radius: 6px; outline: 1px solid light-dark(oklch(0 0 0 / .1), oklch(1 0 0 / .1)); outline-offset: -1px; }
 ul, ol { padding-left: 1.6em; }
 li + li { margin-top: .2em; }
 /* Drawn here: WebKitGTK paints its own check mark off centre. The editor's tasks (.md-task) share it. */

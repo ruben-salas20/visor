@@ -551,7 +551,8 @@ body {{ margin: 0; height: 100vh; display: grid; place-content: center; justify-
   color: var(--visor-muted, GrayText); background: var(--visor-bg, Canvas); }}
 p {{ margin: 0; max-width: 36ch; text-wrap: balance; }}
 button {{ font: inherit; padding: 7px 14px; border-radius: 6px; cursor: pointer; background: none;
-  color: var(--visor-fg, CanvasText); border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }}
+  color: var(--visor-fg, CanvasText); border: 0; box-shadow: 0 0 0 1px light-dark(oklch(0 0 0 / .06), oklch(1 0 0 / .08)), 0 1px 2px -1px light-dark(oklch(0 0 0 / .06), transparent), 0 2px 4px 0 light-dark(oklch(0 0 0 / .04), transparent); }}
+button:hover {{ box-shadow: 0 0 0 1px light-dark(oklch(0 0 0 / .08), oklch(1 0 0 / .13)), 0 1px 2px -1px light-dark(oklch(0 0 0 / .08), transparent), 0 2px 4px 0 light-dark(oklch(0 0 0 / .06), transparent); }}
 </style><p>{message}</p>{button}"#
     )
 }
