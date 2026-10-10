@@ -282,9 +282,14 @@
     .reply-form { display: grid; gap: 6px; }
     .reply-form[hidden] { display: none; }
     .reply-form textarea { min-height: 56px; }
-    .reply-form button { justify-self: end; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--visor-fg, #222) 30%, var(--visor-bg, #fff));
-      background: color-mix(in srgb, var(--visor-fg, #222) 4%, var(--visor-bg, #fff)); }
-    .reply-form button:hover { background: color-mix(in srgb, var(--visor-fg, #222) 10%, var(--visor-bg, #fff)); }
+    .reply-field { position: relative; }
+    .reply-field textarea { display: block; padding-right: 52px; }
+    .send { position: absolute; right: 18px; bottom: 6px; width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
+      color: var(--soft); border-radius: 4px; }
+    .send svg { width: 16px; height: 16px; display: block; }
+    .send:hover { color: var(--visor-fg, #222); background: color-mix(in srgb, var(--visor-fg, #222) 10%, transparent); }
+    .reply-field.filled .send { color: var(--visor-bg, #fff); background: var(--strong); }
+    .reply-field.filled .send:hover { filter: brightness(1.1); }
     .reply-err { margin: 0; color: var(--danger); font-size: 12px; }
     .reply-err:empty { display: none; }
     .unsaved { margin: 0; color: var(--danger); font-size: 12px; }
@@ -316,13 +321,15 @@
     .panel small { color: var(--soft); }
     .orphan { color: var(--danger); }
     .empty { color: var(--soft); }
+    .actions button, .send, .toolbar .dot, .toolbar .text { transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+    .actions button:active, .send:active, .toolbar .dot:active, .toolbar .text:active { scale: 0.96; }
   `;
   // Symmetric bubble with the tail in the middle, so it sits centred in the round marker.
   const ICON = `<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5h7a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H7.2L6 10 4.8 8.5H2.5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z" fill="currentColor"/></svg>`;
+  // Up arrow inside the reply field's corner button.
+  const SEND = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M3.5 8 8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   function ensureHost() {
-    .actions button, .send, .toolbar .dot, .toolbar .text { transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out; }
-    .actions button:active, .send:active, .toolbar .dot:active, .toolbar .text:active { scale: 0.96; }
     if (host) return;
     host = document.createElement("visor-capa");
     host.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none";
@@ -542,18 +549,26 @@
     const err = document.createElement("p");
     err.className = "reply-err";
     err.setAttribute("role", "alert");
+    const field = document.createElement("div");
+    field.className = "reply-field";
     const answer = document.createElement("button");
-    answer.textContent = "Responder";
+    answer.className = "send";
+    answer.type = "button";
+    answer.title = "Enviar respuesta (Enter)";
+    answer.setAttribute("aria-label", "Enviar respuesta");
+    answer.innerHTML = SEND;
     answer.onclick = sendReply;
+    field.append(box, answer);
     box.addEventListener("keydown", (e) => {
       if (submits(e)) { e.preventDefault(); sendReply(); }
     });
     box.addEventListener("input", hideWarn);
+    box.addEventListener("input", markFilled);
     area.addEventListener("input", hideWarn);
     const warn = document.createElement("p");
     warn.className = "unsaved";
     warn.setAttribute("role", "alert");
-    form.append(box, err, answer);
+    form.append(field, err);
     conv = { area, list, form, box, err, warn };
     renderThread(note);
     pop.append(list, form);
@@ -614,11 +629,18 @@
     list.scrollTop = atEnd ? list.scrollHeight : was;
   }
 
+  // A class and not :has(:placeholder-shown): WebKitGTK does not restyle the
+  // button when the text changes.
+  function markFilled() {
+    conv.box.parentElement.classList.toggle("filled", conv.box.value.trim() !== "");
+  }
+
   function sendReply() {
     const text = conv.box.value.trim();
     if (!text || !popNote) return;
     const note = popNote;
     conv.box.value = "";
+    markFilled();
     conv.err.textContent = "";
     hideWarn();
     note.replies = [...(note.replies || []), { author: "persona", text }];
@@ -635,6 +657,7 @@
       if (replies[i].author === "persona" && replies[i].text === text) { replies.splice(i, 1); break; }
     }
     if (!conv.box.value) conv.box.value = text;
+    markFilled();
     conv.err.textContent = error;
     renderThread(popNote);
   }
