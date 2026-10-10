@@ -16,4 +16,4 @@ En `tools/codemirror/`, `npm ci && npm run build` escribe `assets/codemirror/cod
 
 ## Cifras
 
-- Paquete comprimido con brotli: 89 406 bytes sin `EditorSelection` ni `styleTags` y 89 455 bytes con ellos (+49 bytes).
+- Paquete comprimido con brotli: 89 406 bytes con `EditorSelection` y `styleTags`, y 89 455 bytes sin ellos (+49 bytes). Medido el 2026-10-09.

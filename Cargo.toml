@@ -2,6 +2,11 @@
 name = "visor"
 version = "0.1.0"
 edition = "2024"
+# let chains (`if let … && …`) need 1.88.
+rust-version = "1.88"
+description = "Visor de bóvedas de HTML y Markdown para estudiar con IA"
+license = "MIT"
+publish = false
 
 [dependencies]
 dirs = "7.0.0"

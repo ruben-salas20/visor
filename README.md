@@ -45,7 +45,7 @@ claude mcp add visor -- visor mcp
 | Ctrl+L | ir a la barra de direcciones |
 | Ctrl+E | editar la nota o volver a la vista |
 | Ctrl+T, Ctrl+W | pestaña nueva, cerrar pestaña |
-| Ctrl+\ | dividir la ventana |
+| Ctrl+\| (o Ctrl+\\) | dividir la ventana o volver a un lado |
 | Ctrl+Shift+A, Ctrl+Shift+L | anotar, lista de anotaciones |
 
 La lista completa está en `visor help`.
@@ -57,4 +57,6 @@ La lista completa está en `visor help`.
 - [docs/pruebas.md](docs/pruebas.md): cómo probar y medir.
 - [AGENTS.md](AGENTS.md): guía para agentes que programan en este repositorio.
 
-<!-- Licencia: pendiente -->
+## Licencia
+
+MIT. Consulta [LICENSE](LICENSE).
