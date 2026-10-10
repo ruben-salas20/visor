@@ -63,7 +63,9 @@ th, td { border: 1px solid var(--line); padding: .4em .75em; text-align: left; }
 th { background: var(--soft); font-weight: 600; }
 .math-display { display: block; overflow-x: auto; text-align: center; }
 .footnote-definition { font-size: .9em; color: var(--muted); }
-::selection { background: var(--visor-selection, Highlight); }
+/* Not --visor-selection: some dark themes set it barely above the background.
+   The address bar uses the same mix. */
+::selection { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); }
 
 /* highlight.js tokens mapped to the theme palette */
 .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type { color: var(--visor-magenta, #8a3ab9); }

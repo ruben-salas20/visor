@@ -14,7 +14,7 @@
 #editor .cm-line { padding: 0; }
 #editor .cm-cursor { border-left: 2px solid var(--accent); }
 #editor .cm-selectionBackground,
-#editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: var(--visor-selection, Highlight); }
+#editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); }
 
 /* headings, as h1–h6 in note.css */
 #editor .cm-h1, #editor .cm-h2, #editor .cm-h3, #editor .cm-h4, #editor .cm-h5, #editor .cm-h6 { font-weight: 700; line-height: 1.25; padding-top: .3em; padding-bottom: .2em; }
