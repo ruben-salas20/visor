@@ -6,8 +6,14 @@ use crate::vault::{self, annot};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
+
+/// A batch goes out at the latest this long after its first change, even if
+/// changes keep coming, so a process that writes nonstop cannot starve the window.
+const MAX_WAIT: Duration = Duration::from_secs(1);
+/// And at the latest with this many different paths, so one batch stays small.
+const MAX_PATHS: usize = 5000;
 
 /// Watches `path` and forwards changes in batches once they settle.
 /// Access events are dropped: serving a page opens it, which would reload it forever.
@@ -30,16 +36,41 @@ pub fn watch(
     watcher.watch(path, mode).ok()?;
     // Ends on its own when the watcher, and with it the sender, is dropped.
     std::thread::spawn(move || {
-        while let Ok(mut batch) = rx.recv() {
-            while let Ok(more) = rx.recv_timeout(Duration::from_millis(settle_ms)) {
-                batch.extend(more);
-            }
-            batch.sort();
-            batch.dedup();
+        while let Ok(first) = rx.recv() {
+            let batch = collect_batch(&rx, first, Duration::from_millis(settle_ms), MAX_WAIT, MAX_PATHS);
             let _ = proxy.send_event(wrap(batch));
         }
     });
     Some(watcher)
+}
+
+/// Gathers `first` and what follows until `settle` passes without changes,
+/// `max_wait` passes since the start, or there are `max_paths` different paths.
+/// Sorted, without repeats.
+fn collect_batch(
+    rx: &mpsc::Receiver<Vec<PathBuf>>,
+    mut batch: Vec<PathBuf>,
+    settle: Duration,
+    max_wait: Duration,
+    max_paths: usize,
+) -> Vec<PathBuf> {
+    let start = Instant::now();
+    while let Some(left) = max_wait.checked_sub(start.elapsed()) {
+        match rx.recv_timeout(settle.min(left)) {
+            Ok(more) => batch.extend(more),
+            Err(_) => break,
+        }
+        if batch.len() >= max_paths {
+            batch.sort();
+            batch.dedup();
+            if batch.len() >= max_paths {
+                return batch;
+            }
+        }
+    }
+    batch.sort();
+    batch.dedup();
+    batch
 }
 
 /// One watcher per folder of the loose pages in the tabs, without subfolders.
@@ -205,6 +236,49 @@ mod tests {
         fn is_dir(&self, path: &Path) -> bool {
             self.dirs.iter().any(|d| d == path)
         }
+    }
+
+    fn feed(every_ms: u64, times: u64) -> mpsc::Receiver<Vec<PathBuf>> {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            for i in 0..times {
+                if tx.send(vec![PathBuf::from(format!("/v/{}", i % 3))]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(every_ms));
+            }
+        });
+        rx
+    }
+
+    #[test]
+    fn a_quiet_moment_closes_the_batch() {
+        let rx = feed(5, 4);
+        let batch = collect_batch(&rx, vec!["/v/x".into()], Duration::from_millis(100), Duration::from_secs(5), 100);
+        assert_eq!(batch.len(), 4, "x plus the three different paths, sorted and without repeats");
+    }
+
+    #[test]
+    fn nonstop_changes_still_close_the_batch_after_the_wait() {
+        // A change every 20 ms for 3 s never leaves 100 ms of quiet.
+        let rx = feed(20, 150);
+        let start = Instant::now();
+        let batch = collect_batch(&rx, vec![], Duration::from_millis(100), Duration::from_millis(400), 100);
+        let took = start.elapsed();
+        assert!(took >= Duration::from_millis(400) && took < Duration::from_millis(1000), "{took:?}");
+        assert_eq!(batch.len(), 3);
+    }
+
+    #[test]
+    fn a_batch_closes_at_the_path_limit() {
+        let (tx, rx) = mpsc::channel();
+        for i in 0..50 {
+            tx.send(vec![PathBuf::from(format!("/v/{i}"))]).unwrap();
+        }
+        let batch = collect_batch(&rx, vec![], Duration::from_secs(5), Duration::from_secs(5), 10);
+        assert_eq!(batch.len(), 10);
+        // The rest waits for the next batch.
+        assert_eq!(rx.try_iter().count(), 40);
     }
 
     const ROOT: &str = "/v";
