@@ -106,7 +106,12 @@ fn loose(request: &Value) -> bool {
 
 /// Starts the app detached from this terminal and waits until it answers.
 fn start(loose: bool) -> bool {
-    let Ok(exe) = std::env::current_exe() else { return false };
+    let Ok(mut exe) = std::env::current_exe() else { return false };
+    // A long-lived `visor mcp` outlives rebuilds and updates; Linux then reports
+    // its old binary as "<path> (deleted)", and the new one sits at <path>.
+    if let Some(path) = exe.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
+        exe = path.into();
+    }
     let mut command = Command::new(exe);
     if loose {
         command.env("VISOR_LOOSE", "1");
