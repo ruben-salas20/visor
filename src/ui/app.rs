@@ -9,9 +9,10 @@ use crate::ui::panes::{Pane, Tab};
 use crate::paths;
 use crate::ui::sidebar::Sidebar;
 use crate::ui::theme::{self, Theme};
+use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
 use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::cell::Cell;
@@ -21,8 +22,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
@@ -176,7 +176,7 @@ pub fn launch() -> i32 {
         config,
         theme,
         watcher: None,
-        loose_watchers: Vec::new(),
+        loose_watchers: LooseWatchers::default(),
         _theme_watcher: theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, proxy, |_| UserEvent::ThemeChanged)),
     };
     app.apply_theme();
@@ -349,39 +349,6 @@ fn open_external(url: &str) {
     let _ = Command::new("xdg-open").arg(url).spawn();
 }
 
-/// Watches `path` and forwards changes in batches once they settle.
-/// Access events are dropped: serving a page opens it, which would reload it forever.
-fn watch(
-    path: &Path,
-    mode: RecursiveMode,
-    settle_ms: u64,
-    proxy: EventLoopProxy<UserEvent>,
-    wrap: fn(Vec<PathBuf>) -> UserEvent,
-) -> Option<RecommendedWatcher> {
-    let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if let Ok(event) = res
-            && !matches!(event.kind, EventKind::Access(_))
-        {
-            let _ = tx.send(event.paths);
-        }
-    })
-    .ok()?;
-    watcher.watch(path, mode).ok()?;
-    // Ends on its own when the watcher, and with it the sender, is dropped.
-    std::thread::spawn(move || {
-        while let Ok(mut batch) = rx.recv() {
-            while let Ok(more) = rx.recv_timeout(Duration::from_millis(settle_ms)) {
-                batch.extend(more);
-            }
-            batch.sort();
-            batch.dedup();
-            let _ = proxy.send_event(wrap(batch));
-        }
-    });
-    Some(watcher)
-}
-
 fn empty_page(message: &str, pick: bool) -> String {
     let button = if pick {
         r#"<button onclick="ipc.postMessage(JSON.stringify({type:'pick_vault'}))">Abrir carpeta…</button>"#
@@ -424,7 +391,7 @@ struct App {
     sidebar_before_fullscreen: Option<bool>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
     /// that still matches is the app's own; anything else came from outside.
-    own_write: Option<(PathBuf, u64)>,
+    own_write: Option<OwnWrite>,
     paned: gtk::Paned,
     styles: gtk::CssProvider,
     shared: SharedRef,
@@ -433,7 +400,7 @@ struct App {
     theme: Option<Theme>,
     watcher: Option<RecommendedWatcher>,
     /// One per folder of the loose pages in the tabs, without subfolders.
-    loose_watchers: Vec<(PathBuf, RecommendedWatcher)>,
+    loose_watchers: LooseWatchers,
     _theme_watcher: Option<RecommendedWatcher>,
 }
 
@@ -1520,7 +1487,7 @@ impl App {
     /// an HTML page in the vault cannot overwrite files through this.
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
         let (_, path) = self.open_vault()?.note(url)?;
-        self.own_write = Some((path.clone(), hash(text.as_bytes())));
+        self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }
 
@@ -1556,7 +1523,7 @@ impl App {
         }
         let title = file.trim_end_matches(".md");
         let text = format!("# {title}\n\n");
-        self.own_write = Some((path.clone(), hash(text.as_bytes())));
+        self.own_write = Some(OwnWrite::new(&path, &text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())?;
         let rel = vault.rel(&path);
         // The name was typed in the sidebar; writing continues in the note.
@@ -1602,81 +1569,66 @@ impl App {
     }
 
     /// Watches the folders of the loose pages in the tabs, and stops watching the rest.
+    /// The server may read exactly those folders.
     fn watch_loose(&mut self) {
-        let dirs: Vec<PathBuf> = self
-            .panes
-            .iter()
-            .flat_map(|p| &p.tabs)
-            .filter(|t| vault::is_loose(&t.target))
-            .filter_map(|t| Path::new(&t.target).parent().map(Path::to_path_buf))
-            .collect();
-        self.loose_watchers.retain(|(dir, _)| dirs.contains(dir));
-        for dir in dirs {
-            if self.loose_watchers.iter().any(|(d, _)| *d == dir) {
-                continue;
-            }
-            if let Some(w) = watch(&dir, RecursiveMode::NonRecursive, 150, self.proxy.clone(), UserEvent::LooseChanged) {
-                self.loose_watchers.push((dir, w));
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for tab in self.panes.iter().flat_map(|p| &p.tabs).filter(|t| vault::is_loose(&t.target)) {
+            if let Some(dir) = Path::new(&tab.target).parent()
+                && !dirs.iter().any(|d| d == dir)
+            {
+                dirs.push(dir.to_path_buf());
             }
         }
+        self.loose_watchers.sync(&dirs, &self.proxy);
+        self.shared.lock().unwrap().loose = dirs;
     }
 
-    /// Reloads the loose pages that changed, or whose folder had another file change: it may be their CSS or data.
+    /// The live pages, for the decisions in `watch`.
+    fn live_pages(&self) -> Vec<(u64, Option<String>, &str)> {
+        self.panes
+            .iter()
+            .flat_map(|p| &p.tabs)
+            .filter_map(|t| {
+                let (id, view) = t.view.as_ref()?;
+                Some((*id, vault::rel_from_url(&view.url().unwrap_or_default()), t.target.as_str()))
+            })
+            .collect()
+    }
+
     fn loose_changed(&mut self, changed: Vec<PathBuf>) {
-        for tab in self.panes.iter().flat_map(|p| &p.tabs) {
-            let Some((_, view)) = &tab.view else { continue };
-            if !vault::is_loose(&tab.target) {
-                continue;
-            }
-            let page = Path::new(&tab.target);
-            if changed.iter().any(|p| p == page || (p.parent() == page.parent() && !vault::is_page(p))) {
-                let _ = view.reload();
+        let live = self.live_pages();
+        let pages: Vec<LivePage> = live.iter().map(|(view, file, target)| LivePage { view: *view, file: file.as_deref(), target }).collect();
+        for view in watch::loose_reaction(&changed, &pages) {
+            if let Some(v) = self.view_of(view) {
+                let _ = v.reload();
             }
         }
     }
 
     fn vault_changed(&mut self, changed: Vec<PathBuf>) {
         let Some(vault) = self.vault() else { return };
-        let root = vault.path();
-        // An agent replied or the page saved: the layer re-reads its notes.
-        for view in self.live_views() {
-            let file = vault::rel_from_url(&view.url().unwrap_or_default());
-            if file.is_some() && changed.iter().any(|p| annot::page_of(root, p) == file) {
-                let _ = view.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
+        let live = self.live_pages();
+        let pages: Vec<LivePage> = live.iter().map(|(view, file, target)| LivePage { view: *view, file: file.as_deref(), target }).collect();
+        let reaction = watch::vault_reaction(vault.path(), &changed, self.own_write.as_ref(), &pages, &RealDisk);
+        for view in reaction.reload_annotations {
+            if let Some(v) = self.view_of(view) {
+                let _ = v.evaluate_script("window.__visorAnnot && window.__visorAnnot.reload()");
             }
         }
-        let changed: Vec<_> = changed.into_iter().filter(|p| !vault::ignored(root, p)).collect();
-        if changed.is_empty() {
-            return;
+        if reaction.refresh_tree {
+            self.sidebar.set_tree(Some(vault.tree()));
         }
-        self.sidebar.set_tree(Some(vault.tree()));
-        // What the app just saved itself is already on screen.
-        let own = |p: &PathBuf| {
-            self.own_write.as_ref().is_some_and(|(o, h)| o == p && fs::read(p).is_ok_and(|b| hash(&b) == *h))
-        };
-        let changed: Vec<_> = changed.into_iter().filter(|p| !own(p)).collect();
-        // Pages may load sibling CSS, JS or data, so any change outside pages reloads too.
-        let other = changed.iter().any(|p| !vault::is_page(p) && !p.is_dir());
-        for pane in &self.panes {
-            for tab in &pane.tabs {
-                let Some((_, view)) = &tab.view else { continue };
-                if tab.target.is_empty() {
-                    // On the empty page the message depends on whether the vault has files.
-                    self.load_into(view, "", "");
-                    continue;
+        for (view, action) in reaction.pages {
+            let Some(v) = self.view_of(view) else { continue };
+            match action {
+                // On the empty page the message depends on whether the vault has files.
+                PageAction::ReloadEmpty => self.load_into(v, "", ""),
+                // A note being edited must not lose its text to a reload.
+                PageAction::NoteChanged => {
+                    let _ = v.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
                 }
-                if is_web(&tab.target) || vault::is_loose(&tab.target) {
-                    continue;
-                }
-                let current = root.join(&tab.target);
-                if !(other || changed.contains(&current)) {
-                    continue;
-                }
-                if vault::is_markdown(&current) {
-                    // A note being edited must not lose its text to a reload.
-                    let _ = view.evaluate_script("window.__visorNote ? window.__visorNote.changed() : location.reload()");
-                } else {
-                    let _ = view.reload();
+                PageAction::Reload => {
+                    let _ = v.reload();
                 }
             }
         }
@@ -1692,11 +1644,4 @@ fn clean_position(json: &str) -> Option<String> {
         Some(line) => json!({ "line": line, "y": y }).to_string(),
         None => json!({ "y": y }).to_string(),
     })
-}
-
-fn hash(bytes: &[u8]) -> u64 {
-    use std::hash::{DefaultHasher, Hasher};
-    let mut hasher = DefaultHasher::new();
-    hasher.write(bytes);
-    hasher.finish()
 }

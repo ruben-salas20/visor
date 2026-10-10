@@ -6,3 +6,4 @@ pub mod icons;
 pub mod panes;
 pub mod sidebar;
 pub mod theme;
+pub mod watch;
