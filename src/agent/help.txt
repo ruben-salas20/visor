@@ -40,9 +40,10 @@ USO
                              Datos que las páginas enviaron con
                              visor.send() y mensajes que la persona
                              escribe en sus anotaciones. Sin opciones,
-                             los 20 últimos (se guardan 1000). Con
-                             --wait espera hasta SEG segundos (máximo
-                             600) a que llegue uno nuevo.
+                             los 20 últimos (se guardan 1000, también
+                             tras reiniciar). Con --wait espera hasta
+                             SEG segundos (máximo 600) a que llegue uno
+                             nuevo.
   visor notes [ruta|--all]   Anotaciones de la página abierta, de otra
                              página o de toda la bóveda (ruta y --all
                              no se combinan). En la página abierta,
@@ -153,6 +154,8 @@ ESCRIBIR PÁGINAS PARA VISOR
     `visor events`, que lo guarda con id, hora, bóveda y archivo:
 
       visor.send({ tipo: "respuesta", pregunta: 3, elegida: "b" });
+
+    Si los datos serializados pasan de 16 KB, el evento se descarta.
 
   - Con Omarchy, cada página recibe los colores del tema como variables
     CSS, actualizadas al cambiar de tema:
