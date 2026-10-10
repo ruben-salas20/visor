@@ -1,4 +1,4 @@
-use crate::session::{Place, AgentRequest, SharedRef};
+use crate::session::{LOADED, Place, AgentRequest, SharedRef};
 use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -55,9 +55,17 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                 Target::Url { url } => AgentRequest::OpenUrl { url, place, reply },
                 Target::Path(page) => AgentRequest::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, reply },
             };
+            let start = Instant::now();
             send(event);
             match answer.recv_timeout(Duration::from_secs(15)) {
-                Ok(Ok(Some((view, before)))) => wait_for_load(shared, view, before),
+                Ok(Ok(Some((view, before)))) => {
+                    let mut out = wait_for_load(shared, view, before);
+                    // For tools/medir: the load as the app sees it, without the CLI's own start.
+                    if std::env::var_os("VISOR_TIEMPOS").is_some() {
+                        out["ms"] = json!((start.elapsed().as_secs_f64() * 10000.0).round() / 10.0);
+                    }
+                    out
+                }
                 Ok(Ok(None)) => shared.lock().unwrap().status(),
                 Ok(Err(e)) => fail(e),
                 Err(_) => fail("La app no respondió.".into()),
@@ -110,26 +118,26 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
 /// Waits until `view` finishes loading and reports the problems it logged.
 fn wait_for_load(shared: &SharedRef, view: u64, before: u64) -> Value {
     let deadline = Instant::now() + LOAD_TIMEOUT;
+    let mut s = shared.lock().unwrap();
     loop {
-        {
-            let s = shared.lock().unwrap();
+        let loaded = s.page_of(view).load_seq > before;
+        let left = deadline.saturating_duration_since(Instant::now());
+        if loaded || left.is_zero() {
             let page = s.page_of(view);
-            if page.load_seq > before || Instant::now() >= deadline {
-                let mut out = s.status();
-                let problems: Vec<Value> = page
-                    .console
-                    .iter()
-                    .filter(|e| e["level"] == "error" || e["level"] == "warn")
-                    .cloned()
-                    .collect();
-                out["problems"] = json!(problems);
-                if page.load_seq <= before {
-                    out["warning"] = json!("La página no terminó de cargar en 10 s.");
-                }
-                return out;
+            let mut out = s.status();
+            let problems: Vec<Value> = page
+                .console
+                .iter()
+                .filter(|e| e["level"] == "error" || e["level"] == "warn")
+                .cloned()
+                .collect();
+            out["problems"] = json!(problems);
+            if !loaded {
+                out["warning"] = json!("La página no terminó de cargar en 10 s.");
             }
+            return out;
         }
-        thread::sleep(POLL);
+        s = LOADED.wait_timeout(s, left).unwrap().0;
     }
 }
 

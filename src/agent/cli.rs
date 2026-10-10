@@ -73,7 +73,8 @@ fn start(loose: bool) -> bool {
         if send(&Command::Ping).is_some() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        // A refused connection costs microseconds; a long sleep here delays every cold start.
+        std::thread::sleep(Duration::from_millis(10));
     }
     false
 }

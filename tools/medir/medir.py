@@ -22,6 +22,8 @@ TICK = os.sysconf("SC_CLK_TCK")
 env = dict(os.environ)
 env.update(
     VISOR_SOCKET=str(SOCK),
+    VISOR_TIEMPOS="1",
+    VISOR_NO_UPDATE="1",
     XDG_CONFIG_HOME=str(WORK / "env" / "cfg"),
     XDG_STATE_HOME=str(WORK / "env" / "state"),
     XDG_DATA_HOME=str(WORK / "env" / "data"),
@@ -170,8 +172,11 @@ def measure(binary):
     visible = window(pid)[1]
     r["cpu_minima_ticks"], r["cpu_minima_pct"] = idle_cpu(pid)
     r["cpu_minima_visible"] = visible and window(pid)[1]
-    r["cambio_pagina_ms"] = round(cli(binary, "open", "otra.md")[0])
-    r["pestana_nueva_ms"] = round(cli(binary, "open", "--tab", "tareas.md")[0])
+    # Inside the app (VISOR_TIEMPOS) and as an agent sees it, CLI start included.
+    ms, data = cli(binary, "open", "otra.md")
+    r["cambio_pagina_ms"], r["cambio_pagina_cli_ms"] = data.get("ms"), round(ms)
+    ms, data = cli(binary, "open", "--tab", "tareas.md")
+    r["pestana_nueva_ms"], r["pestana_nueva_cli_ms"] = data.get("ms"), round(ms)
 
     # Editor (Ctrl+E) on the minimal note, from a fresh start.
     _, pid = cold(binary, VAULT / "minima.md")
@@ -217,7 +222,9 @@ def summary(path):
                 # Rounds where the window was hidden or someone used the machine do not count.
                 page = k.split("_")[1]
                 mine = [r for r in mine if r[f"cpu_{page}_visible"]]
-            values = sorted(min(r[k]) if k == "fps" and r[k] else (0 if k == "fps" else r[k]) for r in mine)
+            # A binary without VISOR_TIEMPOS leaves the in-app times empty.
+            values = [min(r[k]) if k == "fps" and r[k] else (0 if k == "fps" else r.get(k)) for r in mine]
+            values = sorted(v for v in values if v is not None)
             cells.append(f"{values[len(values) // 2]} ({values[0]}–{values[-1]})" if values else "—")
         print(f"{k:22}" + "".join(f"{c:>26}" for c in cells))
 

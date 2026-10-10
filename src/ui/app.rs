@@ -728,6 +728,7 @@ impl App {
                     let Some(page) = shared.pages.get_mut(&view) else { return };
                     page.loaded = true;
                     page.load_seq += 1;
+                    crate::session::LOADED.notify_all();
                 }
                 let Some(loaded) = self.tabs.loaded(view) else { return };
                 if let Some(position) = &loaded.restore

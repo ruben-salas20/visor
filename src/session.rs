@@ -8,7 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSOLE: usize = 500;
@@ -66,6 +66,10 @@ pub struct Shared {
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
+
+/// Signalled, with the shared state, when a page finishes loading, so the
+/// socket server answers `open` at once instead of polling.
+pub static LOADED: Condvar = Condvar::new();
 
 impl Shared {
     /// The last events of the log, so ids go on where they stopped. The file
