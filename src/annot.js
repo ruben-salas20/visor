@@ -96,12 +96,25 @@
 
   // ---------- elements ----------
 
-  const snippet = (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  // Text a person can read: an inline <style> (Mermaid puts one first in each
+  // diagram) would make the snippet as unstable as the ids inside it.
+  function snippet(el) {
+    let text = "";
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walk.nextNode()) && text.length < 400; ) {
+      if (!n.parentElement?.closest("style,script")) text += n.data + " ";
+    }
+    return text.replace(/\s+/g, " ").trim().slice(0, 80);
+  }
+
+  // Ids built from a timestamp, like Mermaid's "mermaid-1791323458942", change on
+  // every render, so they cannot find the element again.
+  const generated = (id) => /\d{10,}/.test(id);
 
   function describe(el) {
     const path = [];
     for (let n = el; n && n !== document.body && n.nodeType === 1; n = n.parentElement) {
-      if (n.id && document.querySelectorAll("#" + CSS.escape(n.id)).length === 1) {
+      if (n.id && !generated(n.id) && document.querySelectorAll("#" + CSS.escape(n.id)).length === 1) {
         path.unshift("#" + CSS.escape(n.id));
         break;
       }
@@ -113,7 +126,7 @@
     return {
       css: path.join(" > "),
       tag: el.tagName.toLowerCase(),
-      id: el.id || null,
+      id: (el.id && !generated(el.id)) ? el.id : null,
       text: snippet(el),
       src: el.getAttribute("src") || el.getAttribute("href") || null,
     };
@@ -131,6 +144,13 @@
     for (const el of document.getElementsByTagName(d.tag)) {
       if (d.src && (el.getAttribute("src") || el.getAttribute("href")) === d.src) return el;
       if (d.text && snippet(el) === d.text) return el;
+    }
+    // Notes saved before generated ids were skipped kept only that id. If the page
+    // has a single element of that kind with a fresh id, it is the same one.
+    if (d.id && generated(d.id)) {
+      const prefix = d.id.slice(0, d.id.search(/\d{10,}/));
+      const same = [...document.getElementsByTagName(d.tag)].filter((el) => generated(el.id) && el.id.startsWith(prefix));
+      if (same.length === 1) return same[0];
     }
     return null;
   }
