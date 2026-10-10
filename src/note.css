@@ -43,6 +43,8 @@ li > input[type="checkbox"], .md-task {
 :is(li > input[type="checkbox"], .md-task):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 ul:has(> li > input[type="checkbox"]) { list-style: none; }
 blockquote { margin-left: 0; padding: .1em 1em; border-left: 3px solid var(--line); color: var(--muted); }
+/* The last block's bottom margin would lengthen the bar below the text only. */
+blockquote > :last-child { margin-bottom: 0; }
 blockquote.markdown-alert-note, blockquote.markdown-alert-tip, blockquote.markdown-alert-important,
 blockquote.markdown-alert-warning, blockquote.markdown-alert-caution {
   color: var(--fg); background: var(--soft); border-radius: 0 6px 6px 0; padding: .6em 1em;
