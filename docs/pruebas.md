@@ -60,6 +60,4 @@ tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
 | Binario (`cargo build --release`, con `strip`) | 4 263 808 bytes | 4 221 096 bytes |
 
-Dos cifras saltan entre ejecuciones con cualquier binario: la memoria con el editor (~236 o ~239 MB) y la pestaña nueva (una ejecución dio 182–188 ms; repetida con 4 rondas, 176–179 frente a 174–176 de `f2bec3e`). Compara solo rondas alternadas de una misma ejecución.
-
-La memoria absoluta varía hasta 15 MB entre ejecuciones del mismo día con el mismo binario (el 2026-10-09, la nota mínima daba 216–220 MB). Compara solo rondas alternadas de una misma ejecución.
+Dos cifras saltan entre ejecuciones con cualquier binario: la memoria con el editor (~236 o ~239 MB) y la pestaña nueva (una ejecución dio 182–188 ms; repetida con 4 rondas, 176–179 frente a 174–176 de `f2bec3e`). La memoria absoluta varía hasta 15 MB entre ejecuciones del mismo día con el mismo binario. Compara solo rondas alternadas de una misma ejecución.
