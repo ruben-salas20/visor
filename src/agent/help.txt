@@ -128,9 +128,13 @@ ARCHIVOS SUELTOS
 NOTAS EN MARKDOWN
   - Los .md aparecen en el árbol junto a los .html y se muestran
     renderizados con el tema. Admiten tablas, notas al pie, listas de
-    tareas, alertas (> [!NOTE]), front matter YAML (no se muestra),
-    fórmulas ($...$ y $$...$$, KaTeX), código coloreado y diagramas
-    (bloques ```mermaid).
+    tareas, alertas (> [!NOTE]), fórmulas ($...$ y $$...$$, KaTeX),
+    código coloreado y diagramas (bloques ```mermaid).
+  - El front matter YAML se muestra como tabla de propiedades encima del
+    texto. Se leen claves de primer nivel con textos, listas ([a, b] o
+    líneas con "- ") y textos de varias líneas (> o |); lo anidado sale
+    como texto. Si una línea no es "clave: valor", el bloque se muestra
+    tal cual.
   - Enlaces al estilo Obsidian: [[nota]], [[carpeta/nota]],
     [[nota#Sección]] y [[nota|texto]], buscados por nombre en toda la
     bóveda. Un enlace a una nota que no existe la crea al hacer clic;

@@ -1,7 +1,10 @@
 //! Turns a Markdown note into a full page: themed, with math, code highlighting,
 //! Mermaid diagrams and `[[wiki]]` links, plus the editor behind Ctrl+E.
 
-use crate::vault;
+use crate::vault::{
+    self,
+    front_matter::{self, Value},
+};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd, html};
 use std::cell::OnceCell;
@@ -39,8 +42,29 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
     let line_starts: Vec<usize> = std::iter::once(0).chain(source.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let line_of = |offset: usize| line_starts.partition_point(|&s| s <= offset);
     let mut events: Vec<Event> = Vec::new();
+    // The front matter's range and its text, between its start and end events.
+    let mut front: Option<(std::ops::Range<usize>, String)> = None;
     for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
         match event {
+            Event::Start(Tag::MetadataBlock(_)) => front = Some((range, String::new())),
+            Event::Text(text) if front.is_some() => {
+                if let Some((_, yaml)) = &mut front {
+                    yaml.push_str(&text);
+                }
+            }
+            Event::End(TagEnd::MetadataBlock(_)) => {
+                if let Some((range, yaml)) = front.take() {
+                    let attrs = if lines {
+                        // Like other blocks, the front matter opens the editor where it starts, and ends on its closing `---`.
+                        let content = source[range.clone()].trim_end().len();
+                        let last = line_of(range.start + content.saturating_sub(1));
+                        format!(" data-line=\"{}\" data-end=\"{last}\"", line_of(range.start))
+                    } else {
+                        String::new()
+                    };
+                    events.push(Event::Html(front_matter_html(&yaml, &attrs).into()));
+                }
+            }
             Event::TaskListMarker(done) => {
                 let checked = if done { " checked" } else { "" };
                 let html = format!("<input type=\"checkbox\" data-task=\"{}\"{checked}>", range.start);
@@ -159,20 +183,6 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
         }
         i += 1;
     }
-
-    // Front matter is metadata, not content.
-    let mut skipping = false;
-    events.retain(|e| match e {
-        Event::Start(Tag::MetadataBlock(_)) => {
-            skipping = true;
-            false
-        }
-        Event::End(TagEnd::MetadataBlock(_)) => {
-            skipping = false;
-            false
-        }
-        _ => !skipping,
-    });
 
     let mut body = String::with_capacity(source.len() * 2);
     html::push_html(&mut body, events.into_iter());
@@ -358,6 +368,32 @@ pub(crate) fn escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+/// The front matter as a table of properties. YAML this reader does not
+/// understand is shown as written, in a `<pre>`. Every value is escaped: the note's
+/// own text must not inject HTML.
+fn front_matter_html(yaml: &str, attrs: &str) -> String {
+    match front_matter::parse(yaml) {
+        Some(props) if props.is_empty() => String::new(),
+        Some(props) => {
+            let rows: String = props
+                .iter()
+                .map(|(key, value)| {
+                    let cell = match value {
+                        Value::Text(text) => escape(text).replace('\n', "<br>"),
+                        Value::List(items) => {
+                            let items: String = items.iter().map(|item| format!("<li>{}</li>", escape(item))).collect();
+                            format!("<ul>{items}</ul>")
+                        }
+                    };
+                    format!("<tr><th>{}</th><td>{cell}</td></tr>", escape(key))
+                })
+                .collect();
+            format!("<table class=\"properties\"{attrs}><tbody>{rows}</tbody></table>")
+        }
+        None => format!("<pre class=\"properties\"{attrs}><code>{}</code></pre>", escape(yaml)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +442,33 @@ mod tests {
         assert!(toggle_task(source, in_code, true).is_none());
         assert!(toggle_task(source, 0, true).is_none());
         assert!(toggle_task(source, 999, true).is_none());
+    }
+
+    #[test]
+    fn front_matter_is_a_table_and_keeps_lines() {
+        let source = "---\nname: orquestar-issues\ndescription: Revisa los issues. Úsala cuando pidan trabajar issues.\n---\n\n# Título\n\nTexto\n";
+        let html = page(source, "SKILL.md", Path::new("/nonexistent"));
+        assert!(html.contains("<table class=\"properties\" data-line=\"1\" data-end=\"4\"><tbody>"), "{html}");
+        assert!(html.contains("<th>name</th><td>orquestar-issues</td>"), "{html}");
+        assert!(html.contains("<h1 data-line=\"6\" id=\"título\">"), "{html}");
+        assert!(html.contains("<p data-line=\"8\">Texto"), "{html}");
+    }
+
+    #[test]
+    fn front_matter_values_are_escaped() {
+        let html = page("---\ntitle: <script>alert(1)</script>\n---\n", "a.md", Path::new("/nonexistent"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"), "{html}");
+        assert!(!html.contains("<script>alert(1)"), "{html}");
+    }
+
+    #[test]
+    fn malformed_front_matter_is_shown_raw() {
+        let html = page("---\nname: x\nesto no es clave\n---\n\nTexto\n", "a.md", Path::new("/nonexistent"));
+        assert!(
+            html.contains("<pre class=\"properties\" data-line=\"1\" data-end=\"4\"><code>name: x\nesto no es clave"),
+            "{html}"
+        );
+        assert!(html.contains("<p data-line=\"6\">Texto"), "{html}");
     }
 
     #[test]

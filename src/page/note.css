@@ -71,6 +71,12 @@ table { border-collapse: collapse; display: block; overflow-x: auto; font-varian
 th, td { border: 1px solid var(--line); padding: .4em .75em; text-align: left; }
 th { background: var(--soft); font-weight: 600; }
 .math-display { display: block; overflow-x: auto; text-align: center; }
+/* The front matter reads as metadata: smaller, with its keys muted. */
+table.properties, pre.properties { font-size: .875em; }
+table.properties { line-height: 1.5; }
+table.properties li + li { margin-top: 0; }
+table.properties th { background: none; color: var(--muted); font-weight: 500; vertical-align: top; }
+table.properties ul { margin: 0; padding-left: 1.2em; }
 .footnote-definition { font-size: .9em; color: var(--muted); }
 /* Not --visor-selection: some dark themes set it barely above the background.
    The address bar uses the same mix. */

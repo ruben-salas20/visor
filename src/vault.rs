@@ -4,6 +4,7 @@ pub mod annot;
 pub mod config;
 pub mod drawing;
 pub mod files;
+pub(crate) mod front_matter;
 pub mod links;
 pub mod markdown;
 #[cfg(test)]
