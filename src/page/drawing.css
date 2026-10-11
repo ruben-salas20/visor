@@ -1,0 +1,5 @@
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--visor-bg, Canvas); color-scheme: var(--visor-mode, light dark); }
+#dibujo { position: fixed; inset: 0; }
+#status { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 4px 10px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--visor-fg, CanvasText) 14%, transparent); background: var(--visor-bg, Canvas); color: var(--visor-fg, CanvasText); font: 13px/1.4 system-ui, sans-serif; pointer-events: none; }
+#status:empty { display: none; }
+#status.error { color: var(--visor-red, #c0392b); }

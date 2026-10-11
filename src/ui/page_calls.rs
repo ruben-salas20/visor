@@ -15,20 +15,25 @@ pub fn note_toggled(error: &str) -> String {
     format!("window.__visorNote && window.__visorNote.toggled({})", json!(error))
 }
 
-/// Ctrl+E: opens or closes the editor of a note.
-pub fn note_toggle() -> &'static str {
-    "window.__visorNote && window.__visorNote.toggle()"
+/// Tells a drawing's editor whether its save worked.
+pub fn drawing_saved(ok: bool, error: &str) -> String {
+    format!("window.__visorDrawing && window.__visorDrawing.saved({ok}, {})", json!(error))
 }
 
-/// The note changed on disk: the editor keeps its text, a rendered note reloads.
+/// Ctrl+E: opens or closes the editor of a note or a drawing.
+pub fn note_toggle() -> &'static str {
+    "(window.__visorNote || window.__visorDrawing)?.toggle()"
+}
+
+/// The note or drawing changed on disk: its editor keeps its text, otherwise it reloads.
 pub fn note_changed() -> &'static str {
-    "window.__visorNote ? window.__visorNote.changed() : location.reload()"
+    "(window.__visorNote || window.__visorDrawing) ? (window.__visorNote || window.__visorDrawing).changed() : location.reload()"
 }
 
 /// Asks the page for its reading position as its tab is hidden. The answer
 /// is untrusted until `clean_position` has seen it.
 pub fn hide() -> &'static str {
-    "window.__visorNote ? __visorNote.hide() : { y: scrollY }"
+    "(window.__visorNote || window.__visorDrawing) ? (window.__visorNote || window.__visorDrawing).hide() : { y: scrollY }"
 }
 
 /// Puts the page back at a position `clean_position` has cleaned.

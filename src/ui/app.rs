@@ -48,6 +48,8 @@ enum PageMsg {
     PickVault,
     /// From a note's editor: replaces that note's text.
     SaveNote { text: String },
+    /// From a drawing's editor: replaces the whole file, in the form it had.
+    SaveDrawing { text: String },
     /// From a checkbox in a rendered note: the task whose `[ ]` starts at `offset`.
     ToggleTask { offset: usize, checked: bool },
     /// From a `[[link]]` to a note that does not exist yet.
@@ -1225,6 +1227,14 @@ impl App {
                 };
                 reply(self, page_calls::note_saved(ok, &error));
             }
+            PageMsg::SaveDrawing { text } if trusted => {
+                let result = self.save_drawing(url, &text);
+                let (ok, error) = match result {
+                    Ok(()) => (true, String::new()),
+                    Err(e) => (false, e),
+                };
+                reply(self, page_calls::drawing_saved(ok, &error));
+            }
             PageMsg::ToggleTask { offset, checked } if trusted => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
                 reply(self, page_calls::note_toggled(&error));
@@ -1300,6 +1310,17 @@ impl App {
     /// an HTML page in the vault cannot overwrite files through this.
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
         let (_, path) = self.open_vault()?.note(url)?;
+        self.own_write = Some(OwnWrite::new(&path, text));
+        vault::write_atomic(&path, text).map_err(|e| e.to_string())
+    }
+
+    /// Writes a drawing. Only a drawing of the vault may be written, and only
+    /// with text that is still a drawing, so a broken page cannot empty it.
+    fn save_drawing(&mut self, url: &str, text: &str) -> Result<(), String> {
+        let (_, path) = self.open_vault()?.drawing(url)?;
+        if !vault::drawing::accepts(&path, text) {
+            return Err("El texto no es un dibujo: no se guarda.".into());
+        }
         self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }

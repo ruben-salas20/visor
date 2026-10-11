@@ -146,7 +146,7 @@ pub enum PageAction {
     /// The start page: its message depends on whether the vault has files.
     ReloadEmpty,
     Reload,
-    /// A note: it tells the editor, which keeps its text, or reloads if it has none.
+    /// A note or a drawing: it tells the editor, which keeps its text, or reloads if it has none.
     NoteChanged,
 }
 
@@ -197,7 +197,8 @@ pub fn vault_reaction(
         if !(other || changed.iter().any(|p| **p == current)) {
             continue;
         }
-        let action = if vault::is_markdown(&current) { PageAction::NoteChanged } else { PageAction::Reload };
+        // Notes and drawings keep their editor's text; other pages reload.
+        let action = if vault::is_markdown(&current) || vault::is_drawing(&current) { PageAction::NoteChanged } else { PageAction::Reload };
         reaction.pages.push((page.view, action));
     }
     reaction

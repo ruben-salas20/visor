@@ -155,8 +155,9 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         return;
     };
     // Notes are rendered unless the editor asks for the source with `?raw`,
-    // or where one of its `[[links]]` leads with `?wiki=target`.
-    if vault::is_markdown(&path) {
+    // or where one of its `[[links]]` leads with `?wiki=target`. Drawings
+    // share these queries; without `?raw` they get the Excalidraw page.
+    if vault::is_markdown(&path) || vault::is_drawing(&path) {
         // `![[image]]` in the editor: the image file, wherever it is in the vault.
         if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
@@ -182,6 +183,8 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         };
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
             (source, "text/plain; charset=utf-8")
+        } else if vault::is_drawing(&path) {
+            (crate::vault::drawing::page(&vault.rel(&path)), "text/html; charset=utf-8")
         } else {
             (crate::vault::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
         };

@@ -1,8 +1,8 @@
 visor: visor de bóvedas de HTML y Markdown para personas y agentes.
 
-Una bóveda es una carpeta. visor muestra sus páginas (.html y .md) en
-un árbol y renderiza la que se elige. Si un archivo cambia en disco, la
-vista se actualiza sola.
+Una bóveda es una carpeta. visor muestra sus páginas (.html, .md y
+dibujos de Excalidraw) en un árbol y renderiza la que se elige. Si un
+archivo cambia en disco, la vista se actualiza sola.
 
 USO
   visor                      Abre la app.
@@ -133,6 +133,20 @@ NOTAS EN MARKDOWN
     el editor: verá un aviso y su editor no cambia, y si sigue
     escribiendo, su texto sustituye al tuyo.
 
+DIBUJOS DE EXCALIDRAW
+  - visor muestra y edita dos formatos: .excalidraw.md (el del plugin de
+    Excalidraw de Obsidian) y .excalidraw (JSON de excalidraw.com). Salen
+    en el árbol junto a las demás páginas.
+  - Se abren en modo lectura. Ctrl+E los edita. Se guardan solos, 0,8 s
+    después del último cambio, en el mismo formato que tenían.
+  - En un .excalidraw.md se regenera "## Text Elements" desde el dibujo.
+    El resto del archivo (frontmatter, "## Element Links", "## Embedded
+    Files" y el texto ajeno) se conserva tal cual.
+  - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
+    En un .excalidraw.md no se pueden añadir imágenes nuevas (sí en un
+    .excalidraw). Las URL y las fórmulas LaTeX no se muestran.
+  - `visor screenshot` sirve para comprobar el resultado.
+
 ANOTACIONES
   La persona resalta texto, lo comenta o anota un elemento o un punto
   (un gráfico, una imagen, un canvas). Se guardan aparte, en
@@ -237,7 +251,7 @@ ATAJOS EN LA APP
           absoluta. Escape vuelve a la página.
   Ctrl+Shift+B  mostrar u ocultar la barra (empieza oculta; se
           recuerda; Ctrl+L la muestra mientras escribes)
-  Ctrl+E  editar la nota .md abierta, o volver a la vista
+  Ctrl+E  editar la nota .md o el dibujo abiertos, o volver a la vista
   Ctrl+N  nueva nota en la carpeta de la actual
   Ctrl+Shift+A  anotar un elemento o un punto
   Ctrl+Shift+L  lista de anotaciones de la página (ambos botones, a la

@@ -2,6 +2,7 @@
 //! and links. Every path a page or the panel names is checked here.
 pub mod annot;
 pub mod config;
+pub mod drawing;
 pub mod files;
 pub mod links;
 pub mod markdown;
@@ -35,13 +36,20 @@ pub struct File {
     pub path: String,
 }
 
-/// Files the viewer lists and shows: HTML pages and Markdown notes.
+/// Files the viewer lists and shows: HTML pages, Markdown notes and drawings.
 pub fn is_page(path: &Path) -> bool {
-    is_html(path) || is_markdown(path)
+    is_html(path) || is_markdown(path) || is_drawing(path)
 }
 
+/// A Markdown note. A drawing in Obsidian's form is Markdown too, but it is not a note.
 pub fn is_markdown(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md"))
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) && !is_drawing(path)
+}
+
+/// A drawing: `.excalidraw.md` (Obsidian's Excalidraw plugin) or `.excalidraw` (JSON of excalidraw.com).
+pub fn is_drawing(path: &Path) -> bool {
+    let name = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    name.ends_with(".excalidraw.md") || name.ends_with(".excalidraw")
 }
 
 pub fn is_html(path: &Path) -> bool {
@@ -400,6 +408,12 @@ impl Vault {
         if is_markdown(&path) { Ok((rel, path)) } else { Err("Solo se pueden guardar notas .md".into()) }
     }
 
+    /// Like [`Vault::page`], but only drawings.
+    pub fn drawing(&self, url: &str) -> Result<(String, PathBuf), String> {
+        let (rel, path) = self.page(url)?;
+        if is_drawing(&path) { Ok((rel, path)) } else { Err("Solo se pueden guardar dibujos".into()) }
+    }
+
     /// A file or folder of the vault named by the panel, never the vault itself
     /// nor anything outside it or hidden.
     pub fn entry(&self, rel: &str) -> Result<PathBuf, String> {
@@ -743,6 +757,12 @@ mod tests {
         assert_eq!(vault.page(&format!("{}#x", url("a/nota.md"))).unwrap().0, "a/nota.md");
         assert_eq!(vault.note(&url("a/nota.md")).unwrap().1, vault.root().join("a/nota.md"));
         assert!(vault.note(&url("a/pagina.html")).is_err(), "html is not a note");
+        fs::write(vault.root().join("a/dibujo.excalidraw.md"), "# x").unwrap();
+        fs::write(vault.root().join("a/dibujo.excalidraw"), "{}").unwrap();
+        assert!(vault.note(&url("a/dibujo.excalidraw.md")).is_err(), "a drawing is not a note");
+        assert!(vault.drawing(&url("a/nota.md")).is_err(), "a note is not a drawing");
+        assert_eq!(vault.drawing(&url("a/dibujo.excalidraw")).unwrap().1, vault.root().join("a/dibujo.excalidraw"));
+        assert_eq!(vault.drawing(&url("a/dibujo.excalidraw.md")).unwrap().1, vault.root().join("a/dibujo.excalidraw.md"));
         assert!(vault.page(&url("a/falta.md")).is_err());
         assert!(vault.note(&url("a/falta.md")).is_err());
         assert!(vault.page("https://example.com/a/nota.md").is_err());
