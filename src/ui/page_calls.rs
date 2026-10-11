@@ -30,6 +30,12 @@ pub fn note_changed() -> &'static str {
     "(window.__visorNote || window.__visorDrawing) ? (window.__visorNote || window.__visorDrawing).changed() : location.reload()"
 }
 
+/// Whether a note has text the user typed that is not saved yet. Pages that are
+/// not notes answer false.
+pub fn note_unsaved() -> &'static str {
+    "!!(window.__visorNote && window.__visorNote.unsaved)"
+}
+
 /// Asks the page for its reading position as its tab is hidden. The answer
 /// is untrusted until `clean_position` has seen it.
 pub fn hide() -> &'static str {

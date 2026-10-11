@@ -1,6 +1,6 @@
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
-use crate::ui::action::{Action, LoadFailure, SidebarMsg, UserEvent};
+use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
@@ -23,8 +23,10 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs;
 
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tao::dpi::LogicalSize;
@@ -37,6 +39,7 @@ use wry::{WebContext, WebView, WebViewExtUnix};
 
 const SIDEBAR_WIDTH: i32 = 260;
 const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
+const RESTART_WAIT: Duration = Duration::from_secs(3);
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
 /// Messages from vault pages. Websites never get to send these.
@@ -864,7 +867,89 @@ impl App {
                 self.save_scheduled = false;
                 self.flush_config();
             }
+            UserEvent::UpdateDone { message, installed } => self.sidebar.update_done(&message, installed),
+            UserEvent::RestartChecked(check) => match check {
+                RestartCheck::Clear => self.restart(),
+                RestartCheck::Unsaved => self.sidebar.update_done("Hay notas sin guardar. Guárdalas antes de reiniciar.", true),
+                RestartCheck::Unknown => self.sidebar.update_done("No se pudo comprobar si hay notas sin guardar. No se reinicia.", true),
+            },
         }
+    }
+
+    /// Checks for a new version on a thread, so the window keeps answering; the
+    /// result comes back as `UpdateDone`.
+    fn check_updates(&mut self) {
+        self.sidebar.update_busy();
+        let proxy = self.proxy.clone();
+        std::thread::spawn(move || {
+            let outcome = crate::update::run(true);
+            let installed = matches!(outcome, crate::update::Outcome::Installed(_));
+            let _ = proxy.send_event(UserEvent::UpdateDone { message: outcome.message(), installed });
+        });
+    }
+
+    /// Restarts once no page has a note with unsaved text. Pages answer on the
+    /// main loop, so each answer is counted here and the last one sends `RestartChecked`.
+    /// A page that never answers (still loading, stuck) counts as unknown after
+    /// `RESTART_WAIT`, so the button never does nothing.
+    fn ask_restart(&mut self) {
+        let views: Vec<&WebView> = self.views.iter().map(|(_, v)| v).collect();
+        if views.is_empty() {
+            return self.restart();
+        }
+        let waiting = Arc::new(AtomicUsize::new(views.len()));
+        let unsaved = Arc::new(AtomicBool::new(false));
+        let unknown = Arc::new(AtomicBool::new(false));
+        let decided = Arc::new(AtomicBool::new(false));
+        {
+            let (decided, proxy) = (decided.clone(), self.proxy.clone());
+            gtk::glib::timeout_add_local_once(RESTART_WAIT, move || {
+                if !decided.swap(true, Ordering::SeqCst) {
+                    let _ = proxy.send_event(UserEvent::RestartChecked(RestartCheck::Unknown));
+                }
+            });
+        }
+        let settle = {
+            let (waiting, unsaved, unknown, proxy) = (waiting.clone(), unsaved.clone(), unknown.clone(), self.proxy.clone());
+            move || {
+                if waiting.fetch_sub(1, Ordering::SeqCst) == 1 && !decided.swap(true, Ordering::SeqCst) {
+                    let check = if unknown.load(Ordering::SeqCst) {
+                        RestartCheck::Unknown
+                    } else if unsaved.load(Ordering::SeqCst) {
+                        RestartCheck::Unsaved
+                    } else {
+                        RestartCheck::Clear
+                    };
+                    let _ = proxy.send_event(UserEvent::RestartChecked(check));
+                }
+            }
+        };
+        for view in views {
+            let (answered, unsaved_flag) = (settle.clone(), unsaved.clone());
+            let asked = view.evaluate_script_with_callback(page_calls::note_unsaved(), move |answer| {
+                if answer == "true" {
+                    unsaved_flag.store(true, Ordering::SeqCst);
+                }
+                answered();
+            });
+            if asked.is_err() {
+                unknown.store(true, Ordering::SeqCst);
+                settle();
+            }
+        }
+    }
+
+    /// Replaces this process with the installed binary, with the same arguments.
+    /// The state is saved first, since exec skips the exit path. It returns only
+    /// when exec fails, and then visor keeps running.
+    fn restart(&mut self) {
+        self.save_layout();
+        self.flush_config();
+        let Some(exe) = crate::update::running_exe() else {
+            return self.sidebar.update_done("No se pudo reiniciar: no se encuentra visor.", true);
+        };
+        let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec();
+        self.sidebar.update_done(&format!("No se pudo reiniciar: {error}."), true);
     }
 
     fn act(&mut self, action: Action) {
@@ -931,6 +1016,8 @@ impl App {
                 self.config.auto_update = Some(on).filter(|on| !on);
                 self.save_config_soon();
             }
+            Action::CheckUpdates => self.check_updates(),
+            Action::Restart => self.ask_restart(),
             Action::Settings => {
                 let side = self.sidebar.root.clone();
                 if !side.is_visible() {

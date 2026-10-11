@@ -126,6 +126,13 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                 Err(e) => fail(e),
             }
         }
+        // Installs only; the window keeps running the version it has (see ui/app.rs `restart`).
+        Command::Update => match crate::update::run(true) {
+            outcome @ (crate::update::Outcome::Latest(_) | crate::update::Outcome::Installed(_)) => {
+                json!({ "ok": true, "message": outcome.message() })
+            }
+            outcome => fail(outcome.message()),
+        },
         // `visor mcp` answers the guide itself.
         Command::Guide => fail("Comando desconocido: guide".into()),
     }

@@ -240,6 +240,8 @@
 
   window.__visorNote = {
     get editing() { return editing; },
+    // Text the user typed that is not saved yet, or a save still on its way.
+    get unsaved() { return dirty || sent.length > 0; },
     createFailed(error) {
       notify(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`);
     },

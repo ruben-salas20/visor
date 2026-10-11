@@ -127,6 +127,7 @@ pub struct Sidebar {
     theme_buttons: ThemeButtons,
     zoom_label: gtk::Label,
     auto_update: gtk::CheckButton,
+    update: UpdateBox,
     /// Set while the settings are filled in, so that is not sent as a change.
     syncing: Rc<Cell<bool>>,
     form: gtk::Box,
@@ -177,7 +178,8 @@ impl Sidebar {
         foot.style_context().add_class("visor-side-foot");
         foot.pack_start(&gear, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
-        let (settings, theme_buttons, zoom_label, auto_update) = settings_popover(&gear, proxy, &syncing);
+        let update = UpdateBox::new(proxy);
+        let (settings, theme_buttons, zoom_label, auto_update) = settings_popover(&gear, proxy, &syncing, &update);
         gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -283,6 +285,7 @@ impl Sidebar {
             theme_buttons,
             zoom_label,
             auto_update,
+            update,
             syncing,
             form,
             form_label,
@@ -365,6 +368,16 @@ impl Sidebar {
 
     pub fn popup_settings(&self) {
         self.settings.popup();
+    }
+
+    /// The check has started: no second one until it ends.
+    pub fn update_busy(&self) {
+        self.update.busy();
+    }
+
+    /// The check has ended with `message`; `restart` offers the restart button.
+    pub fn update_done(&self, message: &str, restart: bool) {
+        self.update.done(message, restart);
     }
 
     /// Folders in the muted color; the open file and a drop target, highlighted.
@@ -928,12 +941,64 @@ impl Sidebar {
 /// Theme choices as the settings popover holds them: `None` is «Sistema».
 type ThemeButtons = Vec<(Option<&'static str>, gtk::ToggleButton)>;
 
-/// The gear's popover: a theme choice, the text size and the update switch.
-/// Its controls send actions; `Sidebar::set_settings` fills them in silently.
+/// The update part of the settings: a check now, the result of the last one,
+/// and a restart once a new version is on disk.
+#[derive(Clone)]
+struct UpdateBox {
+    area: gtk::Box,
+    check: gtk::Button,
+    result: gtk::Label,
+    restart: gtk::Button,
+}
+
+impl UpdateBox {
+    fn new(proxy: &EventLoopProxy<UserEvent>) -> UpdateBox {
+        let area = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        let check = gtk::Button::with_label("Buscar actualización ahora");
+        check.set_tooltip_text(Some("Las copias compiladas en target/ no se reemplazan."));
+        let result = gtk::Label::new(None);
+        result.set_xalign(0.0);
+        result.set_line_wrap(true);
+        result.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
+        result.set_no_show_all(true);
+        let restart = gtk::Button::with_label("Reiniciar ahora");
+        restart.set_no_show_all(true);
+        let p = proxy.clone();
+        check.connect_clicked(move |_| {
+            let _ = p.send_event(UserEvent::Action(Action::CheckUpdates));
+        });
+        let p = proxy.clone();
+        restart.connect_clicked(move |_| {
+            let _ = p.send_event(UserEvent::Action(Action::Restart));
+        });
+        area.pack_start(&check, false, false, 0);
+        area.pack_start(&result, false, false, 0);
+        area.pack_start(&restart, false, false, 0);
+        UpdateBox { area, check, result, restart }
+    }
+
+    fn busy(&self) {
+        self.check.set_sensitive(false);
+        self.restart.hide();
+        self.result.set_text("Buscando…");
+        self.result.show();
+    }
+
+    fn done(&self, message: &str, restart: bool) {
+        self.check.set_sensitive(true);
+        self.result.set_text(message);
+        self.result.show();
+        if restart { self.restart.show() } else { self.restart.hide() }
+    }
+}
+
+/// The gear's popover: a theme choice, the text size, the update switch and the
+/// update check. Its controls send actions; `Sidebar::set_settings` fills them in silently.
 fn settings_popover(
     gear: &gtk::MenuButton,
     proxy: &EventLoopProxy<UserEvent>,
     syncing: &Rc<Cell<bool>>,
+    update: &UpdateBox,
 ) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton) {
     let caption = |text: &str| {
         let label = gtk::Label::new(Some(text));
@@ -1014,6 +1079,7 @@ fn settings_popover(
     column.pack_start(&caption("Tamaño del texto"), false, false, 0);
     column.pack_start(&zoom_row, false, false, 0);
     column.pack_start(&auto_update, false, false, 4);
+    column.pack_start(&update.area, false, false, 4);
     column.show_all();
 
     let settings = gtk::Popover::new(Some(gear));

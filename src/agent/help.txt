@@ -74,6 +74,11 @@ USO
   visor notes reply <id> <texto>
                              Responde a una anotación; la persona la ve
                              al momento en su nota.
+  visor update               Busca una versión nueva ahora (sin esperar al
+                             día) y la instala si existe. Devuelve "message"
+                             con el resultado. No reinicia visor: la versión
+                             nueva se usa al volver a abrirlo. Una copia en
+                             target/ no se reemplaza.
   visor mcp                  Servidor MCP por stdio (ver MCP).
   visor help                 Esta ayuda.
 
@@ -94,6 +99,7 @@ MCP
       events       after, wait, limit
       notes        page (una ruta) o all, no los dos
       notes_reply  id, text
+      update       comprueba si hay una versión nueva y la instala; no reinicia
       guide        devuelve este texto
 
 PESTAÑAS Y LADOS

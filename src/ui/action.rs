@@ -55,6 +55,19 @@ pub enum UserEvent {
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,
+    /// A manual update check ended. `installed` offers the restart button.
+    UpdateDone { message: String, installed: bool },
+    /// The pages answered whether a restart may go ahead.
+    RestartChecked(RestartCheck),
+}
+
+/// What the pages said before a restart.
+pub enum RestartCheck {
+    Clear,
+    /// A note has text not saved yet.
+    Unsaved,
+    /// Some page did not answer, so nothing is known about its notes.
+    Unknown,
 }
 
 /// Why a resource did not load.
@@ -95,6 +108,10 @@ pub enum Action {
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
     SetTheme(Option<String>),
     SetAutoUpdate(bool),
+    /// Checks for a new version now and installs it if there is one.
+    CheckUpdates,
+    /// Restarts visor on the installed version, if no note has unsaved text.
+    Restart,
     /// Shows the sidebar if hidden and opens its settings popover.
     Settings,
 }

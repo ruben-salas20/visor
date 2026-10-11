@@ -146,6 +146,11 @@ pub fn list() -> Vec<Value> {
             ),
         ),
         tool(
+            "update",
+            "Comprueba si hay una versión nueva de visor y la instala. Devuelve el resultado en texto. No reinicia visor: la versión nueva se usa al volver a abrirlo. No reemplaza una copia de compilación (target/).",
+            object(json!({}), &[]),
+        ),
+        tool(
             "guide",
             "Devuelve la guía de visor: cómo escribir páginas HTML y notas para visor, qué datos envía la persona y qué órdenes hay. Léela antes de escribir páginas o notas para visor.",
             object(json!({}), &[]),
@@ -207,6 +212,6 @@ mod tests {
     #[test]
     fn the_tools_are_these() {
         let names: Vec<String> = list().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names, ["open", "close", "status", "reload", "console", "screenshot", "eval", "events", "notes", "notes_reply", "guide"]);
+        assert_eq!(names, ["open", "close", "status", "reload", "console", "screenshot", "eval", "events", "notes", "notes_reply", "update", "guide"]);
     }
 }

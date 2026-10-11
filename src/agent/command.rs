@@ -26,6 +26,8 @@ pub enum Command {
     Events { after: Option<u64>, wait: Option<f64>, limit: Option<u64> },
     Notes { scope: NotesScope },
     NotesReply { id: String, text: String },
+    /// Checks for a new release and installs it. Never restarts the app.
+    Update,
     /// Answered by `visor mcp` itself, never sent to the app.
     Guide,
 }
@@ -65,8 +67,8 @@ pub enum NotesScope {
     Page(Page),
 }
 
-const WIRE_NAMES: [&str; 11] =
-    ["ping", "status", "reload", "open", "close", "console", "screenshot", "eval", "events", "notes", "notes_reply"];
+const WIRE_NAMES: [&str; 12] =
+    ["ping", "status", "reload", "open", "close", "console", "screenshot", "eval", "events", "notes", "notes_reply", "update"];
 
 fn is_web(text: &str) -> bool {
     text.starts_with("http://") || text.starts_with("https://")
@@ -140,6 +142,7 @@ impl Command {
             }
             "status" => Ok(Self::Status),
             "reload" => Ok(Self::Reload),
+            "update" => Ok(Self::Update),
             "screenshot" => {
                 let usage = "Uso: visor screenshot <archivo.png>";
                 if let Some(unknown) = rest.iter().find(|a| a.starts_with("--")) {
@@ -195,7 +198,7 @@ impl Command {
             "events" => &["after", "wait", "limit"],
             "notes" => &["page", "all"],
             "notes_reply" => &["id", "text"],
-            "status" | "reload" | "guide" => &[],
+            "status" | "reload" | "update" | "guide" => &[],
             _ => return Err(format!("Herramienta desconocida: {tool}. Usa tools/list para ver las disponibles.")),
         };
         let args = Args::new(args, allowed)?;
@@ -253,6 +256,7 @@ impl Command {
             }
             "status" => Self::Status,
             "reload" => Self::Reload,
+            "update" => Self::Update,
             _ => Self::Guide,
         })
     }
@@ -284,6 +288,7 @@ impl Command {
             "ping" => Self::Ping,
             "status" => Self::Status,
             "reload" => Self::Reload,
+            "update" => Self::Update,
             "open" => Self::Open {
                 target: match optional("url")? {
                     Some(url) => Target::Url { url: url.to_string() },
@@ -345,6 +350,7 @@ impl Command {
             Self::Ping => json!({ "cmd": "ping" }),
             Self::Status => json!({ "cmd": "status" }),
             Self::Reload => json!({ "cmd": "reload" }),
+            Self::Update => json!({ "cmd": "update" }),
             Self::Open { target, place: at } => {
                 let mut wire = match target {
                     Target::Url { url } => json!({ "url": url }),
@@ -515,6 +521,7 @@ mod tests {
     fn simple_commands_from_args() {
         assert_eq!(cli("status").unwrap(), Command::Status);
         assert_eq!(cli("reload").unwrap(), Command::Reload);
+        assert_eq!(cli("update").unwrap(), Command::Update);
         assert_eq!(cli("console").unwrap(), Command::Console { level: None, clear: false });
         assert_eq!(
             cli("console --errors --clear").unwrap(),
@@ -630,6 +637,8 @@ mod tests {
     fn simple_tools_from_mcp() {
         assert_eq!(mcp("status", json!({})).unwrap(), Command::Status);
         assert_eq!(mcp("reload", json!({})).unwrap(), Command::Reload);
+        assert_eq!(mcp("update", json!({})).unwrap(), Command::Update);
+        assert_eq!(mcp("update", json!({ "force": true })), Err("Argumento desconocido: force.".into()));
         assert_eq!(mcp("guide", json!({})).unwrap(), Command::Guide);
         assert_eq!(mcp("close", json!({})).unwrap(), Command::Close { target: None });
         assert_eq!(
@@ -762,6 +771,7 @@ mod tests {
         assert_eq!(wire(Command::Ping), json!({ "cmd": "ping" }));
         assert_eq!(wire(cli("status").unwrap()), json!({ "cmd": "status" }));
         assert_eq!(wire(cli("reload").unwrap()), json!({ "cmd": "reload" }));
+        assert_eq!(wire(cli("update").unwrap()), json!({ "cmd": "update" }));
         assert_eq!(wire(cli("close").unwrap()), json!({ "cmd": "close" }));
         assert_eq!(
             wire(cli("close x/a.html").unwrap()),
