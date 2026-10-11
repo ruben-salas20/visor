@@ -198,7 +198,9 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
 /// A file a loose page may read: inside the folder of a loose tab that is
 /// open, subfolders included, and with nothing hidden on the way.
 fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
-    let path = path.canonicalize().ok().filter(|p| p.is_file())?;
+    // A loose path is absolute, so the lookup starts at `/`.
+    let real = |p: &Path| p.canonicalize().ok().or_else(|| vault::find_nfc(Path::new("/"), p)?.canonicalize().ok());
+    let path = real(path).filter(|p| p.is_file())?;
     let visible = |rel: &Path| !rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
     allowed.iter().any(|dir| path.strip_prefix(dir).is_ok_and(visible)).then_some(path)
 }
@@ -234,6 +236,24 @@ fn serve_file(request: Request, path: &Path, range: Option<String>) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn loose_pages_found_with_nfc_names() {
+        let dir = std::env::temp_dir().join(format!("visor-loose-nfc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let nfd = dir.join("Pra\u{301}ctica");
+        fs::create_dir_all(&nfd).unwrap();
+        fs::write(nfd.join("Ejercicios de Pra\u{301}ctica.pdf"), "").unwrap();
+        let root = dir.canonicalize().unwrap();
+        let allowed = [root.join("Pra\u{301}ctica")];
+        let nfc = format!("{}/Práctica/Ejercicios de Práctica.pdf", root.display());
+        let found = loose_file(Path::new(&nfc), &allowed).expect("NFC spelling");
+        assert_eq!(found, root.join("Pra\u{301}ctica/Ejercicios de Pra\u{301}ctica.pdf"));
+        let nfd_name = format!("{}/Pra\u{301}ctica/Ejercicios de Pra\u{301}ctica.pdf", root.display());
+        assert!(loose_file(Path::new(&nfd_name), &allowed).is_some(), "NFD spelling");
+        assert!(loose_file(Path::new(&format!("{}/Práctica/../Otra/x.pdf", root.display())), &allowed).is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn loose_pages_read_their_folder_but_nothing_hidden() {

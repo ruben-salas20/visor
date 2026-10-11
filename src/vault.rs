@@ -9,11 +9,13 @@ pub mod markdown;
 mod walk_tests;
 
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
@@ -201,6 +203,42 @@ pub fn rel(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+/// The NFC form of `s`. macOS and zip files often store accents decomposed
+/// (NFD: "a" + U+0301), while names typed by people and agents are composed.
+pub fn nfc(s: &str) -> Cow<'_, str> {
+    icu_normalizer::ComposingNormalizerBorrowed::new_nfc().normalize(s)
+}
+
+/// `rel` under `base`, as it is spelled on disk. A name is taken as written when
+/// it exists; otherwise the folder is read and the entry whose NFC form matches
+/// is used. The result is not canonical: callers still canonicalize it and check
+/// that it stays inside the vault, so this never widens what can be reached.
+pub fn find_nfc(base: &Path, rel: &Path) -> Option<PathBuf> {
+    let mut cur = base.to_path_buf();
+    for part in rel.components() {
+        match part {
+            Component::Normal(name) => {
+                let name = if cur.join(name).exists() { name.to_os_string() } else { nfc_entry(&cur, name)? };
+                cur.push(name);
+            }
+            Component::CurDir => {}
+            other => cur.push(other.as_os_str()),
+        }
+    }
+    Some(cur)
+}
+
+/// The entry of `dir` whose NFC name equals that of `name`, the smallest if there are several.
+fn nfc_entry(dir: &Path, name: &OsStr) -> Option<OsString> {
+    let want = nfc(name.to_str()?);
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name())
+        .filter(|f| f.to_str().is_some_and(|f| nfc(f) == want))
+        .min()
+}
+
 /// Orders "tema 2" before "tema 10", ignoring case.
 fn natural(a: &str, b: &str) -> Ordering {
     let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
@@ -273,9 +311,22 @@ impl Vault {
 
     /// Resolves a request path inside the vault, refusing anything that escapes it.
     pub fn resolve(&self, rel: &str) -> Option<PathBuf> {
-        let path = self.root.join(rel.trim_start_matches('/')).canonicalize().ok()?;
+        self.locate(rel).map(|(_, path)| path)
+    }
+
+    /// Like [`Vault::resolve`], also giving `rel` spelled as on disk, which is
+    /// what the page is listed under.
+    fn locate(&self, rel: &str) -> Option<(String, PathBuf)> {
+        let rel = rel.trim_start_matches('/');
+        let (rel, path) = match self.root.join(rel).canonicalize() {
+            Ok(path) => (rel.to_string(), path),
+            Err(_) => {
+                let real = find_nfc(&self.root, Path::new(rel))?;
+                (self.rel(&real), real.canonicalize().ok()?)
+            }
+        };
         let path = if path.is_dir() { path.join("index.html") } else { path };
-        (path.starts_with(&self.root) && path.is_file()).then_some(path)
+        (path.starts_with(&self.root) && path.is_file()).then_some((rel, path))
     }
 
     /// The file of the page shown at `url`, with its vault path. Websites and
@@ -286,7 +337,7 @@ impl Vault {
         let rel = rel_from_url(url)
             .filter(|r| !is_loose(r) && !r.split('/').any(|seg| seg == "." || seg == ".."))
             .ok_or("La página no es de la bóveda")?;
-        let path = self.resolve(&rel).ok_or("La página no existe en la bóveda")?;
+        let (rel, path) = self.locate(&rel).ok_or("La página no existe en la bóveda")?;
         Ok((rel, path))
     }
 
@@ -544,6 +595,33 @@ mod tests {
         assert_eq!(vault.resolve(dir.join("fuera.md").to_str().unwrap()), None, "absolute path");
         assert_eq!(vault.resolve("a/enlace.md"), None, "link out of the vault");
         assert_eq!(vault.resolve("salida/fuera.md"), None, "folder link out of the vault");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn nfd_names_are_found_by_nfc_and_back() {
+        bases();
+        let (vault, dir) = make("nfc");
+        let root = vault.root().to_path_buf();
+        let (nfd, nfc_) = ("Pra\u{301}ctica", "Práctica");
+        fs::create_dir_all(root.join(format!("{nfd}/tema 1"))).unwrap();
+        fs::write(root.join(format!("{nfd}/tema 1/Ejercicios de {nfd}.html")), "<p>").unwrap();
+        fs::write(root.join(format!("{nfd}/nota.md")), "# Nota").unwrap();
+        // A link out of the vault with a decomposed name.
+        std::os::unix::fs::symlink(&dir, root.join("sa\u{301}lida")).unwrap();
+        let file = format!("{nfd}/tema 1/Ejercicios de {nfd}.html");
+        let want = root.join(&file);
+        assert_eq!(vault.resolve(&file), Some(want.clone()), "as on disk");
+        assert_eq!(vault.resolve(&format!("{nfc_}/tema 1/Ejercicios de {nfc_}.html")), Some(want.clone()), "NFC");
+        assert_eq!(vault.resolve(&format!("{nfc_}/nota.md")), Some(root.join(format!("{nfd}/nota.md"))), "folder NFC");
+        assert_eq!(vault.resolve(&format!("{nfc_}/falta.md")), None);
+        // The key of a page is the name on disk, not the one asked for.
+        let (rel, _) = vault.page(&url(&format!("{nfc_}/nota.md"))).unwrap();
+        assert_eq!(rel, format!("{nfd}/nota.md"));
+        // The fallback finds the real folder only; it never leaves the vault.
+        assert_eq!(vault.resolve(&format!("{nfc_}/../../fuera.md")), None, "dot segments");
+        assert_eq!(vault.resolve("sálida/fuera.md"), None, "link out of the vault, NFC name");
+        assert_eq!(vault.resolve("sa\u{301}lida/fuera.md"), None, "link out of the vault, NFD name");
         fs::remove_dir_all(dir).unwrap();
     }
 

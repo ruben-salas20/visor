@@ -2456,6 +2456,7 @@ dependencies = [
  "brotli",
  "dirs",
  "gtk",
+ "icu_normalizer",
  "notify",
  "percent-encoding",
  "pulldown-cmark",

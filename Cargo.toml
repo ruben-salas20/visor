@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 dirs = "7.0.0"
 gtk = "0.18"
+icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 notify = "8.2"
 percent-encoding = "2.3.2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

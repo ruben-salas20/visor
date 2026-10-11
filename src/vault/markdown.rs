@@ -323,8 +323,9 @@ pub(crate) fn wiki_page<'a>(name: &str, from: &str, pages: &'a [String]) -> Opti
         return None;
     }
     let here = from.rsplit_once('/').map_or("", |(d, _)| d);
-    // Unicode-aware, not ASCII: [[Árbol]] must find árbol.md.
-    let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
+    // Unicode-aware, not ASCII: [[Árbol]] must find árbol.md. Composed and
+    // decomposed accents are the same letters: [[árbol]] must find the NFD file.
+    let same = |a: &str, b: &str| vault::nfc(a).to_lowercase() == vault::nfc(b).to_lowercase();
     let matches = |page: &&String| {
         let without_ext = page.rsplit_once('.').map_or(page.as_str(), |(p, _)| p);
         if name.contains('/') {
@@ -420,5 +421,8 @@ mod tests {
         assert!(wiki_target("no existe", "a.md", &pages).is_none());
         let pages = vec!["árbol.md".to_string()];
         assert!(wiki_target("Árbol", "x.md", &pages).is_some(), "capitals with accents");
+        let decomposed = vec!["pra\u{301}ctica.md".to_string()];
+        assert!(wiki_target("práctica", "x.md", &decomposed).is_some(), "NFC name finds an NFD file");
+        assert!(wiki_target("pra\u{301}ctica", "x.md", &decomposed).is_some(), "NFD name too");
     }
 }

@@ -22,7 +22,7 @@ pub fn relink(root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>, String>
     let old_pages = new_pages.iter().map(|p| swap(p, to, from).unwrap_or_else(|| p.clone())).collect();
     let mut moved_names = HashSet::new();
     for page in new_pages.iter().filter(|p| swap(p, to, to).is_some()) {
-        let file = page.rsplit('/').next().unwrap_or(page).to_lowercase();
+        let file = vault::nfc(page.rsplit('/').next().unwrap_or(page)).to_lowercase();
         if let Some((stem, _)) = file.rsplit_once('.') {
             moved_names.insert(stem.to_string());
         }
@@ -160,7 +160,7 @@ impl Relinker<'_> {
     /// New name for `[[name]]` if, after the move, it would resolve to another page
     /// (or to none): the shortest that resolves to where it pointed before.
     fn wiki(&self, name: &str, old: &str, new: &str) -> Option<String> {
-        let last = name.rsplit('/').next().unwrap_or(name).to_lowercase();
+        let last = vault::nfc(name.rsplit('/').next().unwrap_or(name)).to_lowercase();
         if old == new && !self.moved_names.contains(&last) {
             return None;
         }
@@ -170,7 +170,7 @@ impl Relinker<'_> {
             return None;
         }
         let file = target.rsplit('/').next().unwrap_or(&target);
-        let with_ext = file.to_lowercase() == last;
+        let with_ext = vault::nfc(file).to_lowercase() == last;
         let strip = |p: &str| p.rsplit_once('.').map_or(p.to_string(), |(s, _)| s.to_string());
         let mut candidates = vec![];
         if !name.contains('/') {
