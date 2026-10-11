@@ -180,11 +180,15 @@
     }
     const { collaborators, ...appState } = scene.appState || {};
     source = scene.source ?? null;
+    // URL and LaTeX entries are not loaded (external content, or a math engine visor
+    // does not have), but their fileIds are known, so their images are not "new".
     embedIds = new Set(embeds.map((e) => e.id));
     const files = md ? {} : scene.files || {};
     const missing = [];
     const loaded = await Promise.all(
-      embeds.map(({ id, name }) => image(id, name).catch(() => (missing.push(name), null))),
+      embeds
+        .filter((e) => e.kind === "vault")
+        .map(({ id, name }) => image(id, name).catch(() => (missing.push(name), null))),
     );
     for (const f of loaded) if (f) files[f.id] = f;
     if (missing.length) say("Faltan imágenes: " + missing.join(", "), true);

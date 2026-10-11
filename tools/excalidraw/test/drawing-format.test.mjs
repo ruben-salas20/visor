@@ -34,7 +34,30 @@ test("reads the compressed block, in chunks separated by blank lines", () => {
 
 test("lists the embedded images without the element links", () => {
   const doc = format.readMd(fixture("ejemplo-imagen-incrustada.excalidraw.md"), lz);
-  assert.deepEqual(doc.embeds, [{ id: "f1e2d3c4", name: "imagen-ejemplo.png" }]);
+  assert.deepEqual(doc.embeds, [{ kind: "vault", id: "f1e2d3c4", name: "imagen-ejemplo.png" }]);
+});
+
+test("lists the vault, URL and LaTeX entries of Embedded Files, each with its kind", () => {
+  const doc = format.readMd(fixture("ejemplo-embeds-mixtos.excalidraw.md"), lz);
+  assert.deepEqual(doc.embeds, [
+    { kind: "vault", id: "f1e2d3c4", name: "imagen-ejemplo.png" },
+    { kind: "url", id: "a9b8c7d6" },
+    { kind: "latex", id: "e5f6a7b8" },
+  ]);
+});
+
+test("every image of the scene has its fileId among the embeds, whatever the kind", () => {
+  const doc = format.readMd(fixture("ejemplo-embeds-mixtos.excalidraw.md"), lz);
+  const known = new Set(doc.embeds.map((e) => e.id));
+  const images = doc.scene.elements.filter((e) => e.type === "image");
+  assert.equal(images.length, 3);
+  assert.ok(images.every((e) => known.has(e.fileId)));
+});
+
+test("the mixed embeds round trip without changes", () => {
+  const source = fixture("ejemplo-embeds-mixtos.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  assert.equal(format.writeMd(source, scene(doc.scene), lz, doc.original), source);
 });
 
 for (const name of ["ejemplo-json-plano", "ejemplo-compressed-json", "ejemplo-imagen-incrustada"]) {

@@ -12,8 +12,7 @@
   const FENCE_CLOSE = /^```[ \t]*\r?$/m;
   // Older files have "# Text Elements"; the plugin reads both.
   const TEXT_HEAD = /^##? Text Elements[ \t]*\r?\n/m;
-  const EMBEDDED_HEAD = /^## Embedded Files[ \t]*\r?$/m;
-  const EMBED_LINE = /^([\w-]+):[ \t]*!?\[\[([^\]\r\n]+)]]/gm;
+  const EMBEDDED_HEAD = /^## Embedded Files[ \t]*\r?\n/m;
 
   // The index of the first match of `re` at or after `from`, or -1.
   function next(text, from, re) {
@@ -71,14 +70,30 @@
     return scene;
   }
 
-  // The image links of "## Embedded Files": `<fileId>: [[name]]`.
+  // The lines of "## Embedded Files", one per file. A vault image is `<fileId>: [[name]]`
+  // (it may end with ` {json colorMap}`); a URL is `<fileId>: https://…` (or http, ftp,
+  // ftps); LaTeX is `<fileId>: $$…$$`. Only vault images are loaded (drawing.js).
+  const EMBED_KINDS = [
+    ["vault", /^([\w-]+):[ \t]*!?\[\[([^\]\r\n]+)]]/],
+    ["url", /^([\w-]+):[ \t]*(?:https?|ftps?):\/\/\S/],
+    ["latex", /^([\w-]+):[ \t]*\$\$/],
+  ];
+
+  // The entry a line of Embedded Files holds, or null for any other line.
+  function embedOf(line) {
+    for (const [kind, re] of EMBED_KINDS) {
+      const m = re.exec(line);
+      if (!m) continue;
+      return kind === "vault" ? { kind, id: m[1], name: m[2].split(/[|#]/)[0].trim() } : { kind, id: m[1] };
+    }
+    return null;
+  }
+
+  // The entries of "## Embedded Files": `{ kind, id }`, and `name` for vault images.
   function readEmbeds(source) {
-    const heading = EMBEDDED_HEAD.exec(source);
-    if (!heading) return [];
-    const start = heading.index + heading[0].length;
-    const end = next(source, start, /^(#{1,2} |%%)/m);
-    const section = source.slice(start, end < 0 ? undefined : end);
-    return [...section.matchAll(EMBED_LINE)].map((m) => ({ id: m[1], name: m[2].split(/[|#]/)[0].trim() }));
+    const section = sectionAt(source, EMBEDDED_HEAD);
+    if (!section) return [];
+    return source.slice(section.start, section.stop).split(/\r?\n/).map(embedOf).filter(Boolean);
   }
 
   // Texts and linked shapes are listed by their 8-character id in the file (the
@@ -124,18 +139,7 @@
     });
   }
 
-  // A "##" section runs from its heading line to the next heading or "%%" (the
-  // comment that opens the drawing). `start` is the body, `stop` its end.
-  const BOUNDARY = /^(#{1,2} |%%)/m;
   const LINKS_HEAD = /^##? Element Links[ \t]*\r?\n/m;
-
-  function sectionAt(text, heading) {
-    const m = heading.exec(text);
-    if (!m) return null;
-    const start = m.index + m[0].length;
-    const end = next(text, start, BOUNDARY);
-    return { from: m.index, start, stop: end < 0 ? text.length : end };
-  }
 
   // The `<8-character id>: <link>` lines of Element Links, as the plugin reads them.
   function parseLinks(body) {
@@ -149,6 +153,18 @@
   function fileText(e, before) {
     if (before && before.rawText !== undefined && before.text === e.text) return before.rawText;
     return e.originalText ?? e.text;
+  }
+
+  // A "##" section runs from its heading line to the next heading or "%%" (the
+  // comment that opens the drawing). `start` is the body, `stop` its end.
+  const BOUNDARY = /^(#{1,2} |%%)/m;
+
+  function sectionAt(text, heading) {
+    const m = heading.exec(text);
+    if (!m) return null;
+    const start = m.index + m[0].length;
+    const end = next(text, start, BOUNDARY);
+    return { from: m.index, start, stop: end < 0 ? text.length : end };
   }
 
   // What the file says about a drawing, as read: the scene, whether it is
