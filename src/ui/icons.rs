@@ -8,6 +8,8 @@ use std::f64::consts::PI;
 pub fn drawn_icon(size: i32, draw: fn(&gtk::cairo::Context)) -> gtk::DrawingArea {
     let area = gtk::DrawingArea::new();
     area.set_size_request(size, size);
+    // Draw functions use fixed coordinates, so the area must not stretch in a wide button.
+    area.set_halign(gtk::Align::Center);
     area.set_valign(gtk::Align::Center);
     area.connect_draw(move |area, cr| {
         let style = area.style_context();
