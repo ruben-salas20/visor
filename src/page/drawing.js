@@ -231,6 +231,124 @@
     });
   }
 
+  // A LaTeX entry (`<fileId>: $$…$$`) is drawn with KaTeX, which only a drawing with a
+  // formula loads. The formula goes into an SVG (foreignObject) with the KaTeX rules and
+  // the fonts it uses as data: URLs: an SVG shown as an image may not load anything else.
+  // The KaTeX folder sits next to the Excalidraw one (see page() in src/vault/drawing.rs).
+  const KATEX = window.EXCALIDRAW_ASSET_PATH.replace(/excalidraw\/$/, "katex/");
+  let katexCss = null;
+  // Font file -> data: URL. KaTeX's files are fetched with the cache, so the fonts the
+  // page has already loaded are not downloaded again.
+  const fontUrls = new Map();
+
+  function loadKatex() {
+    if (katexCss) return katexCss;
+    katexCss = Promise.all([
+      fetch(KATEX + "katex.min.css").then((r) => {
+        if (!r.ok) throw new Error("No se encontró KaTeX");
+        return r.text();
+      }),
+      new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = KATEX + "katex.min.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("No se pudo cargar KaTeX"));
+        document.head.append(script);
+      }),
+    ]).then(([css]) => {
+      // The page reads the fonts from the KaTeX folder; the SVG gets its own copies below.
+      const style = document.createElement("style");
+      style.textContent = css.replaceAll("url(fonts/", `url(${KATEX}fonts/`);
+      document.head.append(style);
+      return css;
+    });
+    return katexCss;
+  }
+
+  const toDataURL = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+  // Font weight as a number: CSS says "normal" or "bold" in the rules, and computed styles say 400 or 700.
+  const weightOf = (w) => (w === "bold" ? 700 : w === "normal" ? 400 : Number(w));
+
+  // The @font-face rules of KaTeX's CSS, with the file each one loads (woff2 only).
+  function faceRules(css) {
+    return [...css.matchAll(/@font-face\{([^}]*)\}/g)]
+      .map(([, body]) => ({
+        family: /font-family:([^;]+)/.exec(body)[1],
+        style: /font-style:([^;]+)/.exec(body)[1],
+        weight: weightOf(/font-weight:([^;]+)/.exec(body)[1]),
+        file: /url\((fonts\/[^)]+\.woff2)\)/.exec(body)?.[1],
+      }))
+      .filter((f) => f.file);
+  }
+
+  // The rules of the SVG: the KaTeX rules without their @font-face, and the faces
+  // `el` uses, each as a data: URL.
+  async function fontCss(css, el) {
+    const rules = faceRules(css);
+    const used = new Set();
+    for (const node of [el, ...el.querySelectorAll("*")]) {
+      const cs = getComputedStyle(node);
+      const families = cs.fontFamily.split(",").map((f) => f.trim().replace(/^["']|["']$/g, ""));
+      for (const r of rules) {
+        if (families.includes(r.family) && r.weight === weightOf(cs.fontWeight) && r.style === cs.fontStyle) used.add(r);
+      }
+    }
+    let out = css.replace(/@font-face\{[^}]*\}/g, "");
+    for (const r of used) {
+      if (!fontUrls.has(r.file)) {
+        const blob = await fetch(KATEX + r.file).then((res) => res.blob());
+        fontUrls.set(r.file, await toDataURL(new Blob([blob], { type: "font/woff2" })));
+      }
+      out += `@font-face{font-family:${r.family};font-style:${r.style};font-weight:${r.weight};src:url(${fontUrls.get(r.file)}) format("woff2")}`;
+    }
+    return out;
+  }
+
+  // The image of one formula, fitted inside a box of `width` x `height` (the image element's
+  // size) without changing its proportions. KaTeX measures it at 100 px first.
+  async function formulaImage(css, tex, width, height) {
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;visibility:hidden;left:0;top:0;font-size:100px";
+    box.innerHTML = window.katex.renderToString(tex, { displayMode: true, throwOnError: false, trust: false });
+    document.body.append(box);
+    try {
+      const katex = box.querySelector(".katex");
+      katex.getBoundingClientRect(); // starts the font loads
+      await document.fonts.ready;
+      const { width: w, height: h } = katex.getBoundingClientRect();
+      const size = 100 * Math.min(width / w, height / h);
+      const wrap = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
+      wrap.setAttribute("style", `width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:${size}px`);
+      const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+      style.textContent = await fontCss(css, katex);
+      wrap.append(style, katex.cloneNode(true));
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+        `<foreignObject x="0" y="0" width="${width}" height="${height}">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+      return toDataURL(new Blob([svg], { type: "image/svg+xml" }));
+    } finally {
+      box.remove();
+    }
+  }
+
+  // The formulas of the drawing go in once Excalidraw has its API, like web images. The
+  // elements are the scene's: each formula takes the size of its image element.
+  async function drawFormulas(excalidraw, entries) {
+    const css = await loadKatex();
+    for (const e of entries) {
+      const el = excalidraw.getSceneElements().find((x) => x.type === "image" && x.fileId === e.id && !x.isDeleted);
+      if (!el || !(el.width > 0 && el.height > 0)) continue;
+      const dataURL = await formulaImage(css, e.tex, el.width, el.height);
+      excalidraw.addFiles([{ id: e.id, mimeType: "image/svg+xml", dataURL, created: Date.now() }]);
+    }
+  }
+
   async function load() {
     const text = await fetch(location.pathname + "?raw", { cache: "no-store" }).then((r) => r.text());
     let scene;
@@ -252,8 +370,7 @@
     }
     const { collaborators, ...appState } = scene.appState || {};
     source = scene.source ?? null;
-    // LaTeX entries are not loaded (a math engine visor does not have), but their fileIds
-    // are known, so their images are not "new".
+    // The fileIds of LaTeX entries are known too, so their images are not "new".
     embedIds = new Set(embeds.map((e) => e.id));
     const files = md ? {} : scene.files || {};
     const missing = [];
@@ -267,6 +384,12 @@
         const f = await webImage(e);
         if (f) excalidraw.addFiles([f]);
       });
+    }
+    const formulas = embeds.filter((e) => e.kind === "latex");
+    if (formulas.length) {
+      api.then((excalidraw) =>
+        drawFormulas(excalidraw, formulas).catch((e) => say("No se pudo dibujar una fórmula: " + e.message, true)),
+      );
     }
     for (const f of loaded) if (f) files[f.id] = f;
     if (missing.length) say("Faltan imágenes: " + missing.join(", "), true);

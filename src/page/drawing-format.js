@@ -72,11 +72,12 @@
 
   // The lines of "## Embedded Files", one per file. A vault image is `<fileId>: [[name]]`
   // (it may end with ` {json colorMap}`); a URL is `<fileId>: https://…` (or http, ftp,
-  // ftps); LaTeX is `<fileId>: $$…$$`. Vault images and web URLs are shown (drawing.js).
+  // ftps); LaTeX is `<fileId>: $$…$$`. Vault images, web URLs and LaTeX are shown (drawing.js).
+  // The `m` flag: embedOf gets lines with their newline, and `$` must stop before it.
   const EMBED_KINDS = [
     ["vault", /^([\w-]+):[ \t]*!?\[\[([^\]\r\n]+)]]/],
     ["url", /^([\w-]+):[ \t]*((?:https?|ftps?):\/\/\S+)/],
-    ["latex", /^([\w-]+):[ \t]*\$\$/],
+    ["latex", /^([\w-]+):[ \t]*\$\$(.*?)(?:\$\$)?[ \t]*\r?$/m],
   ];
 
   // The entry a line of Embedded Files holds, or null for any other line.
@@ -85,7 +86,9 @@
       const m = re.exec(line);
       if (!m) continue;
       if (kind === "vault") return { kind, id: m[1], name: m[2].split(/[|#]/)[0].trim() };
-      return kind === "url" ? { kind, id: m[1], url: m[2] } : { kind, id: m[1] };
+      if (kind === "url") return { kind, id: m[1], url: m[2] };
+      // An unclosed `$$` still counts as a formula: KaTeX shows what it can.
+      return { kind, id: m[1], tex: m[2].trim() };
     }
     return null;
   }

@@ -155,7 +155,10 @@ DIBUJOS DE EXCALIDRAW
     la imagen se queda en la bóveda. El resto del archivo (frontmatter y
     el texto ajeno) se conserva tal cual.
   - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
-    Las URL y las fórmulas LaTeX no se muestran.
+    Las imágenes por URL se muestran solo como imagen: ninguna página lee
+    su contenido, aunque `visor screenshot` las captura. Las fórmulas
+    LaTeX (`<id>: $$…$$`) se dibujan con KaTeX, que solo se carga en los
+    dibujos que tienen alguna.
   - Una imagen pegada o insertada en un .excalidraw.md se guarda junto al
     dibujo como "<nombre> <fecha y hora>.png" (o .jpg, .webp, .gif), con
     " 2", " 3"… si ya existe. Solo PNG, JPEG, WebP y GIF, hasta 10 MB; SVG

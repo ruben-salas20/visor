@@ -42,7 +42,7 @@ test("lists the vault, URL and LaTeX entries of Embedded Files, each with its ki
   assert.deepEqual(doc.embeds, [
     { kind: "vault", id: "f1e2d3c4", name: "imagen-ejemplo.png" },
     { kind: "url", id: "a9b8c7d6", url: "https://example.com/foto.png" },
-    { kind: "latex", id: "e5f6a7b8" },
+    { kind: "latex", id: "e5f6a7b8", tex: "E = mc^2" },
   ]);
 });
 
@@ -60,6 +60,12 @@ test("only http and https URLs are shown as images, and only those", () => {
   assert.equal(url("a1b2c3d4: foto.png"), null);
   assert.equal(url("a1b2c3d4: $$E = mc^2$$"), null);
   assert.equal(format.imageUrl({ kind: "vault", id: "a1b2c3d4", name: "a.png" }), null);
+});
+
+test("a LaTeX line keeps its formula, closed or not", () => {
+  const embeds = (text) => format.readMd(`## Embedded Files\n${text}\n\n## Drawing\n\`\`\`json\n{"elements":[]}\n\`\`\`\n`, lz).embeds;
+  assert.deepEqual(embeds("a1b2c3d4: $$\\frac{a}{b}$$"), [{ kind: "latex", id: "a1b2c3d4", tex: "\\frac{a}{b}" }]);
+  assert.deepEqual(embeds("a1b2c3d4: $$\\sum_i x_i"), [{ kind: "latex", id: "a1b2c3d4", tex: "\\sum_i x_i" }]);
 });
 
 test("a URL line without an address is not an entry", () => {
