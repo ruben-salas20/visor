@@ -181,7 +181,8 @@
       const keep = original[before.id];
       if (before.isDeleted) return el;
       const line = fileText(before, keep);
-      texts.push(`${line} ^${el.id}\n\n`);
+      // An empty text has nothing to point at; its element stays in the JSON.
+      if (line.trim()) texts.push(`${line} ^${el.id}\n\n`);
       return keep && keep.rawText !== undefined ? { ...el, rawText: line } : el;
     });
     const links = [...shapeLinks, ...textLinks];

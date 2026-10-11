@@ -156,6 +156,17 @@ test("a linked shape with a long Excalidraw id gets an 8-character id in Element
   assert.equal(back.find((e) => e.id === "flecha0001").startBinding.elementId, id);
 });
 
+test("empty texts stay in the JSON but not in Text Elements", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const empty = { id: "vacio001", type: "text", text: "", originalText: "", isDeleted: false };
+  const spaces = { id: "espacio1", type: "text", text: "  ", originalText: "  ", isDeleted: false };
+  const out = format.writeMd(source, { ...doc.scene, elements: [...doc.scene.elements, empty, spaces] }, lz, doc.original);
+  const section = out.slice(out.indexOf("## Text Elements"), out.indexOf("## Element Links"));
+  assert.equal(section, "## Text Elements\nHola mundo ^a1b2c3d4\n\n");
+  assert.ok(format.readMd(out, lz).scene.elements.some((e) => e.id === "vacio001"));
+});
+
 test("deleted texts leave the section", () => {
   const source = fixture("ejemplo-json-plano.excalidraw.md");
   const doc = format.readMd(source, lz);
