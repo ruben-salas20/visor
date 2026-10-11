@@ -253,6 +253,26 @@ test("a removed link leaves no Element Links heading behind", () => {
   assert.doesNotMatch(out, /Element Links/);
 });
 
+test("a changed link under a %% right under ## Element Links is rewritten once", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace("## Element Links\n", "## Element Links\n%%\n");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[1].link = "[[Nueva]]";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /## Element Links\n%%\nr1r2r3r4: \[\[Nueva\]\]\n\n%%\n## Drawing/);
+  assert.doesNotMatch(out, /\[\[Notas\]\]/);
+});
+
+test("removing every link under a %% right under ## Element Links keeps the %%", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace("## Element Links\n", "## Element Links\n%%\n");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[1].link = null;
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /## Text Elements\nHola mundo \^a1b2c3d4\n\n%%\n%%\n## Drawing/);
+  assert.doesNotMatch(out, /Element Links|\[\[Notas\]\]/);
+});
+
 test("a linked shape with a long Excalidraw id gets an 8-character id in Element Links, and its arrows follow", () => {
   const source = fixture("ejemplo-json-plano.excalidraw.md");
   const doc = format.readMd(source, lz);

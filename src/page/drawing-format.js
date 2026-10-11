@@ -177,7 +177,7 @@
       }
     }
     const end = next(text, from, BOUNDARY);
-    return { from: m.index, start, stop: end < 0 ? text.length : end };
+    return { from: m.index, mark: mark ? mark[0] : "", start, stop: end < 0 ? text.length : end };
   }
 
   // Lines of "## Embedded Files" whose image the scene no longer has go, with the blank
@@ -264,16 +264,17 @@
       const title = /^# Excalidraw Data/m.test(head) ? "" : "# Excalidraw Data\n\n";
       updated = head.slice(0, at) + title + "## Text Elements\n" + section + head.slice(at);
     }
-    // Element Links goes right after the texts. Without links the heading goes too,
+    // Element Links goes right after the texts. Without links the heading goes too
+    // (a "%%" under it stays: it may open the comment that hides the drawing),
     // as the plugin does. An unchanged list keeps the file's own lines and order.
-    const linked = sectionAt(updated, LINKS_HEAD);
+    const linked = sectionAt(updated, LINKS_HEAD, true);
     if (!linked) {
       if (linkBody) {
         const after = sectionAt(updated, TEXT_HEAD, true, written).stop;
         updated = updated.slice(0, after) + "## Element Links\n" + linkBody + updated.slice(after);
       }
     } else if (!linkBody) {
-      updated = updated.slice(0, linked.from) + updated.slice(linked.stop);
+      updated = updated.slice(0, linked.from) + linked.mark + updated.slice(linked.stop);
     } else if (!sameLinks(parseLinks(updated.slice(linked.start, linked.stop)), new Map(links))) {
       updated = updated.slice(0, linked.start) + linkBody + updated.slice(linked.stop);
     }
