@@ -25,6 +25,12 @@ const CDN = "https://esm.sh/";
 
 const EMPTY_LOCALE = "visor-locale-vacio";
 
+// The library subsets fonts on a worker when `Worker` exists. visor has no
+// worker file, so that attempt always fails and logs an error. Reading the flag
+// as false sends it straight to the main thread, which stub-subset.js serves.
+const WORKER_FLAG = 'typeof Worker<"u"';
+let workerFlagPatched = false;
+
 // Settings of the excalidraw.com app that ship inside the library: its Firebase
 // project (a public web key, which secret scanners flag), and its collaboration,
 // AI and library servers. Visor uses none; emptied, nothing can reach them.
@@ -70,6 +76,12 @@ const visor = {
         if (found > 1) throw new Error(`${args.path}: ${name} aparece ${found} veces, se esperaba 0 o 1`);
         if (found === 1) text = text.replace(new RegExp(pattern), `${name}:${empty}`);
       }
+      const flags = text.split(WORKER_FLAG).length - 1;
+      if (flags > 1) throw new Error(`${args.path}: la comprobación de Worker aparece ${flags} veces, se esperaba 0 o 1`);
+      if (flags === 1) {
+        text = text.replace(WORKER_FLAG, "!1");
+        workerFlagPatched = true;
+      }
       return text === original ? null : { contents: text, loader: "js" };
     });
   },
@@ -90,6 +102,10 @@ const result = await esbuild.build({
   logLevel: "warning",
   plugins: [visor],
 });
+
+// If Excalidraw changes its code, the flag above is not found and the error
+// would come back without any sign: fail the build instead.
+if (!workerFlagPatched) throw new Error("No se encontró la comprobación de Worker de Excalidraw");
 
 // Mermaid and KaTeX must not be in the bundle at all.
 const forbidden = /node_modules[\\/](mermaid|katex|@excalidraw[\\/]mermaid-to-excalidraw)[\\/]|subset-(shared|worker)\.chunk/;

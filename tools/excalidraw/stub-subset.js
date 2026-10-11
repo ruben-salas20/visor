@@ -12,5 +12,6 @@ export const Commands = { Subset: "SUBSET" };
 export const subsetToBase64 = (buffer) => toBase64(buffer);
 export const subsetToBinary = async (buffer) => buffer;
 export { toBase64 };
-// No worker: the library falls back to the main thread.
+// Never read: build.mjs turns the library's Worker check off. The import must
+// still resolve, so the name stays exported.
 export const WorkerUrl = undefined;

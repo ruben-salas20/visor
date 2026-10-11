@@ -20,4 +20,4 @@ Antes de cargar `excalidraw.min.js`, define `window.EXCALIDRAW_ASSET_PATH` como 
 
 ## Límites conocidos
 
-- El worker de subconjunto de fuentes no existe dentro de un único archivo. Las exportaciones con fuentes incrustadas lo hacen en el hilo principal y dejan un error en consola (`WorkerUrlNotDefinedError`).
+- Las exportaciones a SVG incrustan la fuente entera, no recortada: visor no tiene el worker de subconjunto (ADR 0036). `build.mjs` desactiva ese intento, así que no hay error en consola, pero el SVG pesa más.
