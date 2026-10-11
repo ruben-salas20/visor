@@ -18,7 +18,11 @@ USO
                              --tab abre una pestaña nueva; --beside, en
                              el otro lado (divide la ventana si hace
                              falta). Un .html que no está en ninguna
-                             bóveda se abre suelto.
+                             bóveda se abre suelto. Una nota .md o un
+                             dibujo fuera de toda bóveda abren su
+                             carpeta como bóveda, salvo si es la
+                             carpeta personal (~) o la raíz (/): ahí
+                             da error.
   visor close [<ruta>]       Cierra la pestaña activa del lado con el
                              foco. Con ruta, cierra todas las pestañas
                              que muestran ese archivo, en cualquier lado.

@@ -101,6 +101,20 @@ impl Config {
         }
     }
 
+    /// Refuses to make the home folder or `/` a vault just because a note or a
+    /// drawing was opened from it: that would list and watch all of it. Opening
+    /// the folder itself is still allowed.
+    pub fn check_folder_of_file(dir: &Path, home: Option<&Path>) -> Result<(), String> {
+        let home = home.and_then(|h| h.canonicalize().ok());
+        if home.as_deref() == Some(dir) {
+            return Err("Abrir este archivo convertiría tu carpeta personal en bóveda. Ábrela a propósito con `visor open ~` o mueve el archivo a una carpeta.".into());
+        }
+        if dir.parent().is_none() {
+            return Err("Abrir este archivo convertiría la raíz del disco (/) en bóveda. Mueve el archivo a una carpeta.".into());
+        }
+        Ok(())
+    }
+
     pub fn add(&mut self, vault: &Path) {
         if !self.vaults.iter().any(|v| v == vault) {
             self.vaults.push(vault.to_path_buf());
@@ -162,6 +176,18 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn home_and_root_are_not_made_vaults_by_a_file() {
+        let home = std::env::temp_dir().join(format!("visor-config-home-{}", std::process::id()));
+        fs::create_dir_all(home.join("apuntes")).unwrap();
+        let home = home.canonicalize().unwrap();
+        assert!(Config::check_folder_of_file(&home, Some(&home)).is_err());
+        assert!(Config::check_folder_of_file(Path::new("/"), Some(&home)).is_err());
+        assert!(Config::check_folder_of_file(&home.join("apuntes"), Some(&home)).is_ok());
+        assert!(Config::check_folder_of_file(&home, None).is_ok());
+        fs::remove_dir_all(home).unwrap();
     }
 
     #[test]

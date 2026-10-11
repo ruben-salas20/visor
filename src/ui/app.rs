@@ -1386,9 +1386,14 @@ impl App {
             }
             None if !vault::is_page(&path) => return Err("visor abre carpetas, páginas .html y notas .md.".into()),
             known => {
-                let root = known
-                    .or_else(|| path.parent().map(Path::to_path_buf))
-                    .ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
+                let root = match known {
+                    Some(root) => root,
+                    None => {
+                        let dir = path.parent().ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
+                        Config::check_folder_of_file(dir, dirs::home_dir().as_deref())?;
+                        dir.to_path_buf()
+                    }
+                };
                 let rel = vault::rel(&root, &path);
                 if self.vault().is_none_or(|v| v.path() != root) {
                     Config::check_vault(&root)?;
