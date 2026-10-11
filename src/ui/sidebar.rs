@@ -177,6 +177,10 @@ impl Sidebar {
         let foot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         foot.style_context().add_class("visor-side-foot");
         foot.pack_start(&gear, false, false, 0);
+        let version = gtk::Label::new(Some(concat!("v", env!("CARGO_PKG_VERSION"))));
+        version.style_context().add_class("visor-muted");
+        version.set_tooltip_text(Some("Versión de visor"));
+        foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
         let update = UpdateBox::new(proxy);
         let (settings, theme_buttons, zoom_label, auto_update) = settings_popover(&gear, proxy, &syncing, &update);
