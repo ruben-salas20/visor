@@ -387,7 +387,9 @@ impl Vault {
             }
         };
         let path = if path.is_dir() { path.join("index.html") } else { path };
-        (path.starts_with(&self.root) && path.is_file()).then_some((rel, path))
+        // Checked on the real path, so a link into a hidden folder is refused too.
+        let hidden = self.rel(&path).split('/').any(|seg| seg.starts_with('.'));
+        (path.starts_with(&self.root) && path.is_file() && !hidden).then_some((rel, path))
     }
 
     /// The file of the page shown at `url`, with its vault path. Websites and
@@ -701,6 +703,9 @@ mod tests {
         assert_eq!(vault.resolve(dir.join("fuera.md").to_str().unwrap()), None, "absolute path");
         assert_eq!(vault.resolve("a/enlace.md"), None, "link out of the vault");
         assert_eq!(vault.resolve("salida/fuera.md"), None, "folder link out of the vault");
+        assert_eq!(vault.resolve(".oculta/x.md"), None, "hidden folder");
+        std::os::unix::fs::symlink(vault.root().join(".oculta/x.md"), vault.root().join("a/a-oculta.md")).unwrap();
+        assert_eq!(vault.resolve("a/a-oculta.md"), None, "link into a hidden folder");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -772,6 +777,7 @@ mod tests {
         assert!(vault.page(&url("a/enlace.md")).is_err(), "link out of the vault");
         assert!(vault.page(&format!("{BASE}a/%2e%2e/a/nota.md")).is_err(), "dot segments");
         assert!(vault.page(&format!("{BASE}a/./nota.md")).is_err(), "dot segments");
+        assert!(vault.note(&url(".oculta/x.md")).is_err(), "hidden folder");
         fs::remove_dir_all(dir).unwrap();
     }
 
