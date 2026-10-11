@@ -8,7 +8,7 @@
   --soft: color-mix(in srgb, var(--fg) 5%, var(--bg));
   --mono: var(--visor-font-mono, ui-monospace, monospace);
   /* Shared with editor.css, which draws the same column, lists, quotes and blocks. */
-  --col-width: 74ch;
+  --col-width: 90ch;
   --col-pad: 40px 28px 96px;
   --list-indent: 1.6em;
   --quote-rule: 3px solid var(--line);
