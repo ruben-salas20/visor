@@ -25,6 +25,16 @@ const CDN = "https://esm.sh/";
 
 const EMPTY_LOCALE = "visor-locale-vacio";
 
+// Settings of the excalidraw.com app that ship inside the library: its Firebase
+// project (a public web key, which secret scanners flag), and its collaboration,
+// AI and library servers. Visor uses none; emptied, nothing can reach them.
+const APP_ENV = [
+  ["VITE_APP_FIREBASE_CONFIG", "VITE_APP_FIREBASE_CONFIG:'[^']*'", "'{}'"],
+  ["VITE_APP_AI_BACKEND", 'VITE_APP_AI_BACKEND:"[^"]*"', '""'],
+  ["VITE_APP_WS_SERVER_URL", 'VITE_APP_WS_SERVER_URL:"[^"]*"', '""'],
+  ["VITE_APP_LIBRARY_BACKEND", 'VITE_APP_LIBRARY_BACKEND:"[^"]*"', '""'],
+];
+
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
@@ -49,12 +59,18 @@ const visor = {
     }));
 
     build.onLoad({ filter: /dist[\\/]prod[\\/].*\.js$/ }, (args) => {
-      const text = readFileSync(args.path, "utf8");
+      let text = readFileSync(args.path, "utf8");
+      const original = text;
       const count = text.split(CDN).length - 1;
       if (count > 1) throw new Error(`${args.path}: el CDN aparece ${count} veces, se esperaba 0 o 1`);
-      if (count === 0) return null;
       // The fallback is a template literal: ${location.origin} sits inside it.
-      return { contents: text.replace(CDN, "${location.origin}/"), loader: "js" };
+      if (count === 1) text = text.replace(CDN, "${location.origin}/");
+      for (const [name, pattern, empty] of APP_ENV) {
+        const found = text.match(new RegExp(pattern, "g"))?.length ?? 0;
+        if (found > 1) throw new Error(`${args.path}: ${name} aparece ${found} veces, se esperaba 0 o 1`);
+        if (found === 1) text = text.replace(new RegExp(pattern), `${name}:${empty}`);
+      }
+      return text === original ? null : { contents: text, loader: "js" };
     });
   },
 };
@@ -79,6 +95,10 @@ const result = await esbuild.build({
 const forbidden = /node_modules[\\/](mermaid|katex|@excalidraw[\\/]mermaid-to-excalidraw)[\\/]|subset-(shared|worker)\.chunk/;
 const bad = Object.keys(result.metafile.inputs).filter((path) => forbidden.test(path));
 if (bad.length) throw new Error(`Entran en el paquete: ${bad.join(", ")}`);
+
+// No key of any Google service may reach the repository.
+if (/AIza[0-9A-Za-z_-]{35}/.test(readFileSync(join(out, "excalidraw.min.js"), "utf8")))
+  throw new Error("Queda una clave de Google en el paquete");
 
 // Fonts. Excalidraw asks for "./fonts/<Familia>/<archivo>.woff2" relative to
 // EXCALIDRAW_ASSET_PATH, and the stylesheet asks for the same paths relative to
