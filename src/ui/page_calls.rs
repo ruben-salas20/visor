@@ -20,6 +20,16 @@ pub fn drawing_saved(ok: bool, error: &str) -> String {
     format!("window.__visorDrawing && window.__visorDrawing.saved({ok}, {})", json!(error))
 }
 
+/// Tells a drawing's editor whether its pasted image was saved, and under which name.
+pub fn image_saved(file_id: &str, ok: bool, name: &str, error: &str) -> String {
+    format!(
+        "window.__visorDrawing && window.__visorDrawing.imageSaved({}, {ok}, {}, {})",
+        json!(file_id),
+        json!(name),
+        json!(error)
+    )
+}
+
 /// Ctrl+E: opens or closes the editor of a note or a drawing.
 pub fn note_toggle() -> &'static str {
     "(window.__visorNote || window.__visorDrawing)?.toggle()"

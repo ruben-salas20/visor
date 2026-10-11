@@ -215,6 +215,25 @@
     return head.slice(0, section.start) + body + head.slice(section.stop);
   }
 
+  // Adds the vault image `<fileId>: [[name]]` as the last line of "## Embedded Files".
+  // The section is made before the "%%" that opens the drawing when the file has none.
+  // A file that already lists `fileId` is returned as it is.
+  const SAFE_ID = /^[\w-]+$/;
+  const SAFE_NAME = /^[^\[\]|#^\r\n]+$/;
+  function addEmbed(source, fileId, name) {
+    if (!SAFE_ID.test(fileId) || !SAFE_NAME.test(name)) throw new Error("Nombre de imagen no válido.");
+    if (readEmbeds(source).some((e) => e.id === fileId)) return source;
+    const line = `${fileId}: [[${name}]]\n\n`;
+    const section = sectionAt(source, EMBEDDED_HEAD);
+    if (section) return source.slice(0, section.stop) + line + source.slice(section.stop);
+    const d = locate(source);
+    const head = source.slice(0, d.heading);
+    // Blank lines may sit between that "%%" and the drawing.
+    const mark = /(?:^|\n)(%%[ \t]*\r?\n\s*)$/.exec(head);
+    const at = mark ? head.length - mark[1].length : head.length;
+    return head.slice(0, at) + "## Embedded Files\n" + line + head.slice(at) + source.slice(d.heading);
+  }
+
   // What the file says about a drawing, as read: the scene, whether it is
   // compressed, the images it links, and the texts as loaded (see writeMd).
   function readMd(source, lz) {
@@ -294,7 +313,7 @@
     return parseScene(text);
   }
 
-  const api = { readMd, writeMd, readJson, compressBlock, decompressBlock, shortIds, imageUrl };
+  const api = { readMd, writeMd, addEmbed, readJson, compressBlock, decompressBlock, shortIds, imageUrl };
   if (typeof module !== "undefined") module.exports = api;
   else window.__visorDrawingFormat = api;
 })();

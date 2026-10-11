@@ -53,6 +53,8 @@ enum PageMsg {
     SaveNote { text: String },
     /// From a drawing's editor: replaces the whole file, in the form it had.
     SaveDrawing { text: String },
+    /// From a drawing's editor: an image pasted or inserted in it, as base64.
+    SaveImage { file_id: String, data: String },
     /// From a checkbox in a rendered note: the task whose `[ ]` starts at `offset`.
     ToggleTask { offset: usize, checked: bool },
     /// From a `[[link]]` to a note that does not exist yet.
@@ -1322,6 +1324,13 @@ impl App {
                 };
                 reply(self, page_calls::drawing_saved(ok, &error));
             }
+            PageMsg::SaveImage { file_id, data } if trusted => {
+                let (ok, name, error) = match self.save_image(url, &file_id, &data) {
+                    Ok(name) => (true, name, String::new()),
+                    Err(e) => (false, String::new(), e),
+                };
+                reply(self, page_calls::image_saved(&file_id, ok, &name, &error));
+            }
             PageMsg::ToggleTask { offset, checked } if trusted => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
                 reply(self, page_calls::note_toggled(&error));
@@ -1410,6 +1419,25 @@ impl App {
         }
         self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
+    }
+
+    /// Saves an image pasted into the drawing at `url`, next to it. Rust picks the
+    /// name and checks the bytes; the page only sends the image and its id.
+    fn save_image(&mut self, url: &str, file_id: &str, data: &str) -> Result<String, String> {
+        let valid_id = (1..=64).contains(&file_id.len()) && file_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid_id {
+            return Err("El identificador de la imagen no es válido.".into());
+        }
+        let (_, path) = self.open_vault()?.drawing(url)?;
+        // Base64 spends 4 characters on every 3 bytes: a longer text is over the limit already.
+        if data.len() > vault::drawing::MAX_IMAGE / 3 * 4 + 4 {
+            return Err("La imagen pesa más de 10 MB.".into());
+        }
+        let bytes = gtk::glib::base64_decode(data);
+        let stamp = gtk::glib::DateTime::now_local()
+            .and_then(|now| now.format("%Y-%m-%d %H%M%S"))
+            .map_err(|_| "No se pudo leer la hora.".to_string())?;
+        vault::drawing::save_image(&path, &stamp, &bytes)
     }
 
     /// Ticks or unticks one task of the note at `url`. Rust re-reads the file and

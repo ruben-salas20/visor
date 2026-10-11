@@ -26,6 +26,9 @@
   let source = null; // the file's "source", which Excalidraw would replace with this origin
   let timer = 0;
   const sent = []; // saves not yet answered, oldest first
+  const pending = new Set(); // image ids sent to Rust, not answered yet
+  const failed = new Map(); // image id -> Rust's reason, for images that were not saved
+  const added = new Map(); // image id -> file name, for images saved in this session
 
   const say = (text, error = false) => {
     status.textContent = text;
@@ -45,9 +48,29 @@
     "|" +
     Object.keys(files).filter((id) => !embedIds.has(id)).sort().join(",");
 
-  // An image added in a .excalidraw.md could not be saved: the file has no place for it.
-  const newImages = (elements) => md && elements.some((e) => e.type === "image" && !e.isDeleted && !embedIds.has(e.fileId));
-  const NEW_IMAGES = "Las imágenes nuevas no se guardan en un .excalidraw.md. Bórralas o usa un .excalidraw.";
+  // An image added to a .excalidraw.md goes to the vault first (sendImages), and the
+  // drawing links it only once Rust has saved it (imageSaved). Until then, or while it
+  // failed, the drawing does not save: the file would lose the image on reload.
+  const unsaved = (elements) => (md ? elements.filter((e) => e.type === "image" && !e.isDeleted && !embedIds.has(e.fileId)) : []);
+
+  // What holds the drawing back, as the status bar says it, or null.
+  function waiting(elements) {
+    const list = unsaved(elements);
+    if (!list.length) return null;
+    const failure = list.find((e) => failed.has(e.fileId));
+    if (failure) return { text: "No se pudo guardar la imagen: " + failed.get(failure.fileId).replace(/\.$/, "") + ". Bórrala del dibujo para seguir.", error: true };
+    return { text: "Guardando la imagen…", error: false };
+  }
+
+  // Each new image is sent once. A failed one is not sent again: deleting it lifts the wait.
+  function sendImages(elements, files) {
+    for (const e of unsaved(elements)) {
+      const data = files[e.fileId]?.dataURL;
+      if (!data || pending.has(e.fileId) || failed.has(e.fileId)) continue;
+      pending.add(e.fileId);
+      send({ type: "save_image", file_id: e.fileId, data: data.slice(data.indexOf(",") + 1) });
+    }
+  }
 
   function render() {
     root.render(
@@ -58,7 +81,7 @@
         langCode: "es-ES",
         // The page is only the drawing: its keys go to Excalidraw without a click first.
         handleKeyboardGlobally: true,
-        UIOptions: { tools: { image: !md }, canvasActions: { loadScene: false } },
+        UIOptions: { tools: { image: true }, canvasActions: { loadScene: false } },
         excalidrawAPI: fit,
         onChange,
       }),
@@ -87,8 +110,10 @@
       return;
     }
     clearTimeout(timer);
+    sendImages(elements, files);
     if (sig === savedSig) return;
-    if (newImages(elements)) return say(NEW_IMAGES, true);
+    const wait = waiting(elements);
+    if (wait) return say(wait.text, wait.error);
     say("Sin guardar");
     timer = setTimeout(save, DELAY);
   }
@@ -98,7 +123,12 @@
   function compose(elements, appState, files) {
     const data = JSON.parse(serializeAsJSON(elements, appState, files, "local"));
     if (source !== null) data.source = source;
-    return md ? fmt.writeMd(current, data, LZString, original) : JSON.stringify(data, null, 2);
+    if (!md) return JSON.stringify(data, null, 2);
+    // The images saved in this session are linked here, before the pruning of writeMd
+    // drops the ones deleted from the scene. addEmbed skips those already linked.
+    let base = current;
+    for (const [id, name] of added) base = fmt.addEmbed(base, id, name);
+    return fmt.writeMd(base, data, LZString, original);
   }
 
   function save() {
@@ -107,7 +137,8 @@
     const { elements, appState, files } = latest;
     const sig = signature(elements, files);
     if (sig === savedSig || (sent.length && sig === sent[sent.length - 1].sig)) return;
-    if (newImages(elements)) return say(NEW_IMAGES, true);
+    const wait = waiting(elements);
+    if (wait) return say(wait.text, wait.error);
     let text;
     try {
       text = compose(elements, appState, files);
@@ -117,6 +148,26 @@
     sent.push({ sig, text });
     say("Guardando…");
     send({ type: "save_drawing", text });
+  }
+
+  // Rust's answer to an image: saved under `name`, or refused with `error`.
+  function imageSaved(fileId, ok, name, error) {
+    pending.delete(fileId);
+    if (!ok) {
+      failed.set(fileId, error);
+      const wait = latest && waiting(latest.elements);
+      if (wait) say(wait.text, wait.error);
+      return;
+    }
+    failed.delete(fileId);
+    embedIds.add(fileId);
+    added.set(fileId, name);
+    if (!editing || !latest) return;
+    const wait = waiting(latest.elements);
+    if (wait) return say(wait.text, wait.error);
+    say("Sin guardar");
+    clearTimeout(timer);
+    timer = setTimeout(save, DELAY);
   }
 
   // Rust's answer to a save, in the order they were sent.
@@ -137,7 +188,8 @@
   function toggle() {
     if (editing) {
       // Leaving with a new image would drop the change without saying so: stay until it goes.
-      if (newImages(latest.elements)) return say(NEW_IMAGES, true);
+      const wait = waiting(latest.elements);
+      if (wait) return say(wait.text, wait.error);
       save();
       editing = false;
       render();
@@ -234,6 +286,7 @@
     },
     toggle,
     saved,
+    imageSaved,
     // The file changed on disk, written by someone else.
     changed() {
       if (editing) say("El archivo cambió fuera de visor. Si sigues editando, lo sobrescribes.", true);

@@ -155,8 +155,12 @@ DIBUJOS DE EXCALIDRAW
     la imagen se queda en la bóveda. El resto del archivo (frontmatter y
     el texto ajeno) se conserva tal cual.
   - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
-    En un .excalidraw.md no se pueden añadir imágenes nuevas (sí en un
-    .excalidraw). Las URL y las fórmulas LaTeX no se muestran.
+    Las URL y las fórmulas LaTeX no se muestran.
+  - Una imagen pegada o insertada en un .excalidraw.md se guarda junto al
+    dibujo como "<nombre> <fecha y hora>.png" (o .jpg, .webp, .gif), con
+    " 2", " 3"… si ya existe. Solo PNG, JPEG, WebP y GIF, hasta 10 MB; SVG
+    no. Si no se puede guardar, la barra de estado lo dice y el dibujo no
+    se guarda hasta que la borres.
   - `visor screenshot` sirve para comprobar el resultado.
 
 ANOTACIONES

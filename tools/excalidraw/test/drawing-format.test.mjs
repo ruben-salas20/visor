@@ -369,3 +369,55 @@ test("a .excalidraw file is read as its JSON", () => {
   assert.deepEqual(scene.elements, []);
   assert.throws(() => format.readJson("{}"), /elementos/);
 });
+
+test("an image is added as the last line of an existing Embedded Files", () => {
+  const source = fixture("ejemplo-imagen-incrustada.excalidraw.md");
+  const out = format.addEmbed(source, "a1b2c3d4", "mapa 2026-10-10 153012.png");
+  assert.match(out, /## Embedded Files\nf1e2d3c4: \[\[imagen-ejemplo\.png\]\]\n\na1b2c3d4: \[\[mapa 2026-10-10 153012\.png\]\]\n\n%%\n## Drawing\n/);
+  assert.equal(out.length, source.length + "a1b2c3d4: [[mapa 2026-10-10 153012.png]]\n\n".length);
+});
+
+test("without the section, it is made before the %% that opens the drawing", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  assert.ok(!/## Embedded Files/.test(source));
+  const out = format.addEmbed(source, "a1b2c3d4", "dibujo 2026-10-10 153012.png");
+  assert.match(out, /\n## Embedded Files\na1b2c3d4: \[\[dibujo 2026-10-10 153012\.png\]\]\n\n%%\n## Drawing\n/);
+  assert.deepEqual(format.readMd(out, lz).embeds, [{ kind: "vault", id: "a1b2c3d4", name: "dibujo 2026-10-10 153012.png" }]);
+});
+
+test("a blank line between the %% and the drawing still gets the section before the %%", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace("%%\n## Drawing", "%%\n\n## Drawing");
+  const out = format.addEmbed(source, "a1b2c3d4", "x.png");
+  assert.match(out, /\n## Embedded Files\na1b2c3d4: \[\[x\.png\]\]\n\n%%\n\n## Drawing\n/);
+});
+
+test("a file without %% gets the section right before the drawing heading", () => {
+  const source = "# Nota\n\n## Drawing\n```json\n{\"type\":\"excalidraw\",\"elements\":[]}\n```\n";
+  const out = format.addEmbed(source, "a1b2c3d4", "x.png");
+  assert.equal(out, "# Nota\n\n## Embedded Files\na1b2c3d4: [[x.png]]\n\n## Drawing\n```json\n{\"type\":\"excalidraw\",\"elements\":[]}\n```\n");
+});
+
+test("adding an id the file already lists changes nothing", () => {
+  const source = fixture("ejemplo-imagen-incrustada.excalidraw.md");
+  assert.equal(format.addEmbed(source, "f1e2d3c4", "otra.png"), source);
+  const once = format.addEmbed(source, "a1b2c3d4", "x.png");
+  assert.equal(format.addEmbed(once, "a1b2c3d4", "x.png"), once);
+});
+
+test("names that would break the link or the id are refused", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  assert.throws(() => format.addEmbed(source, "a1b2c3d4", "a|b.png"), /no válido/);
+  assert.throws(() => format.addEmbed(source, "a1b2c3d4", "a#b.png"), /no válido/);
+  assert.throws(() => format.addEmbed(source, "a1b2c3d4", "a]b.png"), /no válido/);
+  assert.throws(() => format.addEmbed(source, "a 1", "x.png"), /no válido/);
+});
+
+test("the next save keeps the new line while its image is in the scene, and drops it after deletion", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const added = format.addEmbed(source, "a1b2c3d4", "x.png");
+  const doc = format.readMd(added, lz);
+  const shown = { ...doc.scene, elements: [{ id: "img1", type: "image", fileId: "a1b2c3d4", isDeleted: false }] };
+  assert.match(format.writeMd(added, shown, lz, {}), /a1b2c3d4: \[\[x\.png\]\]/);
+  const gone = { ...doc.scene, elements: [{ id: "img1", type: "image", fileId: "a1b2c3d4", isDeleted: true }] };
+  assert.doesNotMatch(format.writeMd(added, gone, lz, {}), /a1b2c3d4: \[\[x\.png\]\]/);
+});
