@@ -1,7 +1,7 @@
 //! The webview of one page: what it may navigate to, how it reports focus,
 //! fullscreen and mouse buttons, and the scripts injected into it.
 
-use crate::ui::action::{Action, UserEvent};
+use crate::ui::action::{Action, LoadFailure, UserEvent};
 use crate::vault;
 use gtk::prelude::*;
 use serde_json::{Value, json};
@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
 use tao::event_loop::EventLoopProxy;
-use webkit2gtk::{LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType, PolicyDecisionExt, PolicyDecisionType, URIRequestExt, WebViewExt};
+use webkit2gtk::{LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType, NetworkError, PolicyDecisionExt, PolicyDecisionType, PolicyError, URIRequestExt, URIResponseExt, WebResource, WebResourceExt, WebViewExt};
 use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
@@ -31,6 +31,26 @@ fn accept(body: &str, key: &str, document: &str) -> Option<String> {
 
 pub fn is_web(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// The host of a website's address, the only part of it that reaches the
+/// console. Path and query may carry anything, so «otro sitio» stands in for
+/// any host that is not a plain name (IPv6, escapes, unicode, nothing at all).
+pub fn host_of(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host = host.split(':').next().unwrap_or_default().to_ascii_lowercase();
+    let plain = !host.is_empty() && host.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'.' || c == b'-');
+    if plain { host } else { "otro sitio".to_string() }
+}
+
+/// Sends a failed resource of a page view to the app. Only web addresses
+/// count: data:, blob: and about: have no server to fail.
+fn report_failure(proxy: &EventLoopProxy<UserEvent>, view: u64, resource: &WebResource, reason: LoadFailure) {
+    if let Some(uri) = resource.uri().filter(|uri| is_web(uri)) {
+        let _ = proxy.send_event(UserEvent::ResourceFailed { view, uri: uri.to_string(), reason });
+    }
 }
 
 /// A page view inside `container`. Its events carry `id`, so the app knows
@@ -79,6 +99,32 @@ pub fn build_page(
         .with_devtools(true)
         .build_gtk(container)?;
     let view = page.webview();
+
+    // WebKit reports the failures of every frame's resources, external iframes
+    // included, so the app filters them. The main document is left out: a failed
+    // page shows its own error. The signals are connected per resource, and
+    // successful ones send nothing.
+    let reports = proxy.clone();
+    view.connect_resource_load_started(move |view, resource, _| {
+        if view.main_resource().as_ref() == Some(resource) {
+            return;
+        }
+        let failed = reports.clone();
+        resource.connect_failed(move |resource, error| {
+            // Navigating away cancels the loads still running; that is not a failure.
+            if error.matches(NetworkError::Cancelled) || error.matches(PolicyError::FrameLoadInterruptedByPolicyChange) {
+                return;
+            }
+            report_failure(&failed, id, resource, LoadFailure::Network);
+        });
+        let finished = reports.clone();
+        resource.connect_finished(move |resource| {
+            let status = resource.response().map_or(0, |response| response.status_code());
+            if status >= 400 {
+                report_failure(&finished, id, resource, LoadFailure::Status(status));
+            }
+        });
+    });
 
     // Clicked links may go to the vault or the web. Mail goes to the mail app,
     // and any other scheme is refused rather than handed to the system.
@@ -177,6 +223,25 @@ pub fn clean_position(json: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_website_is_named_by_its_host_only() {
+        assert_eq!(host_of("https://cdn.jsdelivr.net/npm/x@1/a.css?v=2#f"), "cdn.jsdelivr.net");
+        assert_eq!(host_of("http://localhost:59998/IGNORA/esto.css"), "localhost");
+        assert_eq!(host_of("http://user:pass@Ejemplo.COM:8080"), "ejemplo.com");
+        assert_eq!(host_of("https://a-b.example.org./x"), "a-b.example.org.");
+    }
+
+    #[test]
+    fn anything_but_a_plain_host_becomes_otro_sitio() {
+        assert_eq!(host_of("http://[::1]:8080/x.css"), "otro sitio");
+        assert_eq!(host_of("http://%41.example/x"), "otro sitio");
+        assert_eq!(host_of("http://ñandú.example/x"), "otro sitio");
+        assert_eq!(host_of("http:///x.css"), "otro sitio");
+        assert_eq!(host_of("http://user@/x"), "otro sitio");
+        assert_eq!(host_of("http://exa_mple.com/"), "otro sitio");
+        assert_eq!(host_of(""), "otro sitio");
+    }
 
     #[test]
     fn only_messages_with_the_key_get_through() {

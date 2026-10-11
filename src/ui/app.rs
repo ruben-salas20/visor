@@ -1,12 +1,12 @@
 use crate::vault::annot;
-use crate::session::{Loading, MAX_CONSOLE, Page, Place, AgentRequest, Shared, SharedRef, now, push_event};
-use crate::ui::action::{Action, SidebarMsg, UserEvent};
+use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, push_console, push_event};
+use crate::ui::action::{Action, LoadFailure, SidebarMsg, UserEvent};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
 use crate::ui::page_calls;
-use crate::ui::page_view::{build_page, clean_position, is_web};
+use crate::ui::page_view::{build_page, clean_position, host_of, is_web};
 use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
 use crate::agent::socket::{ClaimError, claim};
@@ -690,6 +690,35 @@ impl App {
         }
     }
 
+    /// Logs a resource of a visor page that did not load. Only visor's own
+    /// addresses are written in full; any other site is named by its host,
+    /// because its address or error text could carry instructions for agents.
+    fn resource_failed(&self, view: u64, uri: &str, reason: LoadFailure) {
+        let mut shared = self.shared.lock().unwrap();
+        if shared.page_of(view).file.is_none() {
+            return;
+        }
+        let why = match reason {
+            LoadFailure::Network => "error de red".to_string(),
+            LoadFailure::Status(status) => format!("respondió {status}"),
+        };
+        let own = [vault::base(), vault::loose_base()].into_iter().find(|base| !base.is_empty() && uri.starts_with(base));
+        // visor's own scripts ask for things that are often missing: annot.js for
+        // the page's annotation file, which exists once it has notes, and the
+        // editor for where a `[[link]]` leads, which may be a note not yet written.
+        if let (Some(base), LoadFailure::Status(404)) = (own, &reason)
+            && (uri[base.len()..].starts_with(annot::DIR) || uri.contains("?wiki="))
+        {
+            return;
+        }
+        let text = if own.is_some() {
+            format!("No se pudo cargar {uri}: {why}")
+        } else {
+            format!("No se pudo cargar un recurso de {} ({why})", host_of(uri))
+        };
+        push_console(&mut shared, view, "error", &text);
+    }
+
     /// Marks the settings as changed and writes them once, shortly after,
     /// instead of on every navigation: the write blocks the window. A crash
     /// loses at most this delay of state.
@@ -785,6 +814,7 @@ impl App {
                 self.apply_theme();
                 self.announce_theme();
             }
+            UserEvent::ResourceFailed { view, uri, reason } => self.resource_failed(view, &uri, reason),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Dropped { pane, half } => self.dropped(pane, half),
@@ -1212,14 +1242,7 @@ impl App {
                 }
             }
             PageMsg::Console { level, text } if local => {
-                let mut shared = self.shared.lock().unwrap();
-                let Some(page) = shared.pages.get_mut(&view) else { return };
-                if page.console.len() >= MAX_CONSOLE {
-                    page.console.remove(0);
-                }
-                // Vault paths read better than server URLs, and keep the secret out of logs.
-                let text = text.replace(vault::base(), "").replace(vault::loose_base(), "");
-                page.console.push(json!({ "time": now(), "level": level, "text": text }));
+                push_console(&mut self.shared.lock().unwrap(), view, &level, &text);
             }
             PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();

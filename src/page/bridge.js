@@ -57,14 +57,12 @@
     };
   }
 
+  // Failed loads of elements and @import rules are not logged here: Rust sees
+  // them on the network, where a DOM error event cannot tell which request failed.
   addEventListener("error", (e) => {
-    const el = e.target;
-    if (el && el !== window && (el.src || el.href)) {
-      log("error", `No se pudo cargar ${el.tagName.toLowerCase()}: ${el.src || el.href}`);
-    } else {
-      const where = e.filename ? ` (${e.filename}:${e.lineno}:${e.colno})` : "";
-      log("error", `${e.message}${where}`);
-    }
+    if (e.target && e.target !== window) return;
+    const where = e.filename ? ` (${e.filename}:${e.lineno}:${e.colno})` : "";
+    log("error", `${e.message}${where}`);
   }, true);
   addEventListener("unhandledrejection", (e) => log("error", `Promesa rechazada: ${show(e.reason)}`));
 

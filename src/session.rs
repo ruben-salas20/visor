@@ -167,6 +167,17 @@ pub fn push_event(shared: &mut Shared, mut event: Value) {
     append_event(&event);
 }
 
+/// Adds a line to a view's console, dropping the oldest past `MAX_CONSOLE`.
+/// Server addresses leave the text: vault paths read better, and the secret must stay out of logs.
+pub fn push_console(shared: &mut Shared, view: u64, level: &str, text: &str) {
+    let Some(page) = shared.pages.get_mut(&view) else { return };
+    if page.console.len() >= MAX_CONSOLE {
+        page.console.remove(0);
+    }
+    let text = text.replace(vault::base(), "").replace(vault::loose_base(), "");
+    page.console.push(json!({ "time": now(), "level": level, "text": text }));
+}
+
 fn append_event(event: &Value) {
     let path = paths::events();
     if let Some(dir) = path.parent() {

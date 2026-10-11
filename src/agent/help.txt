@@ -154,6 +154,11 @@ ESCRIBIR PÁGINAS PARA VISOR
     claves con prefijo propio, p. ej. "fisica/ondas:progreso".
   - Los errores de `visor console` usan rutas de la bóveda, como
     historia/roma.html:2:69 (archivo, línea, columna).
+  - Un recurso que no carga (CSS, imagen, script, fetch, también un
+    @import dentro de otro CSS) aparece como error, con la ruta de la
+    bóveda y el código HTTP («respondió 404») o «error de red». Si
+    viene de otra web, solo se nombra su servidor, sin ruta ni detalle:
+    «No se pudo cargar un recurso de cdn.jsdelivr.net (error de red)».
   - No se muestran las carpetas que empiezan por "." ni node_modules.
     Los enlaces simbólicos a carpetas se siguen solo si apuntan dentro de
     la bóveda, y cada carpeta real se lista una vez.

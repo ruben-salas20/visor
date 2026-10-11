@@ -41,6 +41,9 @@ pub enum UserEvent {
     /// A link the page asked to open in a new tab: in the background, for
     /// Ctrl+click and middle click, or shown, for target="_blank".
     OpenTab { view: u64, url: String, background: bool },
+    /// A resource of a page view that did not load: a failed request, or one that
+    /// answered with an error status. The main document is not reported here.
+    ResourceFailed { view: u64, uri: String, reason: LoadFailure },
     /// The reading position a page reported as its tab was hidden.
     Position { view: u64, json: String },
     /// A file dragged from the sidebar was dropped on a side: on one half of
@@ -52,6 +55,12 @@ pub enum UserEvent {
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,
+}
+
+/// Why a resource did not load.
+pub enum LoadFailure {
+    Network,
+    Status(u32),
 }
 
 pub enum Action {
