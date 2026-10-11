@@ -39,10 +39,11 @@
   };
 
   // Changes to the elements, not to the view: scrolling and zooming do not save.
+  // Files the .md links are left out: a web image arriving late is not a change.
   const signature = (elements, files) =>
     elements.map((e) => `${e.id}.${e.version}.${e.versionNonce}.${e.isDeleted ? 1 : 0}`).join(";") +
     "|" +
-    Object.keys(files).sort().join(",");
+    Object.keys(files).filter((id) => !embedIds.has(id)).sort().join(",");
 
   // An image added in a .excalidraw.md could not be saved: the file has no place for it.
   const newImages = (elements) => md && elements.some((e) => e.type === "image" && !e.isDeleted && !embedIds.has(e.fileId));
@@ -67,10 +68,13 @@
   // scrollToContent only centers the scene: a drawing wider than the pane would show
   // a corner. Fit it once, when the canvas first mounts.
   let fitted = false;
-  function fit(api) {
-    if (fitted || !api) return;
+  let gotApi;
+  const api = new Promise((resolve) => (gotApi = resolve));
+  function fit(excalidraw) {
+    if (excalidraw) gotApi(excalidraw);
+    if (fitted || !excalidraw) return;
     fitted = true;
-    requestAnimationFrame(() => api.scrollToContent(api.getSceneElements(), { fitToViewport: true, viewportZoomFactor: 0.9 }));
+    requestAnimationFrame(() => excalidraw.scrollToContent(excalidraw.getSceneElements(), { fitToViewport: true, viewportZoomFactor: 0.9 }));
   }
 
   function onChange(elements, appState, files) {
@@ -159,6 +163,22 @@
     return { id, mimeType: blob.type || "image/png", dataURL, created: Date.now() };
   }
 
+  // A web image is handed to Excalidraw by its address: it makes an <img> from it, so the
+  // browser fetches the bytes and no script reads them. The address is first loaded in
+  // an <img> here: Excalidraw asks again for a file it could not load, and each ask is a
+  // request (a dead address flooded the console and the network). "image/png" for every type:
+  // Excalidraw decodes the source of an SVG as data, which a URL is not.
+  function webImage(e) {
+    const url = fmt.imageUrl(e);
+    if (!url) return null;
+    return new Promise((resolve) => {
+      const probe = new Image();
+      probe.onload = () => resolve({ id: e.id, mimeType: "image/png", dataURL: url, created: Date.now() });
+      probe.onerror = () => resolve(null);
+      probe.src = url;
+    });
+  }
+
   async function load() {
     const text = await fetch(location.pathname + "?raw", { cache: "no-store" }).then((r) => r.text());
     let scene;
@@ -180,16 +200,22 @@
     }
     const { collaborators, ...appState } = scene.appState || {};
     source = scene.source ?? null;
-    // URL and LaTeX entries are not loaded (external content, or a math engine visor
-    // does not have), but their fileIds are known, so their images are not "new".
+    // LaTeX entries are not loaded (a math engine visor does not have), but their fileIds
+    // are known, so their images are not "new".
     embedIds = new Set(embeds.map((e) => e.id));
     const files = md ? {} : scene.files || {};
     const missing = [];
     const loaded = await Promise.all(
-      embeds
-        .filter((e) => e.kind === "vault")
-        .map(({ id, name }) => image(id, name).catch(() => (missing.push(name), null))),
+      embeds.filter((e) => e.kind === "vault").map(({ id, name }) => image(id, name).catch(() => (missing.push(name), null))),
     );
+    // Web images are added once Excalidraw has its API: a slow site must not hold
+    // the drawing back.
+    for (const e of embeds) {
+      api.then(async (excalidraw) => {
+        const f = await webImage(e);
+        if (f) excalidraw.addFiles([f]);
+      });
+    }
     for (const f of loaded) if (f) files[f.id] = f;
     if (missing.length) say("Faltan imágenes: " + missing.join(", "), true);
 

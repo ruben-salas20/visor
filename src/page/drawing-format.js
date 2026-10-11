@@ -72,10 +72,10 @@
 
   // The lines of "## Embedded Files", one per file. A vault image is `<fileId>: [[name]]`
   // (it may end with ` {json colorMap}`); a URL is `<fileId>: https://…` (or http, ftp,
-  // ftps); LaTeX is `<fileId>: $$…$$`. Only vault images are loaded (drawing.js).
+  // ftps); LaTeX is `<fileId>: $$…$$`. Vault images and web URLs are shown (drawing.js).
   const EMBED_KINDS = [
     ["vault", /^([\w-]+):[ \t]*!?\[\[([^\]\r\n]+)]]/],
-    ["url", /^([\w-]+):[ \t]*(?:https?|ftps?):\/\/\S/],
+    ["url", /^([\w-]+):[ \t]*((?:https?|ftps?):\/\/\S+)/],
     ["latex", /^([\w-]+):[ \t]*\$\$/],
   ];
 
@@ -84,9 +84,17 @@
     for (const [kind, re] of EMBED_KINDS) {
       const m = re.exec(line);
       if (!m) continue;
-      return kind === "vault" ? { kind, id: m[1], name: m[2].split(/[|#]/)[0].trim() } : { kind, id: m[1] };
+      if (kind === "vault") return { kind, id: m[1], name: m[2].split(/[|#]/)[0].trim() };
+      return kind === "url" ? { kind, id: m[1], url: m[2] } : { kind, id: m[1] };
     }
     return null;
+  }
+
+  // The address to show a URL entry from, or null. Only web addresses: ftp and the rest
+  // stay holes, as before.
+  const WEB_URL = /^https?:\/\//;
+  function imageUrl(embed) {
+    return embed.kind === "url" && WEB_URL.test(embed.url) ? embed.url : null;
   }
 
   // The entries of "## Embedded Files": `{ kind, id }`, and `name` for vault images.
@@ -286,7 +294,7 @@
     return parseScene(text);
   }
 
-  const api = { readMd, writeMd, readJson, compressBlock, decompressBlock, shortIds };
+  const api = { readMd, writeMd, readJson, compressBlock, decompressBlock, shortIds, imageUrl };
   if (typeof module !== "undefined") module.exports = api;
   else window.__visorDrawingFormat = api;
 })();

@@ -41,9 +41,29 @@ test("lists the vault, URL and LaTeX entries of Embedded Files, each with its ki
   const doc = format.readMd(fixture("ejemplo-embeds-mixtos.excalidraw.md"), lz);
   assert.deepEqual(doc.embeds, [
     { kind: "vault", id: "f1e2d3c4", name: "imagen-ejemplo.png" },
-    { kind: "url", id: "a9b8c7d6" },
+    { kind: "url", id: "a9b8c7d6", url: "https://example.com/foto.png" },
     { kind: "latex", id: "e5f6a7b8" },
   ]);
+});
+
+test("only http and https URLs are shown as images, and only those", () => {
+  const url = (text) => {
+    const [embed] = format.readMd(`## Embedded Files\n${text}\n\n## Drawing\n\`\`\`json\n{"elements":[]}\n\`\`\`\n`, lz).embeds;
+    return embed ? format.imageUrl(embed) : null;
+  };
+  assert.equal(url("a1b2c3d4: https://example.com/a.png"), "https://example.com/a.png");
+  assert.equal(url("a1b2c3d4: http://127.0.0.1:8000/a.png"), "http://127.0.0.1:8000/a.png");
+  assert.equal(url("a1b2c3d4: ftp://example.com/a.png"), null);
+  assert.equal(url("a1b2c3d4: file:///etc/passwd"), null);
+  assert.equal(url("a1b2c3d4: javascript:alert(1)"), null);
+  assert.equal(url("a1b2c3d4: data:image/png;base64,AAAA"), null);
+  assert.equal(url("a1b2c3d4: foto.png"), null);
+  assert.equal(url("a1b2c3d4: $$E = mc^2$$"), null);
+  assert.equal(format.imageUrl({ kind: "vault", id: "a1b2c3d4", name: "a.png" }), null);
+});
+
+test("a URL line without an address is not an entry", () => {
+  assert.deepEqual(format.readMd(`## Embedded Files\na1b2c3d4: https://\n\n## Drawing\n\`\`\`json\n{"elements":[]}\n\`\`\`\n`, lz).embeds, []);
 });
 
 test("every image of the scene has its fileId among the embeds, whatever the kind", () => {
