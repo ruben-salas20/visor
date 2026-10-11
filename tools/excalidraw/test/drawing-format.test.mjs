@@ -60,6 +60,29 @@ test("a changed text rewrites the Text Elements section and the JSON, nothing el
   assert.equal(out.slice(out.indexOf("```\n%%")), source.slice(source.indexOf("```\n%%")));
 });
 
+test("a Text Elements section commented with %% keeps its comment when a text changes", () => {
+  const source = fixture("ejemplo-texto-comentado.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[0].text = edited.elements[0].originalText = "Adiós";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /^%%\n# Excalidraw Data\n\n## Text Elements\nAdiós \^a1b2c3d4\n\n## Element Links\n/m);
+  assert.equal(out.split("%%").length, source.split("%%").length, "still one comment, no %% added or lost");
+  assert.equal(format.readMd(out, lz).scene.elements[0].text, "Adiós");
+});
+
+test("a commented section with the older single-# heading is rewritten in place, not duplicated", () => {
+  const source = fixture("ejemplo-texto-comentado-antiguo.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[0].text = edited.elements[0].originalText = "Adiós";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.equal(out.match(/Text Elements/g).length, 1, "one Text Elements heading");
+  assert.doesNotMatch(out, /Hola mundo/);
+  assert.match(out, /# Text Elements\nAdiós \^a1b2c3d4\n\n## Element Links\n/);
+  assert.equal(format.readMd(out, lz).scene.elements[0].text, "Adiós");
+});
+
 test("the raw markdown of an unchanged text (its [[links]]) is kept", () => {
   const source = fixture("ejemplo-json-plano.excalidraw.md");
   const doc = format.readMd(source, lz);

@@ -9,7 +9,8 @@
   const DRAWING = /^##? Drawing[ \t]*\r?$/m;
   const FENCE_OPEN = /^```(json|compressed-json)[ \t]*\r?\n/m;
   const FENCE_CLOSE = /^```[ \t]*\r?$/m;
-  const TEXT_HEAD = /^## Text Elements[ \t]*\r?\n/m;
+  // Older files have "# Text Elements"; the plugin reads both.
+  const TEXT_HEAD = /^##? Text Elements[ \t]*\r?\n/m;
   const EMBEDDED_HEAD = /^## Embedded Files[ \t]*\r?$/m;
   const EMBED_LINE = /^([\w-]+):[ \t]*!?\[\[([^\]\r\n]+)]]/gm;
 
