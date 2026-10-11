@@ -71,6 +71,20 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                 Err(_) => fail("La app no respondió.".into()),
             }
         }
+        Command::Close { target } => {
+            let (reply, answer) = mpsc::channel();
+            let target = target.map(|page| (page.path.unwrap_or_default(), page.raw));
+            send(AgentRequest::Close { target, reply });
+            match answer.recv_timeout(Duration::from_secs(15)) {
+                Ok(Ok(closed)) => {
+                    let mut out = shared.lock().unwrap().status();
+                    out["closed"] = json!(closed);
+                    out
+                }
+                Ok(Err(e)) => fail(e),
+                Err(_) => fail("La app no respondió.".into()),
+            }
+        }
         Command::Reload => {
             let (view, before, showing) = {
                 let s = shared.lock().unwrap();

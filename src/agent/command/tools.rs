@@ -32,6 +32,20 @@ pub fn list() -> Vec<Value> {
             ),
         ),
         tool(
+            "close",
+            "Cierra pestañas. Sin argumentos, cierra la pestaña activa del lado con el foco. Con target, cierra todas las pestañas (de cualquier lado) que muestran ese archivo. Devuelve cuántas cerró y lo mismo que status.",
+            object(
+                json!({
+                    "target": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Ruta absoluta del archivo cuyas pestañas se cierran.",
+                    },
+                }),
+                &[],
+            ),
+        ),
+        tool(
             "status",
             "Dice qué bóveda y qué archivo está viendo la persona. Si está en una web, file es null y url tiene la dirección. Incluye las pestañas de cada lado de la ventana y cuál tiene el foco.",
             object(json!({}), &[]),
@@ -165,6 +179,6 @@ mod tests {
     #[test]
     fn the_tools_are_these() {
         let names: Vec<String> = list().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names, ["open", "status", "reload", "console", "events", "notes", "notes_reply", "guide"]);
+        assert_eq!(names, ["open", "close", "status", "reload", "console", "events", "notes", "notes_reply", "guide"]);
     }
 }

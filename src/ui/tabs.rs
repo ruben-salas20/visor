@@ -388,6 +388,60 @@ impl Tabs {
         fx
     }
 
+    /// Whether the window shows nothing but its empty tab.
+    pub fn is_blank(&self) -> bool {
+        self.sides.len() == 1 && self.sides[0].tabs.len() == 1 && self.sides[0].tabs[0].target.is_empty()
+    }
+
+    /// Closes every tab whose target is `target`, on any side, and says how
+    /// many. Sides are settled once at the end, not after each tab: a side left
+    /// empty goes, the right one first so the side numbers in the effects stay
+    /// right, and an empty window gets an empty tab. The sides left show their
+    /// active tab again, which may need a view.
+    pub fn close_showing(&mut self, target: &str) -> (Vec<Effect>, usize) {
+        let mut fx = Vec::new();
+        let ids: Vec<u64> =
+            self.sides.iter().flat_map(|s| &s.tabs).filter(|t| t.target == target).map(|t| t.id).collect();
+        let focused_id = self.sides[self.focused].id;
+        let mut touched = Vec::new();
+        let mut closed = 0;
+        for id in ids {
+            let Some((p, i)) = self.find_tab(id) else { continue };
+            let side = &mut self.sides[p];
+            side.tabs.remove(i).unload(&mut fx);
+            if i < side.active || side.active >= side.tabs.len() {
+                side.active = side.active.saturating_sub(1);
+            }
+            if !touched.contains(&side.id) {
+                touched.push(side.id);
+            }
+            closed += 1;
+        }
+        if closed == 0 {
+            return (fx, 0);
+        }
+        let mut collapsed = false;
+        for p in (0..self.sides.len()).rev() {
+            if self.sides[p].tabs.is_empty() && self.sides.len() > 1 {
+                self.remove_side(p, &mut fx);
+                collapsed = true;
+            }
+        }
+        // Only the last side can be left empty here.
+        if self.sides[0].tabs.is_empty() {
+            self.push_empty(0);
+        }
+        for p in 0..self.sides.len() {
+            if touched.contains(&self.sides[p].id) {
+                self.show(p, &mut fx);
+            }
+        }
+        if collapsed || touched.contains(&focused_id) {
+            fx.push(Effect::Focus);
+        }
+        (fx, closed)
+    }
+
     /// Splits the window, with the focused document on both sides, or joins
     /// the two sides keeping every tab on the left. Joined views are not reloaded.
     pub fn toggle_split(&mut self) -> Vec<Effect> {
@@ -796,6 +850,81 @@ mod tests {
         assert_eq!(tabs.focused(), 0);
         assert!(!fx.contains(&Effect::Focus));
         assert_eq!(targets(&tabs, 1), ["x"]);
+    }
+
+    #[test]
+    fn closing_a_page_closes_its_tabs_on_both_sides() {
+        let mut tabs = build(vec![side(&["a", "x", "a"], 2), side(&["b", "a"], 0)], 0);
+        let (fx, n) = tabs.close_showing("a");
+        assert_eq!(n, 3);
+        assert_eq!(targets(&tabs, 0), ["x"]);
+        assert_eq!(targets(&tabs, 1), ["b"]);
+        // The visible tabs of both sides are live, the one that was left behind is not.
+        assert_eq!(live(&tabs), ["x", "b"]);
+        assert_eq!(fx.last(), Some(&Effect::Focus));
+        check(&tabs);
+    }
+
+    #[test]
+    fn closing_a_page_keeps_the_active_tab_when_it_survives() {
+        let mut tabs = build(vec![side(&["a", "x", "y"], 2), side(&["b", "a"], 1)], 1);
+        let (fx, n) = tabs.close_showing("a");
+        assert_eq!(n, 2);
+        assert_eq!(tabs.side(0).tab().target(), "y");
+        assert_eq!(tabs.side(1).tab().target(), "b");
+        assert_eq!(tabs.focused(), 1);
+        assert_eq!(tabs.sides().len(), 2);
+        assert!(fx.contains(&Effect::Focus));
+        check(&tabs);
+    }
+
+    #[test]
+    fn closing_a_page_that_empties_a_side_removes_it() {
+        let mut tabs = build(vec![side(&["a", "b"], 0), side(&["a"], 0)], 1);
+        let (fx, n) = tabs.close_showing("a");
+        assert_eq!(n, 2);
+        assert_eq!(tabs.sides().len(), 1);
+        assert_eq!(targets(&tabs, 0), ["b"]);
+        assert_eq!(tabs.focused(), 0);
+        assert!(fx.contains(&Effect::RemoveSide { side: 1 }));
+        assert_eq!(fx.last(), Some(&Effect::Focus));
+        check(&tabs);
+    }
+
+    #[test]
+    fn closing_a_page_that_empties_both_sides_leaves_one_empty_tab() {
+        let mut tabs = build(vec![side(&["a"], 0), side(&["a", "a"], 1)], 1);
+        let (fx, n) = tabs.close_showing("a");
+        assert_eq!(n, 3);
+        assert_eq!(tabs.sides().len(), 1);
+        assert_eq!(targets(&tabs, 0), [""]);
+        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::RemoveSide { .. })).count(), 1);
+        check(&tabs);
+    }
+
+    #[test]
+    fn closing_the_last_tab_of_the_window_by_page_leaves_an_empty_one() {
+        let mut tabs = build(vec![side(&["a"], 0)], 0);
+        let (_, n) = tabs.close_showing("a");
+        assert_eq!(n, 1);
+        assert_eq!(targets(&tabs, 0), [""]);
+        check(&tabs);
+    }
+
+    #[test]
+    fn closing_a_page_nobody_shows_changes_nothing() {
+        let mut tabs = build(vec![side(&["a", "b"], 1)], 0);
+        let (fx, n) = tabs.close_showing("c");
+        assert!(fx.is_empty());
+        assert_eq!(n, 0);
+        assert_eq!(targets(&tabs, 0), ["a", "b"]);
+    }
+
+    #[test]
+    fn blank_means_only_the_empty_tab_is_left() {
+        assert!(build(vec![side(&[""], 0)], 0).is_blank());
+        assert!(!build(vec![side(&["a"], 0)], 0).is_blank());
+        assert!(!build(vec![side(&[""], 0), side(&["a"], 0)], 0).is_blank());
     }
 
     #[test]

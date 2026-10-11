@@ -16,6 +16,8 @@ pub enum Command {
     Status,
     Reload,
     Open { target: Target, place: Option<OpenPlace> },
+    /// No target closes the focused side's active tab; a page closes every tab showing it.
+    Close { target: Option<Page> },
     Console { level: Option<Level>, clear: bool },
     Events { after: Option<u64>, wait: Option<f64>, limit: Option<u64> },
     Notes { scope: NotesScope },
@@ -59,7 +61,8 @@ pub enum NotesScope {
     Page(Page),
 }
 
-const WIRE_NAMES: [&str; 8] = ["ping", "status", "reload", "open", "console", "events", "notes", "notes_reply"];
+const WIRE_NAMES: [&str; 9] =
+    ["ping", "status", "reload", "open", "close", "console", "events", "notes", "notes_reply"];
 
 fn is_web(text: &str) -> bool {
     text.starts_with("http://") || text.starts_with("https://")
@@ -120,6 +123,17 @@ impl Command {
                 };
                 Ok(Self::Open { target, place })
             }
+            "close" => {
+                let usage = "Uso: visor close [<ruta>]";
+                if let Some(unknown) = rest.iter().find(|a| a.starts_with("--")) {
+                    return Err(format!("Opción desconocida: {unknown}. {usage}"));
+                }
+                match rest {
+                    [] => Ok(Self::Close { target: None }),
+                    [raw] => Ok(Self::Close { target: Some(Page::resolve(raw, Some(&cwd()?))) }),
+                    _ => Err(usage.into()),
+                }
+            }
             "status" => Ok(Self::Status),
             "reload" => Ok(Self::Reload),
             "console" => Ok(Self::Console { level: flag("--errors").then_some(Level::Error), clear: flag("--clear") }),
@@ -154,6 +168,7 @@ impl Command {
     pub fn from_mcp(tool: &str, args: &Value) -> Result<Self, String> {
         let allowed: &[&str] = match tool {
             "open" => &["target", "place"],
+            "close" => &["target"],
             "console" => &["errors_only", "clear"],
             "events" => &["after", "wait", "limit"],
             "notes" => &["page", "all"],
@@ -179,6 +194,7 @@ impl Command {
                 };
                 Self::Open { target, place }
             }
+            "close" => Self::Close { target: args.string("target")?.map(Page::absolute_only) },
             "console" => Self::Console {
                 level: args.boolean("errors_only")?.unwrap_or(false).then_some(Level::Error),
                 clear: args.boolean("clear")?.unwrap_or(false),
@@ -251,6 +267,13 @@ impl Command {
                     Some(_) => return Err(invalid("place")),
                 },
             },
+            "close" => Self::Close {
+                target: match (optional("raw")?, path()?) {
+                    (Some(raw), path) => Some(Page { raw: raw.to_string(), path }),
+                    (None, Some(path)) => Some(Page { raw: String::new(), path: Some(path) }),
+                    (None, None) => None,
+                },
+            },
             "console" => Self::Console {
                 level: match optional("level")? {
                     None => None,
@@ -299,6 +322,14 @@ impl Command {
                 wire["place"] = json!(place(at));
                 wire
             }
+            Self::Close { target } => match target {
+                None => json!({ "cmd": "close" }),
+                Some(target) => {
+                    let mut wire = page(target);
+                    wire["cmd"] = json!("close");
+                    wire
+                }
+            },
             Self::Console { level, clear } => {
                 json!({ "cmd": "console", "level": level.map(|_| "error"), "clear": clear })
             }
@@ -431,6 +462,18 @@ mod tests {
     }
 
     #[test]
+    fn close_from_args() {
+        assert_eq!(cli("close").unwrap(), Command::Close { target: None });
+        assert_eq!(
+            cli("close x/a.html").unwrap(),
+            Command::Close { target: Some(page("x/a.html", Some("/work/x/a.html"))) }
+        );
+        let usage = "Uso: visor close [<ruta>]";
+        assert_eq!(cli("close a b").unwrap_err(), usage);
+        assert_eq!(cli("close --all").unwrap_err(), format!("Opción desconocida: --all. {usage}"));
+    }
+
+    #[test]
     fn simple_commands_from_args() {
         assert_eq!(cli("status").unwrap(), Command::Status);
         assert_eq!(cli("reload").unwrap(), Command::Reload);
@@ -519,6 +562,15 @@ mod tests {
         assert_eq!(mcp("status", json!({})).unwrap(), Command::Status);
         assert_eq!(mcp("reload", json!({})).unwrap(), Command::Reload);
         assert_eq!(mcp("guide", json!({})).unwrap(), Command::Guide);
+        assert_eq!(mcp("close", json!({})).unwrap(), Command::Close { target: None });
+        assert_eq!(
+            mcp("close", json!({ "target": "/v/a.html" })).unwrap(),
+            Command::Close { target: Some(page("/v/a.html", Some("/v/a.html"))) }
+        );
+        assert_eq!(
+            mcp("close", json!({ "target": "a.html" })).unwrap(),
+            Command::Close { target: Some(page("a.html", None)) }
+        );
         assert_eq!(mcp("console", json!({})).unwrap(), Command::Console { level: None, clear: false });
         assert_eq!(
             mcp("console", json!({ "errors_only": true, "clear": true })).unwrap(),
@@ -576,6 +628,8 @@ mod tests {
         assert_eq!(mcp("events", json!({ "wait": "5" })), invalid("wait"));
         assert_eq!(mcp("notes", json!({ "page": "" })), invalid("page"));
         assert_eq!(mcp("notes", json!({ "page": "a", "all": true })), Err("Usa page o all, no los dos.".into()));
+        assert_eq!(mcp("close", json!({ "target": "" })), invalid("target"));
+        assert_eq!(mcp("close", json!({ "page": "a" })), Err("Argumento desconocido: page.".into()));
         assert_eq!(mcp("notes_reply", json!({ "id": "x" })), Err("Falta el argumento obligatorio: text.".into()));
         assert_eq!(mcp("notes_reply", json!({ "id": "x", "text": "" })), invalid("text"));
     }
@@ -591,6 +645,9 @@ mod tests {
             Command::Notes { scope: NotesScope::Page(Page { raw, .. }) } => {
                 Command::Notes { scope: NotesScope::Page(Page { raw, path: None }) }
             }
+            Command::Close { target: Some(Page { raw, .. }) } => {
+                Command::Close { target: Some(Page { raw, path: None }) }
+            }
             other => other,
         };
         let table = [
@@ -601,6 +658,9 @@ mod tests {
             ("open /abs/a.html", "open", json!({ "target": "/abs/a.html" })),
             ("status", "status", json!({})),
             ("reload", "reload", json!({})),
+            ("close", "close", json!({})),
+            ("close x/a.html", "close", json!({ "target": "x/a.html" })),
+            ("close /abs/a.html", "close", json!({ "target": "/abs/a.html" })),
             ("console", "console", json!({})),
             ("console --errors", "console", json!({ "errors_only": true })),
             ("console --clear", "console", json!({ "clear": true })),
@@ -633,6 +693,15 @@ mod tests {
         assert_eq!(wire(Command::Ping), json!({ "cmd": "ping" }));
         assert_eq!(wire(cli("status").unwrap()), json!({ "cmd": "status" }));
         assert_eq!(wire(cli("reload").unwrap()), json!({ "cmd": "reload" }));
+        assert_eq!(wire(cli("close").unwrap()), json!({ "cmd": "close" }));
+        assert_eq!(
+            wire(cli("close x/a.html").unwrap()),
+            json!({ "cmd": "close", "path": "/work/x/a.html", "raw": "x/a.html" })
+        );
+        assert_eq!(
+            wire(mcp("close", json!({ "target": "/abs/a.html" })).unwrap()),
+            json!({ "cmd": "close", "path": "/abs/a.html", "raw": "/abs/a.html" })
+        );
         assert_eq!(
             wire(cli("open x/a.html").unwrap()),
             json!({ "cmd": "open", "path": "/work/x/a.html", "raw": "x/a.html", "place": null })
@@ -693,6 +762,11 @@ mod tests {
         assert_eq!(
             read(json!({ "cmd": "open", "url": "https://a.b", "place": null })).unwrap(),
             Command::Open { target: Target::Url { url: "https://a.b".into() }, place: None }
+        );
+        assert_eq!(read(json!({ "cmd": "close" })).unwrap(), Command::Close { target: None });
+        assert_eq!(
+            read(json!({ "cmd": "close", "path": "", "raw": "a.html" })).unwrap(),
+            Command::Close { target: Some(page("a.html", None)) }
         );
         assert_eq!(
             read(json!({ "cmd": "console", "level": "error", "clear": false })).unwrap(),

@@ -17,6 +17,8 @@ const MAX_EVENTS: usize = 1000;
 /// The view that will load and the load count it had before, to wait for the next one.
 pub type Loading = (u64, u64);
 pub type Reply = mpsc::Sender<Result<Option<Loading>, String>>;
+/// How many tabs were closed, or why none was.
+pub type CloseReply = mpsc::Sender<Result<usize, String>>;
 
 /// Where to open something: replacing the focused tab, in a new tab, or on the other side.
 #[derive(Clone, Copy, PartialEq)]
@@ -30,6 +32,9 @@ pub enum Place {
 pub enum AgentRequest {
     Open { path: PathBuf, raw: String, place: Place, reply: Reply },
     OpenUrl { url: String, place: Place, reply: Reply },
+    /// Closes the focused side's active tab, or every tab showing the page
+    /// (`path` as resolved by the caller, `raw` as written).
+    Close { target: Option<(PathBuf, String)>, reply: CloseReply },
     /// Reloads the page on the focused side.
     Reload,
 }

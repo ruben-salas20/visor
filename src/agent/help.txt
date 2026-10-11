@@ -19,6 +19,11 @@ USO
                              el otro lado (divide la ventana si hace
                              falta). Un .html que no está en ninguna
                              bóveda se abre suelto.
+  visor close [<ruta>]       Cierra la pestaña activa del lado con el
+                             foco. Con ruta, cierra todas las pestañas
+                             que muestran ese archivo, en cualquier lado.
+                             Devuelve "closed" (cuántas cerró) y lo mismo
+                             que status. Si ninguna lo muestra, da error.
   visor status               Bóveda y archivo que la persona ve:
                              "file" (null en una web; la ruta absoluta
                              si es un archivo suelto), "url" (en una
@@ -64,6 +69,7 @@ MCP
   Cada herramienta equivale a una orden. Argumentos:
 
       open         target (ruta o URL), place ("here", "tab" o "beside")
+      close        target (ruta absoluta; sin él, la pestaña activa)
       status, reload
       console      errors_only (= --errors), clear
       events       after, wait, limit
@@ -74,7 +80,8 @@ MCP
 PESTAÑAS Y LADOS
   La ventana puede dividirse en dos lados, cada uno con sus pestañas.
   open, reload, console y notes actúan sobre la pestaña activa del lado
-  con el foco: lo que la persona está mirando. Solo 3 páginas siguen
+  con el foco: lo que la persona está mirando. close hace lo mismo, o
+  cierra las pestañas de un archivo con ruta. Solo 3 páginas siguen
   cargadas a la vez; las demás pestañas se recargan al volver a ellas,
   y su consola empieza vacía.
 

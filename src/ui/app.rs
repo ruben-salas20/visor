@@ -757,6 +757,9 @@ impl App {
             UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
                 let _ = reply.send(Ok(self.open_in(url, place)));
             }
+            UserEvent::Agent(AgentRequest::Close { target, reply }) => {
+                let _ = reply.send(self.close_for_agent(target));
+            }
             UserEvent::Agent(AgentRequest::Reload) => self.act(Action::Reload),
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
@@ -1275,10 +1278,7 @@ impl App {
     /// An HTML page outside every known vault opens on its own.
     fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
         let current = self.vault().map(|v| v.path().to_path_buf());
-        let path = path
-            .canonicalize()
-            .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
-            .map_err(|_| format!("No existe: {raw}"))?;
+        let path = self.resolve_page(path, raw)?;
         if path.is_dir() {
             Config::check_vault(&path)?;
             self.show_vault(Some(path));
@@ -1310,6 +1310,41 @@ impl App {
         let side = self.tabs.focused_side();
         let lone_empty = self.tabs.sides().len() == 1 && side.tabs().len() == 1 && side.tab().target().is_empty();
         Ok(self.open_in(target, if lone_empty { Place::Here } else { place }))
+    }
+
+    /// The file a path names, canonical: as given, or else relative to the open vault.
+    fn resolve_page(&self, path: PathBuf, raw: &str) -> Result<PathBuf, String> {
+        let current = self.vault().map(|v| v.path().to_path_buf());
+        path.canonicalize()
+            .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
+            .map_err(|_| format!("No existe: {raw}"))
+    }
+
+    /// Closes the focused side's active tab, or every tab showing the page
+    /// `target` (path as given, raw as written). Returns how many closed.
+    fn close_for_agent(&mut self, target: Option<(PathBuf, String)>) -> Result<usize, String> {
+        let Some((path, raw)) = target else {
+            if self.tabs.is_blank() {
+                return Ok(0);
+            }
+            let effects = self.tabs.close(None);
+            self.apply_and_publish(effects);
+            return Ok(1);
+        };
+        let root = self.vault().map(|v| v.path().to_path_buf());
+        let canonical = path.canonicalize().ok();
+        let names = vault::tab_names(&path, canonical.as_deref(), &raw, root.as_deref(), |p| {
+            self.config.vault_for(p).is_some()
+        });
+        // The first name a tab shows wins; a deleted page is found by its lexical name.
+        for name in &names {
+            let (effects, closed) = self.tabs.close_showing(name);
+            if closed > 0 {
+                self.apply_and_publish(effects);
+                return Ok(closed);
+            }
+        }
+        Err(format!("No hay ninguna pestaña abierta con {raw}."))
     }
 
     /// Watches the folders of the loose pages in the tabs, and stops watching the rest.

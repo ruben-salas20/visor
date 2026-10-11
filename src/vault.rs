@@ -239,6 +239,59 @@ fn nfc_entry(dir: &Path, name: &OsStr) -> Option<OsString> {
         .min()
 }
 
+/// `path` with `.` and `..` resolved as text, without touching the disk. A
+/// deleted file has no canonical path, but its name still says where its tab is.
+pub fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => match out.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                // Above the root there is nothing to go to; a relative path keeps its `..`.
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => out.push(".."),
+            },
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// A page's name in the tabs: relative to the open vault `root`, or its own path
+/// when it is a loose .html that no known vault holds. None for anything else.
+pub fn tab_name(path: &Path, root: Option<&Path>, is_known: impl Fn(&Path) -> bool) -> Option<String> {
+    match root.filter(|r| path.starts_with(r)) {
+        Some(root) => Some(rel(root, path)),
+        None if is_html(path) && !is_known(path) => Some(path.to_string_lossy().into_owned()),
+        None => None,
+    }
+}
+
+/// The names a path given by an agent may have in the tabs, most likely first.
+/// `canonical` is the path as the disk resolves it, when the file exists. `raw`
+/// is what the agent wrote, which may be the name `status` shows.
+pub fn tab_names(
+    path: &Path,
+    canonical: Option<&Path>,
+    raw: &str,
+    root: Option<&Path>,
+    is_known: impl Fn(&Path) -> bool,
+) -> Vec<String> {
+    let lexical = lexical(path);
+    let mut names: Vec<String> = canonical
+        .into_iter()
+        .chain(std::iter::once(lexical.as_path()))
+        .filter_map(|p| tab_name(p, root, &is_known))
+        .collect();
+    names.push(raw.trim_start_matches("./").to_string());
+    names.retain(|n| !n.is_empty());
+    names.dedup();
+    names
+}
+
 /// Orders "tema 2" before "tema 10", ignoring case.
 fn natural(a: &str, b: &str) -> Ordering {
     let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
@@ -520,6 +573,39 @@ pub fn rel_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lexical_resolves_dots_without_the_disk() {
+        assert_eq!(lexical(Path::new("/v/a/../b.html")), Path::new("/v/b.html"));
+        assert_eq!(lexical(Path::new("/v/./x/./y.html")), Path::new("/v/x/y.html"));
+        assert_eq!(lexical(Path::new("/../x.html")), Path::new("/x.html"));
+        assert_eq!(lexical(Path::new("a/../../b")), Path::new("../b"));
+    }
+
+    #[test]
+    fn tab_names_of_a_deleted_page_inside_the_vault() {
+        // Deleted: no canonical path. The tab is still named by its vault-relative path.
+        let names = tab_names(Path::new("/v/notas/../notas/a.html"), None, "x", Some(Path::new("/v")), |_| false);
+        assert_eq!(names, ["notas/a.html", "x"]);
+    }
+
+    #[test]
+    fn tab_names_of_a_loose_page() {
+        let names = tab_names(Path::new("/home/u/s.html"), None, "s.html", Some(Path::new("/v")), |_| false);
+        assert_eq!(names, ["/home/u/s.html", "s.html"]);
+        // A page of a known vault that is not open is not a loose tab.
+        let names = tab_names(Path::new("/home/u/s.html"), None, "", Some(Path::new("/v")), |_| true);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn tab_names_of_a_raw_relative_name() {
+        // Nothing on disk and not in the open vault: only the name as written can match.
+        let names = tab_names(Path::new("/elsewhere/x"), None, "./guia/a.md", Some(Path::new("/v")), |_| false);
+        assert_eq!(names, ["guia/a.md"]);
+        // A lone "./" would name the start page, which must never be closed by name.
+        assert!(tab_names(Path::new("/elsewhere/x"), None, "./", None, |_| false).is_empty());
+    }
 
     #[test]
     fn natural_order() {
