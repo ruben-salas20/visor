@@ -159,17 +159,24 @@
   // comment that opens the drawing). `start` is the body, `stop` its end. With
   // `keepMark`, a "%%" line right under the heading stays in front of the body:
   // it is not the end of the section, or the texts would be written before it and
-  // the old ones left behind.
+  // the old ones left behind. With `ids`, the texts of the file, the section ends
+  // after the last "^id" line: a "# " line inside a text is not a heading.
   const BOUNDARY = /^(#{1,2} |%%)/m;
   const MARK_LINE = /^%%[ \t]*\r?\n/;
 
-  function sectionAt(text, heading, keepMark = false) {
+  function sectionAt(text, heading, keepMark = false, ids = new Set()) {
     const m = heading.exec(text);
     if (!m) return null;
     let start = m.index + m[0].length;
     const mark = keepMark ? MARK_LINE.exec(text.slice(start)) : null;
     if (mark) start += mark[0].length;
-    const end = next(text, start, BOUNDARY);
+    let from = start;
+    if (ids.size) {
+      for (const a of text.slice(start).matchAll(/ \^(\S+)[ \t]*\r?$/gm)) {
+        if (ids.has(a[1])) from = start + a.index + a[0].length;
+      }
+    }
+    const end = next(text, from, BOUNDARY);
     return { from: m.index, start, stop: end < 0 ? text.length : end };
   }
 
@@ -222,6 +229,7 @@
     const d = locate(source);
     const elements = shortIds(scene.elements);
     const texts = [];
+    const written = new Set();
     const shapeLinks = [];
     const textLinks = [];
     const out = elements.map((el, i) => {
@@ -232,7 +240,10 @@
       if (before.isDeleted) return el;
       const line = fileText(before, keep);
       // An empty text has nothing to point at; its element stays in the JSON.
-      if (line.trim()) texts.push(`${line} ^${el.id}\n\n`);
+      if (line.trim()) {
+        texts.push(`${line} ^${el.id}\n\n`);
+        written.add(el.id);
+      }
       return keep && keep.rawText !== undefined ? { ...el, rawText: line } : el;
     });
     const links = [...shapeLinks, ...textLinks];
@@ -244,7 +255,7 @@
     const head = pruneEmbeds(source.slice(0, d.heading), scene);
     const section = texts.join("");
     let updated = head;
-    const text = sectionAt(head, TEXT_HEAD, true);
+    const text = sectionAt(head, TEXT_HEAD, true, new Set(Object.keys(original)));
     if (text) {
       updated = head.slice(0, text.start) + section + head.slice(text.stop);
     } else if (section || linkBody) {
@@ -258,7 +269,7 @@
     const linked = sectionAt(updated, LINKS_HEAD);
     if (!linked) {
       if (linkBody) {
-        const after = sectionAt(updated, TEXT_HEAD, true).stop;
+        const after = sectionAt(updated, TEXT_HEAD, true, written).stop;
         updated = updated.slice(0, after) + "## Element Links\n" + linkBody + updated.slice(after);
       }
     } else if (!linkBody) {

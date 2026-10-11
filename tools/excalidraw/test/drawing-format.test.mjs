@@ -157,20 +157,28 @@ test("a changed text under a %% right under ## Text Elements is rewritten once",
   assert.equal(format.readMd(out, lz).scene.elements[0].text, "Adiós");
 });
 
-// A line "# " or "## " inside a text ends the section at the next save, as the Obsidian
-// plugin does too (issue #16). Pending that decision, this documents what happens
-// today: the second save repeats the tail of the text. Change it when #16 is decided.
-test("a text with a # line inside: the second save repeats the tail of the text (current behavior, issue #16)", () => {
+test("a text with a # line inside is written once, and saving twice gives the same file", () => {
   const source = fixture("ejemplo-json-plano.excalidraw.md");
   const doc = format.readMd(source, lz);
   const el = doc.scene.elements[0];
-  el.text = el.originalText = "Intro\n# Título\nmás texto";
+  el.text = el.originalText = "Intro\n# Título\n## Otro\nmás texto";
   const one = format.writeMd(source, { ...doc.scene }, lz, doc.original);
   assert.equal(one.split("más texto ^a1b2c3d4").length - 1, 1);
   const again = format.readMd(one, lz);
   const two = format.writeMd(one, again.scene, lz, again.original);
-  assert.equal(two.split("más texto ^a1b2c3d4").length - 1, 2, "the tail is written twice");
-  assert.equal(two.slice(0, two.indexOf("## Drawing")).split("# Título").length - 1, 2, "the heading line is written twice in the head");
+  assert.equal(two, one);
+  assert.match(two, /# Título\n## Otro\nmás texto \^a1b2c3d4\n\n## Element Links\n/);
+});
+
+test("a new Element Links goes after a text with a # line inside", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace("## Element Links\nr1r2r3r4: [[Notas]]\n\n", "");
+  const doc = format.readMd(source, lz);
+  for (const e of doc.scene.elements) e.link = null;
+  const el = doc.scene.elements[0];
+  el.text = el.originalText = "Intro\n# Título\nmás texto";
+  el.link = "[[Notas]]";
+  const out = format.writeMd(source, { ...doc.scene }, lz, doc.original);
+  assert.match(out, /# Título\nmás texto \^a1b2c3d4\n\n## Element Links\na1b2c3d4: \[\[Notas\]\]\n/);
 });
 
 test("a commented section with the older single-# heading is rewritten in place, not duplicated", () => {
