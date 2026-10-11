@@ -114,6 +114,48 @@ test("a text with an Excalidraw id gets an 8-character id, and its references fo
   assert.equal(back.find((e) => e.id === "rect0001").boundElements[0].id, id);
 });
 
+test("a link added to a shape goes to Element Links, after the links already there", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[0].link = "[[Otra]]";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /## Element Links\nr1r2r3r4: \[\[Notas\]\]\n\na1b2c3d4: \[\[Otra\]\]\n\n%%\n## Drawing/);
+});
+
+test("a changed link is rewritten in Element Links", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[1].link = "[[Nueva]]";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /## Element Links\nr1r2r3r4: \[\[Nueva\]\]\n\n%%\n## Drawing/);
+  assert.doesNotMatch(out, /Notas/);
+});
+
+test("a removed link leaves no Element Links heading behind", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[1].link = null;
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.match(out, /## Text Elements\nHola mundo \^a1b2c3d4\n\n%%\n## Drawing/);
+  assert.doesNotMatch(out, /Element Links/);
+});
+
+test("a linked shape with a long Excalidraw id gets an 8-character id in Element Links, and its arrows follow", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const shape = { id: "abcdefghijklmnopqrst", type: "rectangle", link: "[[Nuevo]]", isDeleted: false };
+  const arrow = { id: "flecha0001", type: "arrow", startBinding: { elementId: "abcdefghijklmnopqrst" }, isDeleted: false };
+  const out = format.writeMd(source, { ...doc.scene, elements: [...doc.scene.elements, shape, arrow] }, lz, doc.original);
+  const id = out.match(/^(\S{8}): \[\[Nuevo\]\]$/m)?.[1];
+  assert.ok(id, "the link is in Element Links under an 8-character id");
+  const back = format.readMd(out, lz).scene.elements;
+  assert.equal(back.find((e) => e.link === "[[Nuevo]]").id, id);
+  assert.equal(back.find((e) => e.id === "flecha0001").startBinding.elementId, id);
+});
+
 test("deleted texts leave the section", () => {
   const source = fixture("ejemplo-json-plano.excalidraw.md");
   const doc = format.readMd(source, lz);

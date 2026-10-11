@@ -1,7 +1,8 @@
 // Reads and writes Obsidian's Excalidraw drawings (.excalidraw.md). The scene is
-// a JSON block after "## Drawing", plain or compressed, and "## Text Elements"
-// lists the texts with their 8-character ids. The sections around them are kept
-// as they are. No DOM: tests in tools/excalidraw/test. `lz` is LZString, with
+// a JSON block after "## Drawing", plain or compressed. "## Text Elements" lists
+// the texts and "## Element Links" the links of shapes, both by 8-character id.
+// The other sections around them are kept as they are. No DOM: tests in
+// tools/excalidraw/test. `lz` is LZString, with
 // compressToBase64 and decompressFromBase64.
 (() => {
   "use strict";
@@ -80,9 +81,11 @@
     return [...section.matchAll(EMBED_LINE)].map((m) => ({ id: m[1], name: m[2].split(/[|#]/)[0].trim() }));
   }
 
-  // Text ids in the file are exactly 8 characters. Longer ones (what Excalidraw
-  // makes) get a short id derived from the old one, and every reference follows.
+  // Texts and linked shapes are listed by their 8-character id in the file (the
+  // plugin does the same). Longer ids (what Excalidraw makes) get a short id derived
+  // from the old one, and every reference follows.
   const isShort = (id) => id.length === 8;
+  const needsShort = (e) => !isShort(e.id) && (e.type === "text" || e.link);
 
   function fnv(text) {
     let h = 0x811c9dc5;
@@ -98,11 +101,11 @@
     }
   }
 
-  function shortTextIds(elements) {
+  function shortIds(elements) {
     const taken = new Set(elements.map((e) => e.id).filter(isShort));
     const map = new Map();
     for (const e of elements) {
-      if (e.type !== "text" || isShort(e.id)) continue;
+      if (!needsShort(e)) continue;
       const code = shortId(e.id, taken);
       taken.add(code);
       map.set(e.id, code);
@@ -112,10 +115,34 @@
     return elements.map((e) => {
       const copy = { ...e, id: rename(e.id) };
       if (e.containerId) copy.containerId = rename(e.containerId);
+      if (e.frameId) copy.frameId = rename(e.frameId);
+      for (const side of ["startBinding", "endBinding"]) {
+        if (e[side]) copy[side] = { ...e[side], elementId: rename(e[side].elementId) };
+      }
       if (e.boundElements) copy.boundElements = e.boundElements.map((b) => (b ? { ...b, id: rename(b.id) } : b));
       return copy;
     });
   }
+
+  // A "##" section runs from its heading line to the next heading or "%%" (the
+  // comment that opens the drawing). `start` is the body, `stop` its end.
+  const BOUNDARY = /^(#{1,2} |%%)/m;
+  const LINKS_HEAD = /^##? Element Links[ \t]*\r?\n/m;
+
+  function sectionAt(text, heading) {
+    const m = heading.exec(text);
+    if (!m) return null;
+    const start = m.index + m[0].length;
+    const end = next(text, start, BOUNDARY);
+    return { from: m.index, start, stop: end < 0 ? text.length : end };
+  }
+
+  // The `<8-character id>: <link>` lines of Element Links, as the plugin reads them.
+  function parseLinks(body) {
+    return new Map([...body.matchAll(/^([^\s:]{8}):[ \t]*(.*?)[ \t]*\r?$/gm)].map((m) => [m[1], m[2]]));
+  }
+
+  const sameLinks = (a, b) => a.size === b.size && [...a].every(([id, link]) => b.get(id) === link);
 
   // The text as the file keeps it. Obsidian's raw markdown (with its [[links]])
   // stays while visor has not changed the text; otherwise the new text goes in.
@@ -138,15 +165,18 @@
   }
 
   // The new file: `scene` is what Excalidraw serializes (type, version, source,
-  // elements, appState). The drawing block and "## Text Elements" are rewritten
-  // from it; the frontmatter, the notice, "## Element Links", "## Embedded Files"
-  // and any other text stay as they are. `files` goes empty: images live in the vault.
+  // elements, appState). The drawing block, "## Text Elements" and "## Element Links"
+  // are rewritten from it; the frontmatter, the notice, "## Embedded Files" and any
+  // other text stay as they are. `files` goes empty: images live in the vault.
   function writeMd(source, scene, lz, original = {}) {
     const d = locate(source);
-    const elements = shortTextIds(scene.elements);
+    const elements = shortIds(scene.elements);
     const texts = [];
+    const shapeLinks = [];
+    const textLinks = [];
     const out = elements.map((el, i) => {
       const before = scene.elements[i];
+      if (!before.isDeleted && el.link) (before.type === "text" ? textLinks : shapeLinks).push([el.id, el.link]);
       if (before.type !== "text") return el;
       const keep = original[before.id];
       if (before.isDeleted) return el;
@@ -154,26 +184,36 @@
       texts.push(`${line} ^${el.id}\n\n`);
       return keep && keep.rawText !== undefined ? { ...el, rawText: line } : el;
     });
+    const links = [...shapeLinks, ...textLinks];
+    const linkBody = links.map(([id, link]) => `${id}: ${link}\n\n`).join("");
     const json = JSON.stringify({ ...scene, elements: out, files: {} }, null, "\t");
     const block = d.compressed ? compressBlock(json, lz) : json;
     const fence = "```" + (d.compressed ? "compressed-json" : "json") + "\n" + block + "\n```";
 
     const head = source.slice(0, d.heading);
     const section = texts.join("");
-    const text = TEXT_HEAD.exec(head);
-    let updated;
+    let updated = head;
+    const text = sectionAt(head, TEXT_HEAD);
     if (text) {
-      const start = text.index + text[0].length;
-      // The section ends at the next heading or at the "%%" that opens the drawing.
-      const end = next(head, start, /^(#{1,2} |%%)/m);
-      updated = head.slice(0, start) + section + head.slice(end < 0 ? head.length : end);
-    } else if (section) {
+      updated = head.slice(0, text.start) + section + head.slice(text.stop);
+    } else if (section || linkBody) {
       // A file without the section (made by hand): it goes before the drawing.
       const at = head.endsWith("%%\n") ? head.length - 3 : head.length;
       const title = /^# Excalidraw Data/m.test(head) ? "" : "# Excalidraw Data\n\n";
       updated = head.slice(0, at) + title + "## Text Elements\n" + section + head.slice(at);
-    } else {
-      updated = head;
+    }
+    // Element Links goes right after the texts. Without links the heading goes too,
+    // as the plugin does. An unchanged list keeps the file's own lines and order.
+    const linked = sectionAt(updated, LINKS_HEAD);
+    if (!linked) {
+      if (linkBody) {
+        const after = sectionAt(updated, TEXT_HEAD).stop;
+        updated = updated.slice(0, after) + "## Element Links\n" + linkBody + updated.slice(after);
+      }
+    } else if (!linkBody) {
+      updated = updated.slice(0, linked.from) + updated.slice(linked.stop);
+    } else if (!sameLinks(parseLinks(updated.slice(linked.start, linked.stop)), new Map(links))) {
+      updated = updated.slice(0, linked.start) + linkBody + updated.slice(linked.stop);
     }
     return updated + source.slice(d.heading, d.open) + fence + source.slice(d.close);
   }
@@ -183,7 +223,7 @@
     return parseScene(text);
   }
 
-  const api = { readMd, writeMd, readJson, compressBlock, decompressBlock, shortTextIds };
+  const api = { readMd, writeMd, readJson, compressBlock, decompressBlock, shortIds };
   if (typeof module !== "undefined") module.exports = api;
   else window.__visorDrawingFormat = api;
 })();
