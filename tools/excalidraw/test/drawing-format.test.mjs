@@ -60,6 +60,39 @@ test("the mixed embeds round trip without changes", () => {
   assert.equal(format.writeMd(source, scene(doc.scene), lz, doc.original), source);
 });
 
+// Images of the scene by fileId, with `deleted` ones marked as Excalidraw keeps them.
+function withImages(doc, deleted) {
+  const elements = structuredClone(doc.scene.elements).map((e) =>
+    e.type === "image" && deleted.includes(e.fileId) ? { ...e, isDeleted: true } : e,
+  );
+  return { ...doc.scene, elements };
+}
+
+test("deleting one embedded image removes only its line from Embedded Files", () => {
+  const source = fixture("ejemplo-embeds-mixtos.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const out = format.writeMd(source, withImages(doc, ["a9b8c7d6"]), lz, doc.original);
+  const section = out.slice(out.indexOf("## Embedded Files"), out.indexOf("%%\n## Drawing"));
+  assert.equal(section, "## Embedded Files\nf1e2d3c4: [[imagen-ejemplo.png]]\n\ne5f6a7b8: $$E = mc^2$$\n\n");
+  assert.deepEqual(format.readMd(out, lz).embeds.map((e) => e.id), ["f1e2d3c4", "e5f6a7b8"]);
+});
+
+test("deleting every embedded image removes Embedded Files, heading included", () => {
+  const source = fixture("ejemplo-embeds-mixtos.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const out = format.writeMd(source, withImages(doc, ["f1e2d3c4", "a9b8c7d6", "e5f6a7b8"]), lz, doc.original);
+  assert.doesNotMatch(out.slice(0, out.indexOf("## Drawing")), /Embedded Files|imagen-ejemplo|https:\/\/example|mc\^2/);
+  assert.equal(out.slice(out.indexOf("## Text Elements"), out.indexOf("%%\n## Drawing")), "## Text Elements\nFigura ^t0000003\n\n");
+  assert.deepEqual(format.readMd(out, lz).embeds, []);
+});
+
+test("with no image deleted, Embedded Files stays byte for byte", () => {
+  const source = fixture("ejemplo-embeds-mixtos.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const out = format.writeMd(source, withImages(doc, []), lz, doc.original);
+  assert.equal(out.slice(0, out.indexOf("## Drawing")), source.slice(0, source.indexOf("## Drawing")));
+});
+
 for (const name of ["ejemplo-json-plano", "ejemplo-compressed-json", "ejemplo-imagen-incrustada"]) {
   test(`round trip without changes gives the same file: ${name}`, () => {
     const source = fixture(`${name}.excalidraw.md`);

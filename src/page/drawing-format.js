@@ -167,6 +167,33 @@
     return { from: m.index, start, stop: end < 0 ? text.length : end };
   }
 
+  // Lines of "## Embedded Files" whose image the scene no longer has go, with the blank
+  // line after them. A section left empty goes with its heading, as the plugin does.
+  // Only the file's text changes: the image files stay in the vault.
+  function pruneEmbeds(head, scene) {
+    const section = sectionAt(head, EMBEDDED_HEAD);
+    if (!section) return head;
+    const shown = new Set(scene.elements.filter((e) => e.type === "image" && !e.isDeleted).map((e) => e.fileId));
+    const kept = [];
+    let dropped = false;
+    let blankAfter = false;
+    // Lines with their newlines (no lookbehind: older WebKitGTK lacks it).
+    for (const line of head.slice(section.start, section.stop).match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+      const e = embedOf(line);
+      if (e && !shown.has(e.id)) {
+        dropped = blankAfter = true;
+        continue;
+      }
+      if (blankAfter && /^[ \t]*\r?\n$/.test(line)) continue;
+      blankAfter = false;
+      kept.push(line);
+    }
+    if (!dropped) return head;
+    const body = kept.join("");
+    if (!body.trim()) return head.slice(0, section.from) + head.slice(section.stop);
+    return head.slice(0, section.start) + body + head.slice(section.stop);
+  }
+
   // What the file says about a drawing, as read: the scene, whether it is
   // compressed, the images it links, and the texts as loaded (see writeMd).
   function readMd(source, lz) {
@@ -182,8 +209,9 @@
 
   // The new file: `scene` is what Excalidraw serializes (type, version, source,
   // elements, appState). The drawing block, "## Text Elements" and "## Element Links"
-  // are rewritten from it; the frontmatter, the notice, "## Embedded Files" and any
-  // other text stay as they are. `files` goes empty: images live in the vault.
+  // are rewritten from it; "## Embedded Files" loses the lines of deleted images; the
+  // frontmatter, the notice and any other text stay as they are. `files` goes empty:
+  // images live in the vault.
   function writeMd(source, scene, lz, original = {}) {
     const d = locate(source);
     const elements = shortIds(scene.elements);
@@ -207,7 +235,7 @@
     const block = d.compressed ? compressBlock(json, lz) : json;
     const fence = "```" + (d.compressed ? "compressed-json" : "json") + "\n" + block + "\n```";
 
-    const head = source.slice(0, d.heading);
+    const head = pruneEmbeds(source.slice(0, d.heading), scene);
     const section = texts.join("");
     let updated = head;
     const text = sectionAt(head, TEXT_HEAD);
