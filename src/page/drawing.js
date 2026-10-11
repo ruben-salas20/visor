@@ -29,6 +29,11 @@
   const pending = new Set(); // image ids sent to Rust, not answered yet
   const failed = new Map(); // image id -> Rust's reason, for images that were not saved
   const added = new Map(); // image id -> file name, for images saved in this session
+  const webIds = new Set(); // images loaded from a web address
+  let exporting = false;
+  let stashed = {}; // web images taken out of the files while exporting
+  let beforeExport = null; // the status bar before the export notice
+  const EXPORT_NOTICE = "Las imágenes de internet no se exportan: quedan como huecos.";
 
   const say = (text, error = false) => {
     status.textContent = text;
@@ -100,7 +105,37 @@
     requestAnimationFrame(() => excalidraw.scrollToContent(excalidraw.getSceneElements(), { fitToViewport: true, viewportZoomFactor: 0.9 }));
   }
 
+  // Exporting draws the scene on a canvas and reads it back. A web image taints the
+  // canvas (SecurityError), and no script may read its bytes (see webImage). So web
+  // images leave the files while the export dialog is open, and the export shows a hole
+  // (#18). `files` is Excalidraw's own object (getFiles), read at each export; onChange
+  // runs before the dialog draws its preview. addFiles puts them back: the canvas keeps
+  // them cached, and one that arrived meanwhile is cached then.
+  function guardExport(appState, files) {
+    const open = appState.openDialog?.name === "imageExport";
+    if (open === exporting) return;
+    exporting = open;
+    status.classList.remove("export");
+    if (!open) {
+      const back = Object.values(stashed);
+      stashed = {};
+      if (back.length) api.then((excalidraw) => excalidraw.addFiles(back));
+      if (status.textContent === EXPORT_NOTICE) say(beforeExport.text, beforeExport.error);
+      return;
+    }
+    for (const id of webIds) {
+      if (!files[id]) continue;
+      stashed[id] = files[id];
+      delete files[id];
+    }
+    if (!webIds.size) return;
+    beforeExport = { text: status.textContent, error: status.classList.contains("error") };
+    say(EXPORT_NOTICE);
+    status.classList.add("export");
+  }
+
   function onChange(elements, appState, files) {
+    guardExport(appState, files);
     latest = { elements, appState, files };
     const sig = signature(elements, files);
     // Excalidraw normalizes the scene when it mounts (versions, indexes): that is the
@@ -382,7 +417,10 @@
     for (const e of embeds) {
       api.then(async (excalidraw) => {
         const f = await webImage(e);
-        if (f) excalidraw.addFiles([f]);
+        if (!f) return;
+        webIds.add(f.id);
+        if (exporting) stashed[f.id] = f;
+        else excalidraw.addFiles([f]);
       });
     }
     const formulas = embeds.filter((e) => e.kind === "latex");

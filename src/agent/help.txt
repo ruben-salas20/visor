@@ -156,7 +156,8 @@ DIBUJOS DE EXCALIDRAW
     el texto ajeno) se conserva tal cual.
   - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
     Las imágenes por URL se muestran solo como imagen: ninguna página lee
-    su contenido, aunque `visor screenshot` las captura. Las fórmulas
+    su contenido, aunque `visor screenshot` las captura. Al exportar a
+    PNG o SVG, quedan como huecos y un aviso lo dice. Las fórmulas
     LaTeX (`<id>: $$…$$`) se dibujan con KaTeX, que solo se carga en los
     dibujos que tienen alguna.
   - Una imagen pegada o insertada en un .excalidraw.md se guarda junto al
