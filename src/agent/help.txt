@@ -139,9 +139,9 @@ DIBUJOS DE EXCALIDRAW
     en el árbol junto a las demás páginas.
   - Se abren en modo lectura. Ctrl+E los edita. Se guardan solos, 0,8 s
     después del último cambio, en el mismo formato que tenían.
-  - En un .excalidraw.md se regenera "## Text Elements" desde el dibujo.
-    El resto del archivo (frontmatter, "## Element Links", "## Embedded
-    Files" y el texto ajeno) se conserva tal cual.
+  - En un .excalidraw.md se regeneran "## Text Elements" y "## Element
+    Links" desde el dibujo. El resto del archivo (frontmatter, "##
+    Embedded Files" y el texto ajeno) se conserva tal cual.
   - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
     En un .excalidraw.md no se pueden añadir imágenes nuevas (sí en un
     .excalidraw). Las URL y las fórmulas LaTeX no se muestran.
