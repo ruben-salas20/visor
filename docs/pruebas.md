@@ -56,25 +56,28 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ## Referencia
 
-2026-10-10, commit `4e1dabe` (issues #1, #2, #3 y #5), enchufado, perfil `performance`. Mediana (mínimo–máximo) de 3 rondas alternadas con `9cf8557`, el commit anterior.
+2026-10-10, commit `6399c0b` (iconos centrados, `visor screenshot` y `visor eval` del #4, dibujos de Excalidraw), enchufado, perfil `performance`. Una ronda alternada con `027af24`, el commit anterior.
 
-| Medida | Valor | Antes (`9cf8557`) |
+| Medida | Valor | Antes (`027af24`) |
 |---|---|---|
-| Arranque en frío, nota mínima (`minima.md`) | 214 ms (209–224) | 217 ms (217–223) |
-| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 730 ms (723–1191) | 716 ms (693–776) |
-| Arranque en frío, HTML suelto | 203 ms (199–268) | 202 ms (195–498) |
-| Cambio de página, dentro de la app (con la CLI) | 9,3 ms (8,0–22,4); 35 ms | 8,7 ms (8,4–10,1); 37 ms |
-| Pestaña nueva, dentro de la app (con la CLI) | 135 ms (131–278); 160 ms | 140 ms (136–146); 165 ms |
-| Memoria en reposo, nota mínima | 133 MB (133–146) | 136 MB (131–144) |
-| Memoria en reposo, `ondas.md` | 226 MB (224–239) | 225 MB (223–240) |
-| Memoria en reposo, HTML suelto | 104 MB (104) | 104 MB (104–116) |
-| Memoria con el editor abierto (nota mínima) | 149 MB (140–160) | 148 MB (138–153) |
-| CPU en reposo, nota mínima u `ondas.md` | 0–0,1 % | 0–0,07 % |
+| Arranque en frío, nota mínima (`minima.md`) | 218 ms | 256 ms |
+| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 711 ms | 715 ms |
+| Arranque en frío, HTML suelto | 200 ms | 206 ms |
+| Cambio de página, dentro de la app (con la CLI) | 8,3 ms; 30 ms | 8,8 ms; 34 ms |
+| Pestaña nueva, dentro de la app (con la CLI) | 138 ms; 161 ms | 129 ms; 156 ms |
+| Memoria en reposo, nota mínima | 184 MB | 188 MB |
+| Memoria en reposo, `ondas.md` | 290 MB | 289 MB |
+| Memoria en reposo, HTML suelto | 156 MB | 161 MB |
+| Memoria con el editor abierto (nota mínima) | 209 MB | 205 MB |
+| CPU en reposo, nota mínima u `ondas.md` | 0–0,07 % | 0,03–0,3 % |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js (2026-10-07) | |
+| Un dibujo de Excalidraw abierto, frente a una nota | ~+45 MB en lectura; en edición, 240 MB frente a 207 MB de una nota (ADR 0036) | |
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
-| Binario (`cargo build --release`, con `strip`) | 4 401 056 bytes | 4 296 376 bytes |
+| Binario (`cargo build --release`, con `strip`) | 5 285 088 bytes | 4 401 056 bytes |
 
-Los máximos altos de la columna de valor (1191 ms, 278 ms) son de una misma ronda con picos del sistema; la misma ronda del binario anterior dio 498 ms en el HTML suelto. Los 105 KB del binario son, en 71 KB, las tablas de normalización Unicode de `icu_normalizer` (#1).
+Con una sola ronda, las diferencias de arranque, pestaña nueva y CPU están dentro del ruido: lo que cambia en reposo es solo el binario. De los 884 KB, unos 850 KB son el paquete de Excalidraw (JS y CSS con brotli, y sus fuentes woff2; ADR 0036) y unos 32 KB, `screenshot` y `eval` con la codificación PNG de cairo.
+
+La memoria vuelve a ~185 MB con la nota mínima, como antes de la bajada que se cuenta abajo, y lo mismo con el binario anterior: tampoco es el código.
 
 La memoria bajó ~80 MB respecto de la referencia anterior (217 MB con la nota mínima en `02727b2`) sin que cambiara el código: el binario de `02727b2`, medido el mismo día con el mismo método, da ~131 MB. La comparativa del README dio 215 MB esa tarde y la bajada apareció horas después, sin reiniciar. Se descartaron la consulta de actualizaciones, la pantalla, `alsa-plugins` y otra instancia de visor abierta (esta última baja la medida solo 3–5 MB). La causa sigue sin identificar: compara solo rondas alternadas de una misma ejecución, nunca cifras de días distintos.
 
