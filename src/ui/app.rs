@@ -674,6 +674,22 @@ impl App {
         self.sidebar.set_theme(self.theme.as_ref());
     }
 
+    /// Tells the open pages of visor that the theme changed, once their
+    /// `--visor-*` variables hold the new values. Only pages of visor get it:
+    /// `Page::file` is set from the committed address, the one `vault::access`
+    /// trusts, and is `None` for websites. Called on changes only, not at
+    /// startup, when no page has been opened yet.
+    fn announce_theme(&self) {
+        let Some(theme) = &self.theme else { return };
+        let code = page_calls::theme_changed(theme.dark);
+        let shared = self.shared.lock().unwrap();
+        for (id, view) in &self.views {
+            if shared.page_of(*id).file.is_some() {
+                let _ = view.evaluate_script(&code);
+            }
+        }
+    }
+
     /// Marks the settings as changed and writes them once, shortly after,
     /// instead of on every navigation: the write blocks the window. A crash
     /// loses at most this delay of state.
@@ -765,7 +781,10 @@ impl App {
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
             UserEvent::LooseChanged(changed) => self.loose_changed(changed),
-            UserEvent::ThemeChanged => self.apply_theme(),
+            UserEvent::ThemeChanged => {
+                self.apply_theme();
+                self.announce_theme();
+            }
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Dropped { pane, half } => self.dropped(pane, half),
@@ -847,6 +866,7 @@ impl App {
                 self.config.theme = choice;
                 self.save_config_soon();
                 self.apply_theme();
+                self.announce_theme();
             }
             Action::SetAutoUpdate(on) => {
                 self.config.auto_update = Some(on).filter(|on| !on);

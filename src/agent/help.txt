@@ -185,6 +185,16 @@ ESCRIBIR PÁGINAS PARA VISOR
 
       body { background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
 
+  - Si el tema cambia con la página abierta, llega el evento "visor:tema"
+    con el modo, "dark" o "light", en e.detail.modo. Las variables
+    --visor-* ya tienen los valores nuevos cuando llega. Úsalo para
+    redibujar un canvas, Three.js o un gráfico:
+
+      addEventListener("visor:tema", (e) => {
+        const css = getComputedStyle(document.documentElement);
+        dibujar(css.getPropertyValue("--visor-bg").trim(), e.detail.modo);
+      });
+
 FLUJO TÍPICO DE UN AGENTE
   1. Escribe o edita el HTML en la bóveda.
   2. `visor open <archivo>` para mostrarlo y ver sus errores; si los

@@ -73,6 +73,14 @@ pub fn note_create_failed(error: &str) -> String {
     format!("window.__visorNote && window.__visorNote.createFailed({})", json!(error))
 }
 
+/// The theme changed: the page's `--visor-*` variables already hold the new
+/// values when the event runs. The script runs later than it is sent, maybe in
+/// a website the view has gone to since; `window.visor` is only set in pages of visor.
+pub fn theme_changed(dark: bool) -> String {
+    let modo = if dark { "dark" } else { "light" };
+    format!(r#"window.visor && window.dispatchEvent(new CustomEvent("visor:tema", {{ detail: {{ modo: {} }} }}))"#, json!(modo))
+}
+
 /// Frosted glass over a page to mark where a dragged file would land: a half
 /// (0 left, 1 right), the whole page (any other zone), or nothing (`None`).
 /// `accent` is a CSS colour from the theme.
@@ -130,6 +138,15 @@ mod tests {
     #[test]
     fn place_wraps_the_position() {
         assert!(place(r#"{"y":4.0}"#).ends_with(r#"({"y":4.0})"#));
+    }
+
+    #[test]
+    fn theme_changed_names_the_mode() {
+        assert_eq!(
+            theme_changed(true),
+            r#"window.visor && window.dispatchEvent(new CustomEvent("visor:tema", { detail: { modo: "dark" } }))"#
+        );
+        assert!(theme_changed(false).ends_with(r#"{ detail: { modo: "light" } }))"#));
     }
 
     #[test]
