@@ -3,7 +3,7 @@
 //! so that a rename there shows up in one place here. Values go through
 //! serde_json, so a page's text cannot break out of its string.
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// Tells the editor whether its save worked.
 pub fn note_saved(ok: bool, error: &str) -> String {
@@ -104,6 +104,41 @@ pub fn frost(zone: Option<u8>, accent: &str) -> String {
     )
 }
 
+/// Runs `code` for `visor eval`. The page's address is checked again here,
+/// because the webview may have moved on to a website since the decision was made.
+/// The result is a JSON string for `eval_answer`; the code's own value is
+/// serialized inside the page, where a circular value can still be caught.
+pub fn eval(code: &str, bases: [&str; 2]) -> String {
+    let bases = json!(bases);
+    let code = json!(code);
+    format!(
+        r#"(() => {{
+  const fail = (error) => JSON.stringify({{ ok: false, error }});
+  if (!{bases}.some((base) => base && location.href.startsWith(base)))
+    return fail("La página ya no es de la bóveda ni un archivo suelto.");
+  try {{
+    const value = (0, eval)({code});
+    if (value && typeof value.then === "function")
+      return fail("El resultado es una promesa; visor eval no espera promesas.");
+    return JSON.stringify({{ ok: true, type: typeof value, value }});
+  }} catch (e) {{
+    return fail(e instanceof Error ? e.message : String(e));
+  }}
+}})()"#
+    )
+}
+
+/// Reads what `eval` returned: the value, or the reason the code did not run.
+pub fn eval_answer(raw: &str) -> Result<Value, String> {
+    let answer: Value = serde_json::from_str(raw).map_err(|_| "La página devolvió algo que visor no entiende.".to_string())?;
+    if answer["ok"] == true {
+        // A value with no JSON form (undefined, a function) leaves its key out.
+        Ok(json!({ "ok": true, "type": answer["type"], "value": answer.get("value").cloned().unwrap_or(Value::Null) }))
+    } else {
+        Err(answer["error"].as_str().unwrap_or("El código falló.").to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +190,21 @@ mod tests {
         assert!(left.contains("if (!true)") && left.contains("left:8px;right:calc(50% + 4px)"));
         assert!(frost(Some(1), "#fff").contains("left:calc(50% + 4px);right:8px"));
         assert!(frost(None, "#fff").contains("if (!false)"));
+    }
+
+    #[test]
+    fn eval_quotes_the_code_as_one_string() {
+        let script = eval("'a\"b'; </script>", ["http://127.0.0.1:1/", "http://127.0.0.2:1/"]);
+        assert!(script.contains(r#"(0, eval)("'a\"b'; </script>")"#), "{script}");
+        assert!(script.contains(r#"["http://127.0.0.1:1/","http://127.0.0.2:1/"]"#), "{script}");
+    }
+
+    #[test]
+    fn eval_answers_are_read() {
+        assert_eq!(eval_answer(r#"{"ok":true,"type":"number","value":2}"#).unwrap(), json!({ "ok": true, "type": "number", "value": 2 }));
+        assert_eq!(eval_answer(r#"{"ok":true,"type":"undefined"}"#).unwrap(), json!({ "ok": true, "type": "undefined", "value": null }));
+        assert_eq!(eval_answer(r#"{"ok":false,"error":"x is not defined"}"#), Err("x is not defined".into()));
+        assert!(eval_answer("no es JSON").is_err());
+        assert!(eval_answer("{}").is_err());
     }
 }

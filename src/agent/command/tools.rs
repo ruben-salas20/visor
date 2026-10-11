@@ -67,6 +67,34 @@ pub fn list() -> Vec<Value> {
             ),
         ),
         tool(
+            "screenshot",
+            "Guarda una captura PNG de lo que la persona ve en la pestaña activa, dibujada por el motor de visor (WebKit). Solo para páginas de la bóveda o sueltas; en una web externa falla. path debe ser absoluto y acabar en .png.",
+            object(
+                json!({
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Ruta absoluta del archivo PNG que se escribe (se sustituye si existe).",
+                    },
+                }),
+                &["path"],
+            ),
+        ),
+        tool(
+            "eval",
+            "Ejecuta JavaScript en la página activa y devuelve su valor como JSON (type dice el tipo de JavaScript). Sirve para pulsar un botón, leer el DOM o medir desbordes. Solo para páginas de la bóveda o sueltas; en una web externa falla. El código es el de una expresión o de varias instrucciones: vale el valor de la última. No espera promesas.",
+            object(
+                json!({
+                    "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Código JavaScript a ejecutar en la página.",
+                    },
+                }),
+                &["code"],
+            ),
+        ),
+        tool(
             "events",
             "Devuelve los datos que las páginas enviaron con visor.send() y los mensajes que la persona escribe en sus anotaciones (con annotation en lugar de data; action dice si es un comentario o una respuesta). Sin argumentos, los 20 últimos. Con after, solo los posteriores a ese id. Con wait, espera a que llegue uno nuevo: úsalo cuando una página pida algo a la persona o para seguir sus anotaciones.",
             object(
@@ -179,6 +207,6 @@ mod tests {
     #[test]
     fn the_tools_are_these() {
         let names: Vec<String> = list().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names, ["open", "close", "status", "reload", "console", "events", "notes", "notes_reply", "guide"]);
+        assert_eq!(names, ["open", "close", "status", "reload", "console", "screenshot", "eval", "events", "notes", "notes_reply", "guide"]);
     }
 }

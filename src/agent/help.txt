@@ -41,6 +41,19 @@ USO
                              cargaron y promesas rechazadas. Guarda
                              hasta 100 mensajes por segundo; si hay
                              más, una línea dice cuántos se omitieron.
+  visor screenshot <archivo.png>
+                             Captura PNG de lo que la persona ve en la
+                             pestaña activa, dibujada por el motor de
+                             visor (WebKit). Solo páginas de la bóveda o
+                             sueltas. La ruta debe acabar en .png y se
+                             sustituye si existe. Devuelve "path" y
+                             "bytes".
+  visor eval <js>            Ejecuta JavaScript en la pestaña activa y
+                             devuelve "value" (JSON) y "type" (tipo de
+                             JavaScript). Solo páginas de la bóveda o
+                             sueltas, nunca webs. Vale el valor de la
+                             última instrucción; no espera promesas.
+                             Ejemplo: visor eval "document.title".
   visor events [--after ID] [--wait SEG] [--limit N]
                              Datos que las páginas enviaron con
                              visor.send() y mensajes que la persona
@@ -72,6 +85,8 @@ MCP
       close        target (ruta absoluta; sin él, la pestaña activa)
       status, reload
       console      errors_only (= --errors), clear
+      screenshot   path (ruta absoluta que acabe en .png)
+      eval         code (JavaScript)
       events       after, wait, limit
       notes        page (una ruta) o all, no los dos
       notes_reply  id, text
@@ -96,8 +111,8 @@ ARCHIVOS SUELTOS
     punto. Tiene su propio origen: no puede leer la bóveda.
   - Se recarga sola si cambian ella o los archivos de su carpeta (no
     los de las subcarpetas).
-  - Tiene visor.send(), `visor console` y `visor reload`, pero no
-    anotaciones.
+  - Tiene visor.send(), `visor console`, `visor reload`, `visor eval` y
+    `visor screenshot`, pero no anotaciones.
   - Para abrir su carpeta como bóveda: `visor open <carpeta>`.
 
 NOTAS EN MARKDOWN
@@ -166,7 +181,8 @@ ESCRIBIR PÁGINAS PARA VISOR
     correo; otros esquemas se ignoran. target="_blank" abre una pestaña
     nueva; Ctrl+clic o clic central, una que se carga al mostrarla.
   - Las webs externas no tienen visor.send() y su consola no se
-    registra: lo que publiquen no debe llegar a un agente.
+    registra: lo que publiquen no debe llegar a un agente. Por eso
+    `visor eval` y `visor screenshot` tampoco funcionan en ellas.
   - window.visor.send(datos) envía cualquier dato serializable a
     `visor events`, que lo guarda con id, hora, bóveda y archivo:
 

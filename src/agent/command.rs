@@ -19,6 +19,10 @@ pub enum Command {
     /// No target closes the focused side's active tab; a page closes every tab showing it.
     Close { target: Option<Page> },
     Console { level: Option<Level>, clear: bool },
+    /// Saves the focused page as a PNG. The target is resolved like `open`'s.
+    Screenshot { target: Page },
+    /// Runs JS in the focused page and returns its value.
+    Eval { code: String },
     Events { after: Option<u64>, wait: Option<f64>, limit: Option<u64> },
     Notes { scope: NotesScope },
     NotesReply { id: String, text: String },
@@ -61,8 +65,8 @@ pub enum NotesScope {
     Page(Page),
 }
 
-const WIRE_NAMES: [&str; 9] =
-    ["ping", "status", "reload", "open", "close", "console", "events", "notes", "notes_reply"];
+const WIRE_NAMES: [&str; 11] =
+    ["ping", "status", "reload", "open", "close", "console", "screenshot", "eval", "events", "notes", "notes_reply"];
 
 fn is_web(text: &str) -> bool {
     text.starts_with("http://") || text.starts_with("https://")
@@ -136,6 +140,22 @@ impl Command {
             }
             "status" => Ok(Self::Status),
             "reload" => Ok(Self::Reload),
+            "screenshot" => {
+                let usage = "Uso: visor screenshot <archivo.png>";
+                if let Some(unknown) = rest.iter().find(|a| a.starts_with("--")) {
+                    return Err(format!("Opción desconocida: {unknown}. {usage}"));
+                }
+                match rest {
+                    [raw] => Ok(Self::Screenshot { target: Page::resolve(raw, Some(&cwd()?)) }),
+                    _ => Err(usage.into()),
+                }
+            }
+            "eval" => {
+                if rest.is_empty() {
+                    return Err("Uso: visor eval <js>".into());
+                }
+                Ok(Self::Eval { code: rest.join(" ") })
+            }
             "console" => Ok(Self::Console { level: flag("--errors").then_some(Level::Error), clear: flag("--clear") }),
             "events" => {
                 let wait = value("--wait")?
@@ -170,6 +190,8 @@ impl Command {
             "open" => &["target", "place"],
             "close" => &["target"],
             "console" => &["errors_only", "clear"],
+            "screenshot" => &["path"],
+            "eval" => &["code"],
             "events" => &["after", "wait", "limit"],
             "notes" => &["page", "all"],
             "notes_reply" => &["id", "text"],
@@ -220,6 +242,14 @@ impl Command {
                     id: args.string("id")?.unwrap_or_default().to_string(),
                     text: args.string("text")?.unwrap_or_default().to_string(),
                 }
+            }
+            "screenshot" => {
+                args.require("path")?;
+                Self::Screenshot { target: Page::absolute_only(args.string("path")?.unwrap_or_default()) }
+            }
+            "eval" => {
+                args.require("code")?;
+                Self::Eval { code: args.string("code")?.unwrap_or_default().to_string() }
             }
             "status" => Self::Status,
             "reload" => Self::Reload,
@@ -282,6 +312,8 @@ impl Command {
                 },
                 clear: request["clear"].as_bool().unwrap_or(false),
             },
+            "screenshot" => Self::Screenshot { target: Page { raw: text("raw")?, path: path()? } },
+            "eval" => Self::Eval { code: text("code")? },
             "events" => Self::Events { after: count("after")?, wait: number("wait")?, limit: count("limit")? },
             "notes" => Self::Notes {
                 scope: if request["all"].as_bool() == Some(true) {
@@ -333,6 +365,12 @@ impl Command {
             Self::Console { level, clear } => {
                 json!({ "cmd": "console", "level": level.map(|_| "error"), "clear": clear })
             }
+            Self::Screenshot { target } => {
+                let mut wire = page(target);
+                wire["cmd"] = json!("screenshot");
+                wire
+            }
+            Self::Eval { code } => json!({ "cmd": "eval", "code": code }),
             Self::Events { after, wait, limit } => {
                 json!({ "cmd": "events", "after": after, "wait": wait, "limit": limit })
             }
@@ -490,6 +528,37 @@ mod tests {
         );
         // The path wins over a later --all, as it always has.
         assert!(matches!(cli("notes a.html --all"), Ok(Command::Notes { scope: NotesScope::Page(_) })));
+    }
+
+    #[test]
+    fn screenshot_and_eval_from_args() {
+        assert_eq!(
+            cli("screenshot shots/a.png").unwrap(),
+            Command::Screenshot { target: page("shots/a.png", Some("/work/shots/a.png")) }
+        );
+        let usage = "Uso: visor screenshot <archivo.png>";
+        assert_eq!(cli("screenshot").unwrap_err(), usage);
+        assert_eq!(cli("screenshot a.png b.png").unwrap_err(), usage);
+        assert_eq!(cli("screenshot --size 800x600 a.png").unwrap_err(), format!("Opción desconocida: --size. {usage}"));
+        assert_eq!(cli("eval document.title").unwrap(), Command::Eval { code: "document.title".into() });
+        // Unquoted code arrives as several words; they are joined back.
+        assert_eq!(cli("eval 1 + 2").unwrap(), Command::Eval { code: "1 + 2".into() });
+        assert_eq!(cli("eval").unwrap_err(), "Uso: visor eval <js>");
+    }
+
+    #[test]
+    fn screenshot_and_eval_from_mcp() {
+        assert_eq!(
+            mcp("screenshot", json!({ "path": "/abs/a.png" })).unwrap(),
+            Command::Screenshot { target: page("/abs/a.png", Some("/abs/a.png")) }
+        );
+        // A relative path stays unresolved; the window refuses it.
+        assert_eq!(
+            mcp("screenshot", json!({ "path": "a.png" })).unwrap(),
+            Command::Screenshot { target: page("a.png", None) }
+        );
+        assert_eq!(mcp("eval", json!({ "code": "1" })).unwrap(), Command::Eval { code: "1".into() });
+        assert_eq!(mcp("eval", json!({})).unwrap_err(), "Falta el argumento obligatorio: code.");
     }
 
     #[test]
@@ -749,6 +818,20 @@ mod tests {
             wire(cli("notes reply n1 Hola a todos").unwrap()),
             json!({ "cmd": "notes_reply", "id": "n1", "text": "Hola a todos" })
         );
+    }
+
+    #[test]
+    fn screenshot_and_eval_go_through_the_socket() {
+        let text = |command: Command| command.to_wire();
+        let shot = cli("screenshot x.png").unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&text(shot.clone())).unwrap(),
+            json!({ "cmd": "screenshot", "path": "/work/x.png", "raw": "x.png" })
+        );
+        assert_eq!(Command::from_wire(&serde_json::from_str(&text(shot.clone())).unwrap()).unwrap(), shot);
+        let eval = cli("eval 1 + 1").unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&text(eval.clone())).unwrap(), json!({ "cmd": "eval", "code": "1 + 1" }));
+        assert_eq!(Command::from_wire(&serde_json::from_str(&text(eval.clone())).unwrap()).unwrap(), eval);
     }
 
     /// Requests from an older build, still readable.

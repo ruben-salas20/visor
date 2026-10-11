@@ -2454,6 +2454,7 @@ name = "visor"
 version = "0.1.0"
 dependencies = [
  "brotli",
+ "cairo-rs",
  "dirs",
  "gtk",
  "icu_normalizer",

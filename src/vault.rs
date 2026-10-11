@@ -461,6 +461,12 @@ pub fn access(url: &str) -> Access {
     }
 }
 
+/// Whether agents may read a page's content: run code in it or photograph it.
+/// Only pages visor serves. What a website shows would reach an agent's context.
+pub fn agent_may_read(url: &str) -> bool {
+    access(url) != Access::None
+}
+
 /// Writes through a temporary file, so a crash never leaves a half-written file.
 /// A link is written through to its target, which keeps its permissions.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
@@ -759,6 +765,17 @@ mod tests {
         assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
         assert_eq!(access(&format!("{LOOSE_BASE}nota.md")), Access::None, "a vault path on the loose origin");
         assert_eq!(access(&format!("{BASE}/tmp/suelta.html")), Access::None, "a loose path on the vault origin");
+    }
+
+    #[test]
+    fn agents_read_only_visor_pages() {
+        bases();
+        assert!(agent_may_read(&url("a/nota.md")));
+        assert!(agent_may_read(&url("/tmp/suelta.html")));
+        assert!(!agent_may_read("https://example.com/"));
+        assert!(!agent_may_read("about:blank"));
+        assert!(!agent_may_read(""));
+        assert!(!agent_may_read(&format!("{LOOSE_BASE}nota.md")));
     }
 
     #[test]

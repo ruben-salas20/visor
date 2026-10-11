@@ -19,6 +19,10 @@ pub type Loading = (u64, u64);
 pub type Reply = mpsc::Sender<Result<Option<Loading>, String>>;
 /// How many tabs were closed, or why none was.
 pub type CloseReply = mpsc::Sender<Result<usize, String>>;
+/// What a page's script answered, as `visor eval` prints it.
+pub type ValueReply = mpsc::Sender<Result<Value, String>>;
+/// How many bytes a screenshot wrote, or why it did not.
+pub type SizeReply = mpsc::Sender<Result<u64, String>>;
 
 /// Where to open something: replacing the focused tab, in a new tab, or on the other side.
 #[derive(Clone, Copy, PartialEq)]
@@ -37,6 +41,10 @@ pub enum AgentRequest {
     Close { target: Option<(PathBuf, String)>, reply: CloseReply },
     /// Reloads the page on the focused side.
     Reload,
+    /// Runs `code` in the focused page; the answer comes when the script ends.
+    Eval { code: String, reply: ValueReply },
+    /// Saves the focused page as a PNG at `path`, which the caller has checked.
+    Screenshot { path: PathBuf, reply: SizeReply },
 }
 
 /// What a page view is showing, for the socket server.

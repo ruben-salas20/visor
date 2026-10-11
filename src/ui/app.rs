@@ -1,12 +1,12 @@
 use crate::vault::annot;
-use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, push_console, push_event};
+use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::action::{Action, LoadFailure, SidebarMsg, UserEvent};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
 use crate::ui::page_calls;
-use crate::ui::page_view::{build_page, clean_position, host_of, is_web};
+use crate::ui::page_view::{Document, build_page, clean_position, host_of, is_web};
 use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
 use crate::agent::socket::{ClaimError, claim};
@@ -20,6 +20,7 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fs;
 
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::unix::WindowExtUnix;
 use tao::window::WindowBuilder;
-use webkit2gtk::{UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
+use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
 use wry::{WebContext, WebView, WebViewExtUnix};
 
 const SIDEBAR_WIDTH: i32 = 260;
@@ -159,6 +160,7 @@ pub fn launch() -> i32 {
         panes: vec![first],
         tabs,
         views: vec![],
+        documents: HashMap::new(),
         split,
         place_split,
         mono: None,
@@ -244,6 +246,23 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
     });
 }
 
+/// Whether agents may read the document a view committed.
+fn readable(document: &Document) -> Result<(), String> {
+    if vault::agent_may_read(&document.borrow()) {
+        Ok(())
+    } else {
+        Err("Solo se puede leer una página de la bóveda o un archivo suelto, no una web.".into())
+    }
+}
+
+/// Encodes a snapshot as PNG and writes it. Returns how many bytes went to the file.
+fn save_png(surface: &gtk::cairo::Surface, path: &Path) -> Result<u64, String> {
+    let mut bytes = Vec::new();
+    surface.write_to_png(&mut bytes).map_err(|e| format!("No se pudo codificar la captura: {e}"))?;
+    fs::write(path, &bytes).map_err(|e| format!("No se pudo escribir {}: {e}", path.display()))?;
+    Ok(bytes.len() as u64)
+}
+
 fn empty_page(message: &str, pick: bool) -> String {
     let button = if pick {
         r#"<button onclick="ipc.postMessage(JSON.stringify({type:'pick_vault'}))">Abrir carpeta…</button>"#
@@ -274,6 +293,8 @@ struct App {
     tabs: Tabs,
     /// The live pages' views, by view id.
     views: Vec<(u64, WebView)>,
+    /// What each view committed, as WebKit reported it: agents may read only visor's pages.
+    documents: HashMap<u64, Document>,
     split: gtk::Paned,
     /// The share of the width for the left side, applied once the new right side has a size.
     place_split: Rc<Cell<Option<f64>>>,
@@ -450,6 +471,7 @@ impl App {
                 }
                 Effect::Unload { view } => {
                     self.views.retain(|(id, _)| *id != view);
+                    self.documents.remove(&view);
                     self.shared.lock().unwrap().pages.remove(&view);
                 }
                 Effect::MoveView { view, from, to } => {
@@ -497,7 +519,10 @@ impl App {
     fn create_view(&mut self, side: usize, id: u64, target: &str, fragment: &str) -> bool {
         let built = build_page(self.panes[side].views(), &mut self.context, self.background, self.proxy.clone(), id);
         let view = match built {
-            Ok(v) => v,
+            Ok((v, document)) => {
+                self.documents.insert(id, document);
+                v
+            }
             Err(e) => {
                 eprintln!("No se pudo crear el webview: {e}");
                 return false;
@@ -806,6 +831,8 @@ impl App {
                 let _ = reply.send(self.close_for_agent(target));
             }
             UserEvent::Agent(AgentRequest::Reload) => self.act(Action::Reload),
+            UserEvent::Agent(AgentRequest::Eval { code, reply }) => self.eval_for_agent(&code, reply),
+            UserEvent::Agent(AgentRequest::Screenshot { path, reply }) => self.screenshot_for_agent(path, reply),
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
@@ -1388,6 +1415,57 @@ impl App {
             }
         }
         Err(format!("No hay ninguna pestaña abierta con {raw}."))
+    }
+
+    /// The focused view, if agents may read its page, and what it committed. The
+    /// decision uses the address WebKit committed, never the webview's own address.
+    fn readable_view(&self) -> Result<(&WebView, Document), String> {
+        let id = self.tabs.focused_view().ok_or("No hay nada abierto.")?;
+        let (Some(view), Some(document)) = (self.view_of(id), self.documents.get(&id)) else {
+            return Err("No hay nada abierto.".into());
+        };
+        readable(document)?;
+        Ok((view, document.clone()))
+    }
+
+    /// Runs the code in the focused page. WebKit answers on the main loop, so this
+    /// returns at once and the reply is sent from the callback.
+    fn eval_for_agent(&self, code: &str, reply: ValueReply) {
+        let (view, document) = match self.readable_view() {
+            Ok(found) => found,
+            Err(e) => {
+                let _ = reply.send(Err(e));
+                return;
+            }
+        };
+        let script = page_calls::eval(code, [vault::base(), vault::loose_base()]);
+        // run_javascript, not evaluate_javascript: the latter needs the v2_40 feature,
+        // which visor does not enable (Cargo.toml asks for v2_38).
+        view.webview().run_javascript(&script, None::<&gtk::gio::Cancellable>, move |result| {
+            // A website committed meanwhile would have answered: its words must not reach the agent.
+            let answer = readable(&document)
+                .and_then(|()| result.map_err(|e| e.to_string()))
+                .and_then(|r| r.js_value().map(|v| v.to_string()).ok_or_else(|| "La página no devolvió nada.".to_string()))
+                .and_then(|raw| page_calls::eval_answer(&raw));
+            let _ = reply.send(answer);
+        });
+    }
+
+    /// Draws the visible part of the focused page into a PNG at `path`.
+    fn screenshot_for_agent(&self, path: PathBuf, reply: SizeReply) {
+        let (view, document) = match self.readable_view() {
+            Ok(found) => found,
+            Err(e) => {
+                let _ = reply.send(Err(e));
+                return;
+            }
+        };
+        view.webview().snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gtk::gio::Cancellable>, move |result| {
+            let answer = readable(&document)
+                .and_then(|()| result.map_err(|e| e.to_string()))
+                .and_then(|surface| save_png(&surface, &path));
+            let _ = reply.send(answer);
+        });
     }
 
     /// Watches the folders of the loose pages in the tabs, and stops watching the rest.

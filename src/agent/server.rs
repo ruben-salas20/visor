@@ -1,5 +1,5 @@
 use crate::session::{LOADED, Place, AgentRequest, SharedRef};
-use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Target};
+use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Page, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -113,6 +113,8 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
             }
             out
         }
+        Command::Screenshot { target } => screenshot(target, send),
+        Command::Eval { code } => run_script(code, send),
         Command::Events { after, wait, limit } => events(after, wait, limit, shared),
         Command::Notes { scope } => notes(&scope, shared),
         Command::NotesReply { id, text } => {
@@ -126,6 +128,36 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
         }
         // `visor mcp` answers the guide itself.
         Command::Guide => fail("Comando desconocido: guide".into()),
+    }
+}
+
+/// Saves the focused page as a PNG. The window writes the file once WebKit has
+/// drawn it; the path is checked here, since it is used exactly as given.
+fn screenshot(target: Page, send: &dyn Fn(AgentRequest)) -> Value {
+    let Some(path) = target.path else {
+        return fail("Indica una ruta absoluta para la captura.".into());
+    };
+    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) {
+        return fail("La captura debe guardarse en un archivo .png.".into());
+    }
+    let (reply, answer) = mpsc::channel();
+    send(AgentRequest::Screenshot { path: path.clone(), reply });
+    match answer.recv_timeout(Duration::from_secs(15)) {
+        Ok(Ok(bytes)) => json!({ "ok": true, "path": path.to_string_lossy(), "bytes": bytes }),
+        Ok(Err(e)) => fail(e),
+        Err(_) => fail("La app no respondió.".into()),
+    }
+}
+
+/// Runs JS in the focused page. The answer waits for the script, so a script
+/// that never ends freezes the window, as it would freeze the page.
+fn run_script(code: String, send: &dyn Fn(AgentRequest)) -> Value {
+    let (reply, answer) = mpsc::channel();
+    send(AgentRequest::Eval { code, reply });
+    match answer.recv_timeout(Duration::from_secs(15)) {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => fail(e),
+        Err(_) => fail("La app no respondió.".into()),
     }
 }
 

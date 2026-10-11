@@ -53,6 +53,9 @@ fn report_failure(proxy: &EventLoopProxy<UserEvent>, view: u64, resource: &WebRe
     }
 }
 
+/// The address of the document committed in a view, set by WebKit's signal itself.
+pub type Document = Rc<RefCell<String>>;
+
 /// A page view inside `container`. Its events carry `id`, so the app knows
 /// which tab they come from.
 pub fn build_page(
@@ -61,7 +64,7 @@ pub fn build_page(
     background: (u8, u8, u8, u8),
     proxy: EventLoopProxy<UserEvent>,
     id: u64,
-) -> wry::Result<WebView> {
+) -> wry::Result<(WebView, Document)> {
     // A key only visor's scripts in the main frame know: wry injects them there
     // alone, while any frame can post to the handler.
     let key = crate::http::secret().ok_or_else(|| wry::Error::Io(std::io::Error::other("sin números aleatorios")))?;
@@ -69,6 +72,7 @@ pub fn build_page(
     // address follows history.pushState and pending loads, so it cannot say
     // which page sent a message.
     let document = Rc::new(RefCell::new(String::new()));
+    let committed = document.clone();
     let (ipc, sender) = (proxy.clone(), document.clone());
     let new_window = proxy.clone();
     let clicks = proxy.clone();
@@ -202,7 +206,7 @@ pub fn build_page(
         let _ = p.send_event(UserEvent::Action(action));
         gtk::glib::Propagation::Stop
     });
-    Ok(page)
+    Ok((page, committed))
 }
 
 fn open_external(url: &str) {
