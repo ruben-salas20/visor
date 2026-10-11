@@ -156,13 +156,19 @@
   }
 
   // A "##" section runs from its heading line to the next heading or "%%" (the
-  // comment that opens the drawing). `start` is the body, `stop` its end.
+  // comment that opens the drawing). `start` is the body, `stop` its end. With
+  // `keepMark`, a "%%" line right under the heading stays in front of the body:
+  // it is not the end of the section, or the texts would be written before it and
+  // the old ones left behind.
   const BOUNDARY = /^(#{1,2} |%%)/m;
+  const MARK_LINE = /^%%[ \t]*\r?\n/;
 
-  function sectionAt(text, heading) {
+  function sectionAt(text, heading, keepMark = false) {
     const m = heading.exec(text);
     if (!m) return null;
-    const start = m.index + m[0].length;
+    let start = m.index + m[0].length;
+    const mark = keepMark ? MARK_LINE.exec(text.slice(start)) : null;
+    if (mark) start += mark[0].length;
     const end = next(text, start, BOUNDARY);
     return { from: m.index, start, stop: end < 0 ? text.length : end };
   }
@@ -238,7 +244,7 @@
     const head = pruneEmbeds(source.slice(0, d.heading), scene);
     const section = texts.join("");
     let updated = head;
-    const text = sectionAt(head, TEXT_HEAD);
+    const text = sectionAt(head, TEXT_HEAD, true);
     if (text) {
       updated = head.slice(0, text.start) + section + head.slice(text.stop);
     } else if (section || linkBody) {
@@ -252,7 +258,7 @@
     const linked = sectionAt(updated, LINKS_HEAD);
     if (!linked) {
       if (linkBody) {
-        const after = sectionAt(updated, TEXT_HEAD).stop;
+        const after = sectionAt(updated, TEXT_HEAD, true).stop;
         updated = updated.slice(0, after) + "## Element Links\n" + linkBody + updated.slice(after);
       }
     } else if (!linkBody) {

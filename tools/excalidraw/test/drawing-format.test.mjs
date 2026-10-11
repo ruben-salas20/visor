@@ -127,6 +127,52 @@ test("a Text Elements section commented with %% keeps its comment when a text ch
   assert.equal(format.readMd(out, lz).scene.elements[0].text, "Adiós");
 });
 
+// A hand-edited file may have a "%%" right under "## Text Elements" (the plugin never
+// writes it so). The "%%" is not the end of the section, so the texts are not doubled.
+test("a %% right under ## Text Elements does not duplicate the texts, and saving twice gives the same file", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace(
+    "## Text Elements\nHola mundo ^a1b2c3d4\n",
+    "## Text Elements\n%%\nHola mundo ^a1b2c3d4\n",
+  );
+  assert.match(source, /## Text Elements\n%%\n/, "the fixture has the %% under the heading");
+  const doc = format.readMd(source, lz);
+  const once = format.writeMd(source, scene(doc.scene), lz, doc.original);
+  assert.equal(once.split("Hola mundo ^a1b2c3d4").length - 1, 1, "the text is in the file once");
+  assert.match(once, /## Text Elements\n%%\nHola mundo \^a1b2c3d4\n\n## Element Links\n/, "the %% stays where the user put it");
+  const again = format.readMd(once, lz);
+  assert.equal(format.writeMd(once, scene(again.scene), lz, again.original), once, "saving again changes nothing");
+});
+
+test("a changed text under a %% right under ## Text Elements is rewritten once", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md").replace(
+    "## Text Elements\nHola mundo ^a1b2c3d4\n",
+    "## Text Elements\n%%\nHola mundo ^a1b2c3d4\n",
+  );
+  const doc = format.readMd(source, lz);
+  const edited = structuredClone(doc.scene);
+  edited.elements[0].text = edited.elements[0].originalText = "Adiós";
+  const out = format.writeMd(source, edited, lz, doc.original);
+  assert.equal(out.split("Hola mundo").length - 1, 0, "the old text is gone");
+  assert.equal(out.split("Adiós ^a1b2c3d4").length - 1, 1, "the new text is in the file once");
+  assert.equal(format.readMd(out, lz).scene.elements[0].text, "Adiós");
+});
+
+// A line "# " or "## " inside a text ends the section at the next save, as the Obsidian
+// plugin does too (issue #16). Pending that decision, this documents what happens
+// today: the second save repeats the tail of the text. Change it when #16 is decided.
+test("a text with a # line inside: the second save repeats the tail of the text (current behavior, issue #16)", () => {
+  const source = fixture("ejemplo-json-plano.excalidraw.md");
+  const doc = format.readMd(source, lz);
+  const el = doc.scene.elements[0];
+  el.text = el.originalText = "Intro\n# Título\nmás texto";
+  const one = format.writeMd(source, { ...doc.scene }, lz, doc.original);
+  assert.equal(one.split("más texto ^a1b2c3d4").length - 1, 1);
+  const again = format.readMd(one, lz);
+  const two = format.writeMd(one, again.scene, lz, again.original);
+  assert.equal(two.split("más texto ^a1b2c3d4").length - 1, 2, "the tail is written twice");
+  assert.equal(two.slice(0, two.indexOf("## Drawing")).split("# Título").length - 1, 2, "the heading line is written twice in the head");
+});
+
 test("a commented section with the older single-# heading is rewritten in place, not duplicated", () => {
   const source = fixture("ejemplo-texto-comentado-antiguo.excalidraw.md");
   const doc = format.readMd(source, lz);
