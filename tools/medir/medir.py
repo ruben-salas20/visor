@@ -232,7 +232,7 @@ def summary(path):
 def main():
     parser = argparse.ArgumentParser(description="Mide arranque, memoria, CPU en reposo y fps de visor.")
     parser.add_argument("binarios", nargs="*")
-    parser.add_argument("--rondas", type=int, default=5)
+    parser.add_argument("--rondas", type=int, default=1)
     parser.add_argument("--resumen", metavar="RESULTADOS")
     args = parser.parse_args()
     if args.resumen:

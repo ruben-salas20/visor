@@ -27,7 +27,7 @@ Cierra solo por PID: `pkill -f` con un patrón presente en tu propia orden mata 
 cp target/release/visor /tmp/visor-antes        # cargo sobrescribe el binario al compilar
 # … cambia y compila …
 cp target/release/visor /tmp/visor-despues
-tools/medir/medir.py --rondas 3 /tmp/visor-antes /tmp/visor-despues
+tools/medir/medir.py --rondas 1 /tmp/visor-antes /tmp/visor-despues
 tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 ```
 
@@ -35,7 +35,7 @@ tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 
 El cambio de página y la pestaña nueva se miden de dos formas. `cambio_pagina_ms` y `pestana_nueva_ms` son lo que tarda la carga dentro de la app: con `VISOR_TIEMPOS=1`, `visor open` añade `ms` a su respuesta. Las variantes `_cli_ms` incluyen además el arranque de la CLI (~25 ms), como lo ve un agente. Para comparar con otra app, usa las primeras. `medir.py` también pone `VISOR_NO_UPDATE=1`, para que ninguna ronda consulte GitHub.
 
-- Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. 3 rondas para comprobar un cambio; 5 para una referencia o si una cifra se sale del ruido.
+- Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. Rondas: 1 para comprobar un cambio, 2 antes de un push que reúne varios cambios y 3 antes de sacar un release. Repite con una ronda más si una cifra se sale del ruido.
 - La ventana debe estar visible en el escritorio activo: WebKit frena las páginas ocultas y falsea la CPU. El resumen descarta esas rondas. Mover el ratón sobre la ventana la redibuja y sube la CPU a ~2 %.
 - Memoria en PSS, no RSS (el RSS cuenta doble).
 - La página manda en la memoria: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
@@ -56,22 +56,26 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ## Referencia
 
-2026-10-10, commit `02727b2` (fin de la revisión de arquitectura y de la revisión independiente), enchufado, perfil `performance`. Mediana (mínimo–máximo) de 3 rondas alternadas con `f2bec3e`, el commit anterior a la revisión.
+2026-10-10, commit `4e1dabe` (issues #1, #2, #3 y #5), enchufado, perfil `performance`. Mediana (mínimo–máximo) de 3 rondas alternadas con `9cf8557`, el commit anterior.
 
-| Medida | Valor | Antes (`f2bec3e`) |
+| Medida | Valor | Antes (`9cf8557`) |
 |---|---|---|
-| Arranque en frío, nota mínima (`minima.md`) | 221 ms (219–224) | 222 ms (221–225) |
-| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 721 ms (717–722) | 722 ms (674–725) |
-| Arranque en frío, HTML suelto | 219 ms (217–221) | 221 ms (219–226) |
-| Cambio de página | 74 ms (74–78) | 75 ms (75–80) |
-| Pestaña nueva (`visor open --tab`) | 176–185 ms | 174–178 ms |
-| Memoria en reposo, nota mínima | 217 MB (217–219) | 221 MB (220–222) |
-| Memoria en reposo, `ondas.md` | 324 MB (324) | 322 MB (321–326) |
-| Memoria en reposo, HTML suelto | 186 MB | 186 MB |
-| Memoria con el editor abierto (nota mínima) | 236–239 MB | 236–239 MB |
-| CPU en reposo, nota mínima u `ondas.md` | 0–0,03 % | 0,03–0,07 % |
+| Arranque en frío, nota mínima (`minima.md`) | 214 ms (209–224) | 217 ms (217–223) |
+| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 730 ms (723–1191) | 716 ms (693–776) |
+| Arranque en frío, HTML suelto | 203 ms (199–268) | 202 ms (195–498) |
+| Cambio de página, dentro de la app (con la CLI) | 9,3 ms (8,0–22,4); 35 ms | 8,7 ms (8,4–10,1); 37 ms |
+| Pestaña nueva, dentro de la app (con la CLI) | 135 ms (131–278); 160 ms | 140 ms (136–146); 165 ms |
+| Memoria en reposo, nota mínima | 133 MB (133–146) | 136 MB (131–144) |
+| Memoria en reposo, `ondas.md` | 226 MB (224–239) | 225 MB (223–240) |
+| Memoria en reposo, HTML suelto | 104 MB (104) | 104 MB (104–116) |
+| Memoria con el editor abierto (nota mínima) | 149 MB (140–160) | 148 MB (138–153) |
+| CPU en reposo, nota mínima u `ondas.md` | 0–0,1 % | 0–0,07 % |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js (2026-10-07) | |
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
-| Binario (`cargo build --release`, con `strip`) | 4 263 808 bytes | 4 221 096 bytes |
+| Binario (`cargo build --release`, con `strip`) | 4 401 056 bytes | 4 296 376 bytes |
 
-Dos cifras saltan entre ejecuciones con cualquier binario: la memoria con el editor (~236 o ~239 MB) y la pestaña nueva (una ejecución dio 182–188 ms; repetida con 4 rondas, 176–179 frente a 174–176 de `f2bec3e`). La memoria absoluta varía hasta 15 MB entre ejecuciones del mismo día con el mismo binario. Compara solo rondas alternadas de una misma ejecución.
+Los máximos altos de la columna de valor (1191 ms, 278 ms) son de una misma ronda con picos del sistema; la misma ronda del binario anterior dio 498 ms en el HTML suelto. Los 105 KB del binario son, en 71 KB, las tablas de normalización Unicode de `icu_normalizer` (#1).
+
+La memoria bajó ~80 MB respecto de la referencia anterior (217 MB con la nota mínima en `02727b2`) sin que cambiara el código: el binario de `02727b2`, medido el mismo día con el mismo método, da ~131 MB. La comparativa del README dio 215 MB esa tarde y la bajada apareció horas después, sin reiniciar. Se descartaron la consulta de actualizaciones, la pantalla, `alsa-plugins` y otra instancia de visor abierta (esta última baja la medida solo 3–5 MB). La causa sigue sin identificar: compara solo rondas alternadas de una misma ejecución, nunca cifras de días distintos.
+
+Desde `f9a0320`, el cambio de página y la pestaña nueva se miden dentro de la app; las cifras de la CLI van aparte. No se comparan con las de referencias anteriores a ese commit (74 ms y 176–185 ms incluían la CLI y una espera de 50 ms).
