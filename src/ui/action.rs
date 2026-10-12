@@ -14,6 +14,8 @@ pub enum SidebarMsg {
     CreateNote { dir: String, name: String },
     CreateFolder { dir: String, name: String },
     Trash { path: String },
+    /// Opens a file visor cannot show with the program the system gives it.
+    OpenElsewhere { path: String },
     Move { path: String, dir: String },
     /// A file started being dragged; the pages can take it while it lasts.
     DragStart { path: String },

@@ -11,7 +11,7 @@ use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
 use crate::agent::socket::{ClaimError, claim};
 use crate::paths;
-use crate::ui::sidebar::Sidebar;
+use crate::ui::sidebar::{Sidebar, no_application};
 use crate::ui::theme::{self, Theme};
 use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
 use crate::vault::{self, Access, Vault};
@@ -1245,6 +1245,24 @@ impl App {
                     Ok(()) => {
                         self.sidebar.notice(&format!("«{path}» está en la papelera."), false);
                         self.retarget(&path, None);
+                    }
+                    Err(e) => self.sidebar.notice(&e, true),
+                }
+            }
+            SidebarMsg::OpenElsewhere { path } => {
+                // `resolve` also refuses a link that points out of the vault.
+                let file = self.open_vault().and_then(|v| {
+                    if v.entry(&path)?.is_dir() {
+                        return Err(format!("«{path}» es una carpeta, no un archivo."));
+                    }
+                    v.resolve(&path).ok_or_else(|| format!("No existe: {path}"))
+                });
+                match file {
+                    Ok(file) => {
+                        let uri = gtk::gio::File::for_path(&file).uri();
+                        if gtk::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk::gio::AppLaunchContext>).is_err() {
+                            self.sidebar.notice(&no_application(&path), true);
+                        }
                     }
                     Err(e) => self.sidebar.notice(&e, true),
                 }

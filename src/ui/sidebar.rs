@@ -127,6 +127,8 @@ struct State {
     /// Bumped on every change of drop target and notice, to cancel their pending timers.
     drop_gen: u64,
     notice_gen: u64,
+    /// The file the notice offers to open elsewhere, if any.
+    notice_path: Option<String>,
     /// The row the context menu was opened on.
     menu_path: Option<String>,
     /// The row under the pointer; none on the notice of an empty folder.
@@ -162,7 +164,11 @@ pub struct Sidebar {
     store: gtk::TreeStore,
     menu: gtk::Popover,
     folder_items: Vec<gtk::Widget>,
-    notice: gtk::Label,
+    separator: gtk::Separator,
+    elsewhere: gtk::Button,
+    notice: gtk::Box,
+    notice_text: gtk::Label,
+    notice_open: gtk::Button,
     state: Rc<RefCell<State>>,
     proxy: EventLoopProxy<UserEvent>,
 }
@@ -281,20 +287,28 @@ impl Sidebar {
         };
         let note_here = menu_button("Nueva nota aquí", "");
         let folder_here = menu_button("Nueva carpeta aquí", "");
+        let elsewhere = menu_button("Abrir con otra aplicación", "");
         let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
         let trash = menu_button("Mover a la papelera", "Supr");
         let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        for item in [note_here.clone().upcast::<gtk::Widget>(), folder_here.clone().upcast(), separator.clone().upcast(), trash.clone().upcast()] {
+        for item in [note_here.clone().upcast::<gtk::Widget>(), folder_here.clone().upcast(), elsewhere.clone().upcast(), separator.clone().upcast(), trash.clone().upcast()] {
             menu_box.pack_start(&item, false, false, 0);
         }
         menu_box.show_all();
         menu.add(&menu_box);
 
-        let notice = gtk::Label::new(None);
-        notice.set_xalign(0.0);
-        notice.set_line_wrap(true);
-        notice.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
+        let notice_text = gtk::Label::new(None);
+        notice_text.set_xalign(0.0);
+        notice_text.set_line_wrap(true);
+        notice_text.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
+        notice_text.show();
+        let notice_open = gtk::Button::with_label("Abrir con otra aplicación");
+        notice_open.set_halign(gtk::Align::Start);
+        notice_open.hide();
+        let notice = gtk::Box::new(gtk::Orientation::Vertical, 4);
         notice.style_context().add_class("visor-notice");
+        notice.pack_start(&notice_text, false, false, 0);
+        notice.pack_start(&notice_open, false, false, 0);
         notice.set_no_show_all(true);
 
         root.pack_start(&head, false, false, 0);
@@ -326,8 +340,12 @@ impl Sidebar {
             tree,
             store,
             menu,
-            folder_items: vec![note_here.clone().upcast(), folder_here.clone().upcast(), separator.upcast()],
+            folder_items: vec![note_here.clone().upcast(), folder_here.clone().upcast()],
+            separator,
+            elsewhere: elsewhere.clone(),
             notice,
+            notice_text,
+            notice_open: notice_open.clone(),
             state: Rc::new(RefCell::new(State {
                 has_vault: false,
                 file: None,
@@ -340,6 +358,7 @@ impl Sidebar {
                 drop_target: None,
                 drop_gen: 0,
                 notice_gen: 0,
+                notice_path: None,
                 menu_path: None,
                 hover: None,
                 show_other: true,
@@ -370,6 +389,20 @@ impl Sidebar {
             s.menu.popdown();
             if let Some(path) = s.state.borrow_mut().menu_path.take() {
                 s.send(SidebarMsg::Trash { path });
+            }
+        });
+        let s = sidebar.clone();
+        elsewhere.connect_clicked(move |_| {
+            s.menu.popdown();
+            if let Some(path) = s.state.borrow_mut().menu_path.take() {
+                s.send(SidebarMsg::OpenElsewhere { path });
+            }
+        });
+        let s = sidebar.clone();
+        notice_open.connect_clicked(move |_| {
+            let path = s.state.borrow().notice_path.clone();
+            if let Some(path) = path {
+                s.send(SidebarMsg::OpenElsewhere { path });
             }
         });
         sidebar
@@ -621,7 +654,7 @@ impl Sidebar {
             Row::Empty => return,
             Row::Other => {
                 let path = rel_path(&self.store, &iter);
-                self.notice(&cannot_open(&path), false);
+                self.notice_elsewhere(&cannot_open(&path), &path);
                 return;
             }
             _ => {}
@@ -644,9 +677,12 @@ impl Sidebar {
             return;
         }
         let is_dir: bool = is_dir(&self.store, &iter);
+        let other = Row::of(&self.store, &iter) == Row::Other;
         for item in &self.folder_items {
             item.set_visible(is_dir);
         }
+        self.elsewhere.set_visible(other);
+        self.separator.set_visible(is_dir || other);
         self.state.borrow_mut().menu_path = Some(rel_path(&self.store, &iter));
         // The event is in the tree's bin window; the popover is positioned against the tree widget.
         let (x, y) = event.position();
@@ -992,13 +1028,24 @@ impl Sidebar {
 
     /// A short message under the tree, which goes away by itself.
     pub fn notice(&self, message: &str, error: bool) {
-        self.notice.set_text(message);
+        self.show_notice(message, error, None);
+    }
+
+    /// A notice about a file visor cannot show, with a button to open it elsewhere.
+    fn notice_elsewhere(&self, message: &str, path: &str) {
+        self.show_notice(message, false, Some(path));
+    }
+
+    fn show_notice(&self, message: &str, error: bool, elsewhere: Option<&str>) {
+        self.notice_text.set_text(message);
         let style = self.notice.style_context();
         if error { style.add_class("error") } else { style.remove_class("error") }
+        self.notice_open.set_visible(elsewhere.is_some());
         self.notice.show();
         let generation = {
             let mut state = self.state.borrow_mut();
             state.notice_gen += 1;
+            state.notice_path = elsewhere.map(str::to_string);
             state.notice_gen
         };
         let s = self.clone();
@@ -1040,6 +1087,8 @@ impl Sidebar {
 .visor-new entry:focus {{ border-color: {accent}; }}
 .visor-new .error, .visor-notice.error {{ color: {red}; }}
 .visor-notice {{ margin: 0 8px 8px; padding: 8px 10px; border-radius: 8px; background: {hover}; font-size: smaller; }}
+.visor-sidebar .visor-notice button {{ background: {bg}; border: 1px solid {line}; padding: 3px 8px; }}
+.visor-sidebar .visor-notice button:hover {{ background: {active}; }}
 .visor-menu {{ background: {bg}; color: {fg}; border: 1px solid {line}; border-radius: 10px; padding: 4px; }}
 .visor-menu button {{ background: none; border: none; box-shadow: none; color: {fg}; border-radius: 6px; padding: 6px 8px; min-height: 0; }}
 .visor-menu button:hover {{ background: {hover}; }}
@@ -1323,6 +1372,12 @@ fn cannot_open(path: &str) -> String {
     }
 }
 
+/// What the notice says when the system has no program for a file.
+pub fn no_application(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    format!("No hay ninguna aplicación para abrir «{name}».")
+}
+
 /// Whether showing `next` should open its folders: only when the file on
 /// screen changes. Otherwise a folder the user closed would reopen on the next
 /// focus change or tree rebuild.
@@ -1332,7 +1387,7 @@ fn reveal_on_arrival(previous: Option<&str>, next: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{cannot_open, parents, placeholder, reveal_on_arrival};
+    use super::{cannot_open, no_application, parents, placeholder, reveal_on_arrival};
     use crate::vault::{Dir, File, Kind};
 
     #[test]
@@ -1346,6 +1401,12 @@ mod tests {
         assert_eq!(cannot_open("datos/Libro.XLSX"), "visor no abre archivos .xlsx.");
         assert_eq!(cannot_open("Makefile"), "visor no abre este archivo.");
         assert_eq!(cannot_open(".env"), "visor no abre este archivo.");
+    }
+
+    #[test]
+    fn names_the_file_no_program_opens() {
+        assert_eq!(no_application("datos/Libro.xlsx"), "No hay ninguna aplicación para abrir «Libro.xlsx».");
+        assert_eq!(no_application("Makefile"), "No hay ninguna aplicación para abrir «Makefile».");
     }
 
     #[test]
