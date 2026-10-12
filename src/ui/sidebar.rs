@@ -199,6 +199,8 @@ impl Sidebar {
         foot.pack_start(&gear, false, false, 0);
         let version = gtk::Label::new(Some(concat!("v", env!("CARGO_PKG_VERSION"))));
         version.style_context().add_class("visor-muted");
+        // Smaller text sits high in a row sized by the button; center it on the gear.
+        version.set_valign(gtk::Align::Center);
         version.set_tooltip_text(Some("Versión de visor"));
         foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
@@ -1007,7 +1009,7 @@ impl Sidebar {
             ".visor-sidebar, .visor-sidebar treeview.view {{ background: {side}; color: {fg}; }}
 .visor-sidebar .drop-root treeview.view {{ background: {active}; }}
 .visor-side-head {{ padding: 10px 8px 6px; }}
-.visor-side-foot {{ padding: 6px 8px 8px; }}
+.visor-side-foot {{ padding: 6px 8px 8px; border-top: 1px solid {line}; }}
 .visor-side-foot button {{ color: {muted}; }}
 .visor-sidebar button, .visor-vaults button {{ background: none; border: none; box-shadow: none;
   color: {fg}; border-radius: 6px; padding: 4px 8px; min-height: 0; }}
