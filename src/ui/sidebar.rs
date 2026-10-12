@@ -1098,7 +1098,9 @@ impl Sidebar {
 .visor-settings button {{ background: none; border: none; box-shadow: none; color: {fg}; border-radius: 6px; padding: 4px 8px; min-height: 0; }}
 .visor-settings button:hover {{ background: {hover}; }}
 .visor-settings button:checked {{ background: {active}; color: {fg}; font-weight: 600; }}
-.visor-settings .visor-zoom {{ min-width: 4em; }}",
+.visor-settings .visor-zoom {{ min-width: 4em; }}
+.visor-shortcuts {{ background: {bg}; color: {fg}; }}
+.visor-shortcuts .visor-shortcut-key {{ font-weight: 600; }}",
             bg = theme.bg,
             fg = theme.fg,
             muted = theme.muted,

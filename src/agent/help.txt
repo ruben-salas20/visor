@@ -284,11 +284,14 @@ ATAJOS EN LA APP
           derecha de las pestañas, solo en páginas de la bóveda)
   Ctrl+T  pestaña nueva (o «+»)     Ctrl+W  cerrarla (o clic central)
   Ctrl+Tab / Ctrl+Shift+Tab  pestaña siguiente / anterior
+  Ctrl+1 … Ctrl+8  pestaña número N del lado con foco; Ctrl+9, la última
   Ctrl+| (o Ctrl+\)  dividir la ventana o volver a un lado
   Ctrl+Alt+←  Ctrl+Alt+→  lado izquierdo o derecho
   Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño (se
           recuerda)
   Ctrl+,  ajustes: tema, tamaño del texto y actualizaciones
+  Ctrl+K  lista de atajos. En un dibujo de Excalidraw, Ctrl+K sigue
+          siendo el enlace de Excalidraw.
   Alt+←  atrás    Alt+→  adelante (también los botones laterales del
           ratón)
   Panel:

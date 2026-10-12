@@ -101,6 +101,8 @@ pub enum Action {
     CloseTab(Option<u64>),
     /// Moves to the next (1) or previous (-1) tab of the focused side.
     CycleTab(i8),
+    /// Shows the tab at this place (1 to 8) of the focused side, or the last one for 9.
+    SelectNth(usize),
     SelectTab(u64),
     ToggleSplit,
     /// Makes the pane with this id the one keys and agents act on.
@@ -117,4 +119,6 @@ pub enum Action {
     Restart,
     /// Shows the sidebar if hidden and opens its settings popover.
     Settings,
+    /// Shows or hides the list of keyboard shortcuts.
+    Shortcuts,
 }

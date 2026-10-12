@@ -357,6 +357,23 @@ impl Tabs {
         fx
     }
 
+    /// Shows the tab at place `n` (1 to 8) of the focused side, or the last one
+    /// for 9. Nothing happens when the side has no tab at that place.
+    pub fn select_nth(&mut self, n: usize) -> Vec<Effect> {
+        let side = &self.sides[self.focused];
+        let at = match n {
+            1..=8 => n - 1,
+            9 => match side.tabs.len().checked_sub(1) {
+                Some(last) => last,
+                None => return Vec::new(),
+            },
+            _ => return Vec::new(),
+        };
+        let Some(tab) = side.tabs.get(at) else { return Vec::new() };
+        let id = tab.id();
+        self.select(id)
+    }
+
     /// Closes the tab with this id, or the focused side's active one. The
     /// last tab of a side closes the side; the last of the window gives way
     /// to an empty tab.
@@ -1020,6 +1037,53 @@ mod tests {
         assert_eq!(tabs.side(0).tab().target(), "a");
         tabs.cycle(-1);
         assert_eq!(tabs.side(0).tab().target(), "c");
+        check(&tabs);
+    }
+
+    #[test]
+    fn select_nth_shows_that_tab() {
+        let mut tabs = build(vec![side(&["a", "b", "c"], 0)], 0);
+        tabs.select_nth(2);
+        assert_eq!(tabs.side(0).tab().target(), "b");
+        check(&tabs);
+    }
+
+    #[test]
+    fn select_nth_out_of_range_changes_nothing() {
+        let mut tabs = build(vec![side(&["a", "b", "c"], 0)], 0);
+        let fx = tabs.select_nth(5);
+        assert!(fx.is_empty());
+        assert_eq!(tabs.side(0).tab().target(), "a");
+        check(&tabs);
+    }
+
+    #[test]
+    fn select_nine_goes_to_the_last_tab() {
+        let mut tabs = build(vec![side(&["a", "b", "c"], 0)], 0);
+        tabs.select_nth(9);
+        assert_eq!(tabs.side(0).tab().target(), "c");
+        check(&tabs);
+    }
+
+    #[test]
+    fn select_nine_with_one_tab_is_that_tab() {
+        let mut tabs = build(vec![side(&["a"], 0)], 0);
+        tabs.select_nth(9);
+        assert_eq!(tabs.side(0).tab().target(), "a");
+        check(&tabs);
+    }
+
+    #[test]
+    fn select_nth_acts_on_the_focused_side_only() {
+        let mut tabs = build(vec![side(&["a", "b", "c"], 0), side(&["x", "y", "z"], 0)], 1);
+        tabs.select_nth(2);
+        assert_eq!(tabs.side(1).tab().target(), "y");
+        assert_eq!(tabs.side(0).tab().target(), "a");
+        assert_eq!(tabs.focused(), 1);
+        check(&tabs);
+        tabs.select_nth(9);
+        assert_eq!(tabs.side(1).tab().target(), "z");
+        assert_eq!(tabs.side(0).tab().target(), "a");
         check(&tabs);
     }
 

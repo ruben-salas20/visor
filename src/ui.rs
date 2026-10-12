@@ -6,6 +6,7 @@ pub mod icons;
 pub mod page_calls;
 pub mod page_view;
 pub mod panes;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod tabs;
 pub mod theme;

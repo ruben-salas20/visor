@@ -11,6 +11,7 @@ use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
 use crate::agent::socket::{ClaimError, claim};
 use crate::paths;
+use crate::ui::shortcuts::Shortcuts;
 use crate::ui::sidebar::{Sidebar, no_application};
 use crate::ui::theme::{self, Theme};
 use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
@@ -110,7 +111,8 @@ pub fn launch() -> i32 {
         .with_inner_size(LogicalSize::new(1200.0, 820.0))
         .build(&event_loop)
         .expect("ventana");
-    connect_shortcuts(&window, proxy.clone());
+    let in_drawing = Rc::new(Cell::new(false));
+    connect_shortcuts(&window, proxy.clone(), in_drawing.clone());
 
     // Layout: [sidebar | left side | right side], split by draggable dividers.
     // Each side stacks its tab strip, its address bar and its page views.
@@ -173,6 +175,8 @@ pub fn launch() -> i32 {
         tabs,
         views: vec![],
         documents: HashMap::new(),
+        in_drawing,
+        shortcuts: Shortcuts::new(window.gtk_window()),
         split,
         place_split,
         mono: None,
@@ -219,13 +223,29 @@ pub fn launch() -> i32 {
 
 /// App-wide shortcuts. They are caught on the window before the focused
 /// webview sees them, so they work whichever side has focus.
-fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEvent>) {
+///
+/// `in_drawing` is set while a drawing is in front: Ctrl+K then goes to the
+/// page, which uses it to add a link.
+fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEvent>, in_drawing: Rc<Cell<bool>>) {
     use gtk::gdk::{ModifierType, keys::constants as key};
     window.gtk_window().connect_key_press_event(move |_, event| {
         let ctrl = event.state().contains(ModifierType::CONTROL_MASK);
         let alt = event.state().contains(ModifierType::MOD1_MASK);
         let shift = event.state().contains(ModifierType::SHIFT_MASK);
         let k = event.keyval().to_lower();
+        // Ctrl+1 … Ctrl+9 from the top row or the keypad. Ctrl+0 is left to the zoom.
+        let digit = match k {
+            key::_1 | key::KP_1 => 1,
+            key::_2 | key::KP_2 => 2,
+            key::_3 | key::KP_3 => 3,
+            key::_4 | key::KP_4 => 4,
+            key::_5 | key::KP_5 => 5,
+            key::_6 | key::KP_6 => 6,
+            key::_7 | key::KP_7 => 7,
+            key::_8 | key::KP_8 => 8,
+            key::_9 | key::KP_9 => 9,
+            _ => 0,
+        };
         let action = match () {
             _ if ctrl && shift && k == key::a => Action::PickElement,
             _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
@@ -233,7 +253,9 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::Zoom(1),
             _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::Zoom(-1),
             _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::Zoom(0),
+            _ if ctrl && digit > 0 => Action::SelectNth(digit),
             _ if ctrl && k == key::comma => Action::Settings,
+            _ if ctrl && k == key::k && !in_drawing.get() => Action::Shortcuts,
             _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
             _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
             _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
@@ -307,6 +329,9 @@ struct App {
     views: Vec<(u64, WebView)>,
     /// What each view committed, as WebKit reported it: agents may read only visor's pages.
     documents: HashMap<u64, Document>,
+    /// Whether the focused view shows a drawing; see `connect_shortcuts`.
+    in_drawing: Rc<Cell<bool>>,
+    shortcuts: Shortcuts,
     split: gtk::Paned,
     /// The share of the width for the left side, applied once the new right side has a size.
     place_split: Rc<Cell<Option<f64>>>,
@@ -797,6 +822,15 @@ impl App {
     fn handle(&mut self, event: UserEvent) {
         self.dispatch(event);
         self.draw_strips();
+        self.in_drawing.set(self.focused_is_drawing());
+    }
+
+    /// Whether the focused view shows a drawing, from the address it committed.
+    fn focused_is_drawing(&self) -> bool {
+        let Some(id) = self.tabs.focused_view() else { return false };
+        self.documents.get(&id).is_some_and(|document| {
+            vault::rel_from_url(&document.borrow()).is_some_and(|rel| vault::is_drawing(Path::new(&rel)))
+        })
     }
 
     fn dispatch(&mut self, event: UserEvent) {
@@ -1033,6 +1067,7 @@ impl App {
             }
             Action::CheckUpdates => self.check_updates(),
             Action::Restart => self.ask_restart(),
+            Action::Shortcuts => self.shortcuts.toggle(),
             Action::Settings => {
                 let side = self.sidebar.root.clone();
                 if !side.is_visible() {
@@ -1068,6 +1103,10 @@ impl App {
             }
             Action::CycleTab(step) => {
                 let effects = self.tabs.cycle(step);
+                self.apply_and_publish(effects);
+            }
+            Action::SelectNth(n) => {
+                let effects = self.tabs.select_nth(n);
                 self.apply_and_publish(effects);
             }
             Action::SelectTab(id) => {
