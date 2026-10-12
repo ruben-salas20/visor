@@ -144,7 +144,12 @@ pub fn launch() -> i32 {
     // reload slower and fail offline; the disk cache does not slow startup).
     let context = WebContext::new(None);
     let sidebar = Sidebar::new(&proxy);
-    sidebar.set_settings(config.theme.as_deref(), config.zoom.unwrap_or(1.0), config.auto_update != Some(false));
+    sidebar.set_settings(
+        config.theme.as_deref(),
+        config.zoom.unwrap_or(1.0),
+        config.auto_update != Some(false),
+        config.show_other_files != Some(false),
+    );
     // Started for a page outside every vault: that page alone, without the
     // last vault and its tabs. See cli::start.
     let loose = std::env::var_os("VISOR_LOOSE").is_some();
@@ -1017,6 +1022,14 @@ impl App {
             Action::SetAutoUpdate(on) => {
                 self.config.auto_update = Some(on).filter(|on| !on);
                 self.save_config_soon();
+            }
+            Action::SetShowOtherFiles(on) => {
+                self.config.show_other_files = Some(on).filter(|on| !on);
+                self.save_config_soon();
+                self.sidebar.set_show_other(on);
+                if let Some(vault) = self.vault() {
+                    self.sidebar.set_tree(Some(vault.tree()));
+                }
             }
             Action::CheckUpdates => self.check_updates(),
             Action::Restart => self.ask_restart(),

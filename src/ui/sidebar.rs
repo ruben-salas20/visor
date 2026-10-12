@@ -131,6 +131,8 @@ struct State {
     menu_path: Option<String>,
     /// The row under the pointer; none on the notice of an empty folder.
     hover: Option<String>,
+    /// Whether files visor cannot open are listed.
+    show_other: bool,
     colors: Colors,
     arrows: Arrows,
 }
@@ -147,6 +149,7 @@ pub struct Sidebar {
     theme_buttons: ThemeButtons,
     zoom_label: gtk::Label,
     auto_update: gtk::CheckButton,
+    show_other: gtk::CheckButton,
     update: UpdateBox,
     /// Set while the settings are filled in, so that is not sent as a change.
     syncing: Rc<Cell<bool>>,
@@ -205,7 +208,7 @@ impl Sidebar {
         foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
         let update = UpdateBox::new(proxy);
-        let (settings, theme_buttons, zoom_label, auto_update) = settings_popover(&gear, proxy, &syncing, &update);
+        let (settings, theme_buttons, zoom_label, auto_update, show_other) = settings_popover(&gear, proxy, &syncing, &update);
         gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -312,6 +315,7 @@ impl Sidebar {
             theme_buttons,
             zoom_label,
             auto_update,
+            show_other,
             update,
             syncing,
             form,
@@ -338,6 +342,7 @@ impl Sidebar {
                 notice_gen: 0,
                 menu_path: None,
                 hover: None,
+                show_other: true,
                 colors: Colors::new(None),
                 arrows: Arrows::new("#6e6e76", scale),
             })),
@@ -376,7 +381,7 @@ impl Sidebar {
 
     /// Fills in the settings without reporting them as changes. Theme names
     /// other than «claro» and «oscuro» show as «Sistema», as the app treats them.
-    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool) {
+    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool, show_other: bool) {
         let theme = match theme {
             Some(t @ ("claro" | "oscuro")) => Some(t),
             _ => None,
@@ -386,8 +391,15 @@ impl Sidebar {
             button.set_active(*choice == theme);
         }
         self.auto_update.set_active(auto_update);
+        self.show_other.set_active(show_other);
         self.syncing.set(false);
+        self.set_show_other(show_other);
         self.set_zoom(zoom);
+    }
+
+    /// Takes effect on the next `set_tree`.
+    pub fn set_show_other(&self, show: bool) {
+        self.state.borrow_mut().show_other = show;
     }
 
     pub fn set_zoom(&self, zoom: f64) {
@@ -895,7 +907,8 @@ impl Sidebar {
         self.state.borrow_mut().restoring = true;
         self.store.clear();
         if let Some(tree) = &tree {
-            fill(&self.store, None, tree);
+            let show_other = self.state.borrow().show_other;
+            fill(&self.store, None, tree, show_other);
             // Opening the top folders reopens the ones inside them.
             if let Some(iter) = self.store.iter_first() {
                 loop {
@@ -1111,7 +1124,7 @@ fn settings_popover(
     proxy: &EventLoopProxy<UserEvent>,
     syncing: &Rc<Cell<bool>>,
     update: &UpdateBox,
-) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton) {
+) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton, gtk::CheckButton) {
     let caption = |text: &str| {
         let label = gtk::Label::new(Some(text));
         label.set_xalign(0.0);
@@ -1185,11 +1198,20 @@ fn settings_popover(
         }
     });
 
+    let show_other = gtk::CheckButton::with_label("Mostrar archivos que visor no abre");
+    let (syncing_flag, p) = (syncing.clone(), proxy.clone());
+    show_other.connect_toggled(move |c| {
+        if !syncing_flag.get() {
+            let _ = p.send_event(UserEvent::Action(Action::SetShowOtherFiles(c.is_active())));
+        }
+    });
+
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
     column.pack_start(&caption("Tema"), false, false, 0);
     column.pack_start(&theme_row, false, false, 0);
     column.pack_start(&caption("Tamaño del texto"), false, false, 0);
     column.pack_start(&zoom_row, false, false, 0);
+    column.pack_start(&show_other, false, false, 4);
     column.pack_start(&auto_update, false, false, 4);
     column.pack_start(&update.area, false, false, 4);
     column.show_all();
@@ -1198,7 +1220,7 @@ fn settings_popover(
     settings.style_context().add_class("visor-settings");
     settings.set_position(gtk::PositionType::Top);
     settings.add(&column);
-    (settings, themes, zoom_label, auto_update)
+    (settings, themes, zoom_label, auto_update, show_other)
 }
 
 /// The open file and a drop target get the accent color and a background.
@@ -1243,23 +1265,23 @@ impl Row {
     }
 }
 
-fn fill(store: &gtk::TreeStore, parent: Option<&gtk::TreeIter>, dir: &Dir) {
+fn fill(store: &gtk::TreeStore, parent: Option<&gtk::TreeIter>, dir: &Dir, show_other: bool) {
     for sub in &dir.dirs {
         let iter = store.insert_with_values(
             parent,
             None,
             &[(NAME, &sub.name), (PATH, &sub.path), (IS_DIR, &true), (KIND, &(Row::Folder as u32)), (TIP, &"")],
         );
-        if sub.dirs.is_empty() && sub.files.is_empty() {
+        if let Some(text) = placeholder(sub, show_other) {
             store.insert_with_values(
                 Some(&iter),
                 None,
-                &[(NAME, &"Carpeta vacía"), (PATH, &""), (IS_DIR, &false), (KIND, &(Row::Empty as u32)), (TIP, &"")],
+                &[(NAME, &text), (PATH, &""), (IS_DIR, &false), (KIND, &(Row::Empty as u32)), (TIP, &"")],
             );
         }
-        fill(store, Some(&iter), sub);
+        fill(store, Some(&iter), sub, show_other);
     }
-    for file in &dir.files {
+    for file in dir.files.iter().filter(|f| show_other || f.kind != vault::Kind::Other) {
         let tip = glib::markup_escape_text(&file.path);
         let kind = match file.kind {
             vault::Kind::Page => Row::Page,
@@ -1280,6 +1302,19 @@ fn parents(path: &str) -> Vec<String> {
     (1..parts.len()).map(|i| parts[..i].join("/")).collect()
 }
 
+/// The line inside a folder that would otherwise show nothing, and so get no arrow.
+fn placeholder(dir: &Dir, show_other: bool) -> Option<&'static str> {
+    if !dir.dirs.is_empty() {
+        None
+    } else if dir.files.is_empty() {
+        Some("Carpeta vacía")
+    } else if !show_other && dir.files.iter().all(|f| f.kind == vault::Kind::Other) {
+        Some("Sin archivos que visor abra")
+    } else {
+        None
+    }
+}
+
 fn cannot_open(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     match name.rsplit_once('.') {
@@ -1297,7 +1332,8 @@ fn reveal_on_arrival(previous: Option<&str>, next: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{cannot_open, parents, reveal_on_arrival};
+    use super::{cannot_open, parents, placeholder, reveal_on_arrival};
+    use crate::vault::{Dir, File, Kind};
 
     #[test]
     fn lists_parent_folders() {
@@ -1310,6 +1346,16 @@ mod tests {
         assert_eq!(cannot_open("datos/Libro.XLSX"), "visor no abre archivos .xlsx.");
         assert_eq!(cannot_open("Makefile"), "visor no abre este archivo.");
         assert_eq!(cannot_open(".env"), "visor no abre este archivo.");
+    }
+
+    #[test]
+    fn says_why_a_folder_shows_nothing() {
+        let file = |kind| File { name: "x".into(), path: "d/x".into(), kind };
+        let dir = |files| Dir { name: "d".into(), path: "d".into(), dirs: vec![], files };
+        assert_eq!(placeholder(&dir(vec![]), true), Some("Carpeta vacía"));
+        assert_eq!(placeholder(&dir(vec![file(Kind::Other)]), true), None);
+        assert_eq!(placeholder(&dir(vec![file(Kind::Other)]), false), Some("Sin archivos que visor abra"));
+        assert_eq!(placeholder(&dir(vec![file(Kind::Other), file(Kind::Image)]), false), None);
     }
 
     #[test]

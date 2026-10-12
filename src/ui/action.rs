@@ -108,6 +108,7 @@ pub enum Action {
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
     SetTheme(Option<String>),
     SetAutoUpdate(bool),
+    SetShowOtherFiles(bool),
     /// Checks for a new version now and installs it if there is one.
     CheckUpdates,
     /// Restarts visor on the installed version, if no note has unsaved text.

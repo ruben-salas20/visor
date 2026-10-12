@@ -25,6 +25,8 @@ pub struct Config {
     pub theme: Option<String>,
     /// `None` means on; `Some(false)` is the only stored off.
     pub auto_update: Option<bool>,
+    /// Files visor cannot open, listed in the panel. `None` means shown; `Some(false)` is the only stored off.
+    pub show_other_files: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
