@@ -41,6 +41,7 @@ El cambio de página y la pestaña nueva se miden de dos formas. `cambio_pagina_
 - La página manda en la memoria: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
 - El ruido supera a menudo el efecto: con diferencias de pocos ms, compara solo rondas alternadas. El arranque con `ondas.md` es bimodal con cualquier binario (~670 y ~725 ms).
 - El perfil de energía manda: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
+- El turbo también: tras arrancar con la batería baja y cargando, el firmware lo dejó desactivado y el arranque subió de ~214 a ~344 ms con `performance` (2026-10-12). Antes de medir, `cat /sys/devices/system/cpu/intel_pstate/no_turbo` debe dar `0`; si da `1`, actívalo con `echo 0 | sudo tee …/no_turbo`.
 
 ## Comparar con Obsidian y Chromium
 
