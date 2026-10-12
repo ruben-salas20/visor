@@ -336,19 +336,25 @@ pub(crate) fn wiki_page<'a>(name: &str, from: &str, pages: &'a [String]) -> Opti
     // Unicode-aware, not ASCII: [[Árbol]] must find árbol.md. Composed and
     // decomposed accents are the same letters: [[árbol]] must find the NFD file.
     let same = |a: &str, b: &str| vault::nfc(a).to_lowercase() == vault::nfc(b).to_lowercase();
+    fn without_ext(page: &str) -> &str {
+        page.rsplit_once('.').map_or(page, |(p, _)| p)
+    }
+    // A path may be the whole path from the root or any end of it, cut at a
+    // folder boundary: `fases/x` ends `NN/fases/x.md`, not `NN/subfases/x.md`.
+    let ends_at_folder = |path: &str| path.match_indices('/').any(|(i, _)| same(&path[i + 1..], name));
+    let exact = |page: &str| same(page, name) || same(without_ext(page), name);
     let matches = |page: &&String| {
-        let without_ext = page.rsplit_once('.').map_or(page.as_str(), |(p, _)| p);
         if name.contains('/') {
-            same(page, name) || same(without_ext, name)
+            exact(page) || ends_at_folder(page) || ends_at_folder(without_ext(page))
         } else {
             let file = page.rsplit('/').next().unwrap_or(page);
-            let stem = without_ext.rsplit('/').next().unwrap_or(without_ext);
+            let stem = without_ext(page).rsplit('/').next().unwrap_or(without_ext(page));
             same(file, name) || same(stem, name)
         }
     };
     pages.iter().filter(matches).min_by_key(|page| {
         let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
-        (dir != here, !page.ends_with(".md"), page.len())
+        (name.contains('/') && !exact(page), dir != here, !page.ends_with(".md"), page.len())
     })
 }
 
@@ -487,5 +493,23 @@ mod tests {
         let decomposed = vec!["pra\u{301}ctica.md".to_string()];
         assert!(wiki_target("práctica", "x.md", &decomposed).is_some(), "NFC name finds an NFD file");
         assert!(wiki_target("pra\u{301}ctica", "x.md", &decomposed).is_some(), "NFD name too");
+    }
+
+    #[test]
+    fn wiki_path_may_start_at_any_folder_boundary() {
+        let pages: Vec<String> = ["NN/fases/1 — Repaso de derivadas.md", "NN/subfases/x.md"].map(String::from).into();
+        let found = wiki_page("fases/1 — Repaso de derivadas", "NN/PLAN.md", &pages);
+        assert_eq!(found.map(String::as_str), Some("NN/fases/1 — Repaso de derivadas.md"));
+        assert!(wiki_page("fases/x", "NN/PLAN.md", &pages).is_none(), "cut only after a «/»");
+        assert!(wiki_page("fases/x.md", "NN/PLAN.md", &pages).is_none());
+
+        let pages: Vec<String> = ["fases/x.md", "NN/fases/x.md"].map(String::from).into();
+        let found = wiki_page("fases/x", "NN/PLAN.md", &pages);
+        assert_eq!(found.map(String::as_str), Some("fases/x.md"), "the exact path from the root wins");
+
+        // Suffix in the note's own folder must still lose to the exact path.
+        let pages: Vec<String> = ["f/x.md", "NN/f/x.md"].map(String::from).into();
+        let found = wiki_page("f/x", "NN/f/PLAN.md", &pages);
+        assert_eq!(found.map(String::as_str), Some("f/x.md"));
     }
 }

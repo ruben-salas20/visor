@@ -447,7 +447,8 @@ mod tests {
             ],
         );
         assert_eq!(moved(&root, "tema", "archivo"), ["archivo/tema/a.md", "indice.md"]);
-        assert_eq!(read(&root, "indice.md"), "[a](archivo/tema/a.md) [[archivo/tema/b|tema/b]] [[a]]");
+        // `tema/b` still ends the new path archivo/tema/b.md, so the link is left alone.
+        assert_eq!(read(&root, "indice.md"), "[a](archivo/tema/a.md) [[tema/b]] [[a]]");
         assert_eq!(read(&root, "archivo/tema/a.md"), "[b](b.md) [[b]] [i](../../indice.md)");
         assert_eq!(read(&root, "suelta.md"), "[s](otra/cosa.md)");
         fs::remove_dir_all(root).unwrap();
