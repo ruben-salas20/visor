@@ -594,7 +594,8 @@ impl Sidebar {
             let path: String = rel_path(&s.store, iter);
             let report = {
                 let mut state = s.state.borrow_mut();
-                state.opened.insert(path) && !state.restoring
+                // Folders that `current` or a rebuild expand are shown, not recorded.
+                !state.restoring && state.opened.insert(path)
             };
             if report {
                 s.report_open();
@@ -793,6 +794,13 @@ impl Sidebar {
     /// Replaces the tree after a change on disk, keeping the open folders and the scroll.
     pub fn set_tree(&self, tree: Option<Dir>) {
         let scroll = self.scroll.vadjustment().value();
+        let file = self.state.borrow().file.clone();
+        // A folder shown only to reveal the current file is not in `opened`;
+        // without this a save on disk would close it under the user.
+        let file_shown = file.as_deref().and_then(|f| self.find(f)).is_some_and(|mut row| {
+            row.up();
+            row.depth() == 0 || self.tree.row_expanded(&row)
+        });
         self.state.borrow_mut().restoring = true;
         self.store.clear();
         if let Some(tree) = &tree {
@@ -809,9 +817,15 @@ impl Sidebar {
                     }
                 }
             }
+            if file_shown
+                && let Some(mut row) = file.as_deref().and_then(|f| self.find(f))
+                && row.up()
+                && row.depth() > 0
+            {
+                self.tree.expand_to_path(&row);
+            }
         }
         self.state.borrow_mut().restoring = false;
-        let file = self.state.borrow().file.clone();
         self.current(file);
         let adjustment = self.scroll.vadjustment();
         glib::idle_add_local_once(move || adjustment.set_value(scroll));
@@ -819,13 +833,16 @@ impl Sidebar {
 
     /// Marks `file` as the one on screen, opening its folders and scrolling to it.
     pub fn current(&self, file: Option<String>) {
-        self.state.borrow_mut().file = file.clone();
+        let previous = std::mem::replace(&mut self.state.borrow_mut().file, file.clone());
         self.tree.queue_draw();
         let Some(file) = file else { return };
         let Some(path) = self.find(&file) else { return };
         let mut parent = path.clone();
-        if parent.up() && parent.depth() > 0 {
+        if parent.up() && parent.depth() > 0 && reveal_on_arrival(previous.as_deref(), &file) {
+            // Showing the folders is not the user opening them: nothing is recorded.
+            let was = std::mem::replace(&mut self.state.borrow_mut().restoring, true);
             self.tree.expand_to_path(&parent);
+            self.state.borrow_mut().restoring = was;
         }
         self.tree.scroll_to_cell(Some(&path), None::<&gtk::TreeViewColumn>, false, 0.0, 0.0);
     }
@@ -1125,13 +1142,27 @@ fn parents(path: &str) -> Vec<String> {
     (1..parts.len()).map(|i| parts[..i].join("/")).collect()
 }
 
+/// Whether showing `next` should open its folders: only when the file on
+/// screen changes. Otherwise a folder the user closed would reopen on the next
+/// focus change or tree rebuild.
+fn reveal_on_arrival(previous: Option<&str>, next: &str) -> bool {
+    previous != Some(next)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parents;
+    use super::{parents, reveal_on_arrival};
 
     #[test]
     fn lists_parent_folders() {
         assert_eq!(parents("a/b/c"), ["a", "a/b"]);
         assert!(parents("nota").is_empty());
+    }
+
+    #[test]
+    fn reveals_only_a_new_file() {
+        assert!(reveal_on_arrival(None, "a/b.md"));
+        assert!(reveal_on_arrival(Some("x.md"), "a/b.md"));
+        assert!(!reveal_on_arrival(Some("a/b.md"), "a/b.md"));
     }
 }
