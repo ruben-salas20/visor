@@ -9,8 +9,33 @@ fn temp(name: &str) -> PathBuf {
 }
 
 fn listed(dir: &Dir, out: &mut Vec<String>) {
-    out.extend(dir.files.iter().map(|f| f.path.clone()));
+    out.extend(dir.files.iter().filter(|f| f.kind == Kind::Page).map(|f| f.path.clone()));
     dir.dirs.iter().for_each(|d| listed(d, out));
+}
+
+#[test]
+fn panel_lists_pages_images_other_files_and_empty_folders() {
+    let dir = temp("panel");
+    let root = dir.join("v");
+    fs::create_dir_all(root.join("vacia")).unwrap();
+    fs::create_dir_all(root.join("con")).unwrap();
+    for f in ["con/nota.md", "con/FOTO.PNG", "con/tabla.xlsx", "con/.oculto.png"] {
+        fs::write(root.join(f), "").unwrap();
+    }
+    let top = tree(&root);
+    let con = top.dirs.iter().find(|d| d.name == "con").unwrap();
+    let empty = top.dirs.iter().find(|d| d.name == "vacia").unwrap();
+    assert!(empty.dirs.is_empty() && empty.files.is_empty());
+    let got: Vec<_> = con.files.iter().map(|f| (f.name.as_str(), f.path.as_str(), f.kind)).collect();
+    assert_eq!(
+        got,
+        [
+            ("FOTO.PNG", "con/FOTO.PNG", Kind::Image),
+            ("nota", "con/nota.md", Kind::Page),
+            ("tabla.xlsx", "con/tabla.xlsx", Kind::Other),
+        ]
+    );
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

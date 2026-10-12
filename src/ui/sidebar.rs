@@ -3,7 +3,7 @@
 use crate::ui::action::{Action, SidebarMsg, UserEvent};
 use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_plus, drawn_icon, icon_button};
 use crate::ui::theme::Theme;
-use crate::vault::Dir;
+use crate::vault::{self, Dir};
 use gtk::cairo::{Context, Format, ImageSurface};
 use gtk::gdk;
 use gtk::glib::{self, Propagation};
@@ -19,6 +19,7 @@ const NAME: u32 = 0;
 const PATH: u32 = 1;
 const IS_DIR: u32 = 2;
 const TIP: u32 = 3;
+const KIND: u32 = 4;
 const DRAG_TARGET: &str = "application/x-visor-path";
 
 struct Colors {
@@ -26,13 +27,30 @@ struct Colors {
     muted: String,
     accent: String,
     active: String,
+    hover: String,
+    /// Files visor cannot open: fainter than folders, which share `muted`.
+    faint: String,
 }
 
 impl Colors {
     fn new(theme: Option<&Theme>) -> Colors {
         match theme {
-            Some(t) => Colors { fg: Some(t.fg.clone()), muted: t.muted.clone(), accent: t.accent.clone(), active: t.accent_tone(20.0) },
-            None => Colors { fg: None, muted: "#6e6e76".into(), accent: "#3a63c7".into(), active: "#d8e0f4".into() },
+            Some(t) => Colors {
+                fg: Some(t.fg.clone()),
+                muted: t.muted.clone(),
+                accent: t.accent.clone(),
+                active: t.accent_tone(20.0),
+                hover: t.tone(9.0),
+                faint: t.tone(40.0),
+            },
+            None => Colors {
+                fg: None,
+                muted: "#6e6e76".into(),
+                accent: "#3a63c7".into(),
+                active: "#d8e0f4".into(),
+                hover: "#e6e6ea".into(),
+                faint: "#a4a4aa".into(),
+            },
         }
     }
 }
@@ -111,6 +129,8 @@ struct State {
     notice_gen: u64,
     /// The row the context menu was opened on.
     menu_path: Option<String>,
+    /// The row under the pointer; none on the notice of an empty folder.
+    hover: Option<String>,
     colors: Colors,
     arrows: Arrows,
 }
@@ -209,6 +229,7 @@ impl Sidebar {
             String::static_type(),
             bool::static_type(),
             String::static_type(),
+            u32::static_type(),
         ]);
         let tree = gtk::TreeView::with_model(&store);
         let scale = tree.scale_factor();
@@ -314,6 +335,7 @@ impl Sidebar {
                 drop_gen: 0,
                 notice_gen: 0,
                 menu_path: None,
+                hover: None,
                 colors: Colors::new(None),
                 arrows: Arrows::new("#6e6e76", scale),
             })),
@@ -323,6 +345,7 @@ impl Sidebar {
         sidebar.connect_header();
         sidebar.connect_form();
         sidebar.connect_clicks();
+        sidebar.connect_hover();
         sidebar.connect_folders();
         sidebar.connect_drag();
         let s = sidebar.clone();
@@ -408,10 +431,12 @@ impl Sidebar {
                 };
                 cell.set_property("surface", surface);
                 // The highlight covers the arrow too, so it reads as one row.
-                let marked = highlighted(&st, &rel_path(model, iter), dir);
-                cell.set_property("cell-background-set", marked);
-                if marked {
-                    cell.set_property("cell-background", &st.colors.active);
+                let path = rel_path(model, iter);
+                let marked = highlighted(&st, &path, dir);
+                let hovered = !marked && st.hover.as_deref() == Some(path.as_str());
+                cell.set_property("cell-background-set", marked || hovered);
+                if marked || hovered {
+                    cell.set_property("cell-background", if marked { &st.colors.active } else { &st.colors.hover });
                 }
             })),
         );
@@ -422,19 +447,33 @@ impl Sidebar {
             Some(Box::new(move |_, cell, model, iter| {
                 let path: String = rel_path(model, iter);
                 let is_dir: bool = is_dir(model, iter);
+                let kind = Row::of(model, iter);
                 let state = state.borrow();
                 let c = &state.colors;
                 let active = !is_dir && state.file.as_deref() == Some(path.as_str());
                 let marked = highlighted(&state, &path, is_dir);
-                let fg = if marked { Some(&c.accent) } else if is_dir { Some(&c.muted) } else { c.fg.as_ref() };
+                let hovered = !marked && state.hover.as_deref() == Some(path.as_str());
+                let fg = if marked {
+                    Some(&c.accent)
+                } else if kind.inert() {
+                    Some(&c.faint)
+                } else if is_dir {
+                    Some(&c.muted)
+                } else {
+                    c.fg.as_ref()
+                };
                 cell.set_property("foreground-set", fg.is_some());
                 if let Some(fg) = fg {
                     cell.set_property("foreground", fg);
                 }
                 cell.set_property("weight", if active || is_dir { 500 } else { 400 });
-                cell.set_property("cell-background-set", marked);
-                if marked {
-                    cell.set_property("cell-background", &c.active);
+                cell.set_property("style-set", kind.inert());
+                if kind.inert() {
+                    cell.set_property("style", gtk::pango::Style::Italic);
+                }
+                cell.set_property("cell-background-set", marked || hovered);
+                if marked || hovered {
+                    cell.set_property("cell-background", if marked { &c.active } else { &c.hover });
                 }
             })),
         );
@@ -515,7 +554,10 @@ impl Sidebar {
             if event.button() == 1 && event.event_type() == gdk::EventType::ButtonPress {
                 s.state.borrow_mut().pressed = hit.and_then(|(path, column, ..)| {
                     let (path, column) = (path?, column?);
-                    (x as i32 >= tree.cell_area(Some(&path), Some(&column)).x()).then_some(path)
+                    let iter = s.store.iter(&path)?;
+                    // A file visor cannot open still answers, with a notice.
+                    let clickable = Row::of(&s.store, &iter) != Row::Empty;
+                    (clickable && x as i32 >= tree.cell_area(Some(&path), Some(&column)).x()).then_some(path)
                 });
             }
             Propagation::Proceed
@@ -550,6 +592,7 @@ impl Sidebar {
             }
             if let (Some(path), _) = tree.cursor()
                 && let Some(iter) = s.store.iter(&path)
+                && Row::of(&s.store, &iter) != Row::Empty
             {
                 s.send(SidebarMsg::Trash { path: rel_path(&s.store, &iter) });
             }
@@ -560,6 +603,15 @@ impl Sidebar {
     /// Opens a file, with Ctrl in a new tab and with Ctrl+Alt on the other side; opens or closes a folder.
     fn activate(&self, path: &gtk::TreePath, tab: bool, beside: bool) {
         let Some(iter) = self.store.iter(path) else { return };
+        match Row::of(&self.store, &iter) {
+            Row::Empty => return,
+            Row::Other => {
+                let path = rel_path(&self.store, &iter);
+                self.notice(&cannot_open(&path), false);
+                return;
+            }
+            _ => {}
+        }
         if is_dir(&self.store, &iter) {
             if self.tree.row_expanded(path) {
                 self.tree.collapse_row(path);
@@ -573,6 +625,10 @@ impl Sidebar {
 
     fn open_menu(&self, path: &gtk::TreePath, event: &gdk::EventButton) {
         let Some(iter) = self.store.iter(path) else { return };
+        // The notice of an empty folder is not a file: the menu would act on the root.
+        if Row::of(&self.store, &iter) == Row::Empty {
+            return;
+        }
         let is_dir: bool = is_dir(&self.store, &iter);
         for item in &self.folder_items {
             item.set_visible(is_dir);
@@ -583,6 +639,39 @@ impl Sidebar {
         let (x, y) = self.tree.convert_bin_window_to_widget_coords(x as i32, y as i32);
         self.menu.set_pointing_to(&gdk::Rectangle::new(x, y, 1, 1));
         self.menu.popup();
+    }
+
+    /// Paints the row under the pointer. Only a change of row redraws the tree.
+    fn connect_hover(&self) {
+        self.tree.add_events(gdk::EventMask::POINTER_MOTION_MASK | gdk::EventMask::LEAVE_NOTIFY_MASK);
+        let s = self.clone();
+        self.tree.connect_motion_notify_event(move |tree, event| {
+            let (x, y) = event.position();
+            let hover = tree
+                .path_at_pos(x as i32, y as i32)
+                .and_then(|(path, ..)| s.store.iter(&path?))
+                .filter(|iter| Row::of(&s.store, iter) != Row::Empty)
+                .map(|iter| rel_path(&s.store, &iter));
+            s.set_hover(hover);
+            Propagation::Proceed
+        });
+        let s = self.clone();
+        self.tree.connect_leave_notify_event(move |_, _| {
+            s.set_hover(None);
+            Propagation::Proceed
+        });
+    }
+
+    fn set_hover(&self, hover: Option<String>) {
+        let changed = {
+            let mut state = self.state.borrow_mut();
+            let changed = state.hover != hover;
+            state.hover = hover;
+            changed
+        };
+        if changed {
+            self.tree.queue_draw();
+        }
     }
 
     /// Keeps `opened` in step with the tree. Opening a folder also reopens
@@ -1125,14 +1214,61 @@ fn is_dir(model: &impl IsA<gtk::TreeModel>, iter: &gtk::TreeIter) -> bool {
     model.value(iter, IS_DIR as i32).get().unwrap_or_default()
 }
 
+/// What a row stands for. Folders also keep `IS_DIR`, which the arrows read.
+#[derive(Clone, Copy, PartialEq)]
+enum Row {
+    Folder,
+    Page,
+    Image,
+    /// A file the viewer cannot show. Listed so the folder is complete, but inert.
+    Other,
+    /// The notice inside an empty folder; it gives the folder an arrow.
+    Empty,
+}
+
+impl Row {
+    const ALL: [Row; 5] = [Row::Folder, Row::Page, Row::Image, Row::Other, Row::Empty];
+
+    fn of(model: &impl IsA<gtk::TreeModel>, iter: &gtk::TreeIter) -> Row {
+        let code: u32 = model.value(iter, KIND as i32).get().unwrap_or_default();
+        Self::ALL.get(code as usize).copied().unwrap_or(Row::Other)
+    }
+
+    /// Rows that open nothing and cannot be dragged. A click on a file
+    /// visor cannot open only shows a notice.
+    fn inert(self) -> bool {
+        matches!(self, Row::Other | Row::Empty)
+    }
+}
+
 fn fill(store: &gtk::TreeStore, parent: Option<&gtk::TreeIter>, dir: &Dir) {
     for sub in &dir.dirs {
-        let iter = store.insert_with_values(parent, None, &[(NAME, &sub.name), (PATH, &sub.path), (IS_DIR, &true), (TIP, &"")]);
+        let iter = store.insert_with_values(
+            parent,
+            None,
+            &[(NAME, &sub.name), (PATH, &sub.path), (IS_DIR, &true), (KIND, &(Row::Folder as u32)), (TIP, &"")],
+        );
+        if sub.dirs.is_empty() && sub.files.is_empty() {
+            store.insert_with_values(
+                Some(&iter),
+                None,
+                &[(NAME, &"Carpeta vacía"), (PATH, &""), (IS_DIR, &false), (KIND, &(Row::Empty as u32)), (TIP, &"")],
+            );
+        }
         fill(store, Some(&iter), sub);
     }
     for file in &dir.files {
         let tip = glib::markup_escape_text(&file.path);
-        store.insert_with_values(parent, None, &[(NAME, &file.name), (PATH, &file.path), (IS_DIR, &false), (TIP, &tip.as_str())]);
+        let kind = match file.kind {
+            vault::Kind::Page => Row::Page,
+            vault::Kind::Image => Row::Image,
+            vault::Kind::Other => Row::Other,
+        };
+        store.insert_with_values(
+            parent,
+            None,
+            &[(NAME, &file.name), (PATH, &file.path), (IS_DIR, &false), (KIND, &(kind as u32)), (TIP, &tip.as_str())],
+        );
     }
 }
 
@@ -1140,6 +1276,14 @@ fn fill(store: &gtk::TreeStore, parent: Option<&gtk::TreeIter>, dir: &Dir) {
 fn parents(path: &str) -> Vec<String> {
     let parts: Vec<&str> = path.split('/').collect();
     (1..parts.len()).map(|i| parts[..i].join("/")).collect()
+}
+
+fn cannot_open(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => format!("visor no abre archivos .{}.", ext.to_lowercase()),
+        _ => "visor no abre este archivo.".into(),
+    }
 }
 
 /// Whether showing `next` should open its folders: only when the file on
@@ -1151,12 +1295,19 @@ fn reveal_on_arrival(previous: Option<&str>, next: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parents, reveal_on_arrival};
+    use super::{cannot_open, parents, reveal_on_arrival};
 
     #[test]
     fn lists_parent_folders() {
         assert_eq!(parents("a/b/c"), ["a", "a/b"]);
         assert!(parents("nota").is_empty());
+    }
+
+    #[test]
+    fn names_the_kind_of_file_visor_cannot_open() {
+        assert_eq!(cannot_open("datos/Libro.XLSX"), "visor no abre archivos .xlsx.");
+        assert_eq!(cannot_open("Makefile"), "visor no abre este archivo.");
+        assert_eq!(cannot_open(".env"), "visor no abre este archivo.");
     }
 
     #[test]

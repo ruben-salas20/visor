@@ -33,13 +33,33 @@ pub struct Dir {
 
 #[derive(Serialize)]
 pub struct File {
+    /// The stem for pages, the whole file name for the rest.
     pub name: String,
     pub path: String,
+    pub kind: Kind,
+}
+
+/// What the panel makes of a file: a page the viewer shows, an image it can
+/// show too, or one it cannot show.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Page,
+    Image,
+    Other,
 }
 
 /// Files the viewer lists and shows: HTML pages, Markdown notes and drawings.
 pub fn is_page(path: &Path) -> bool {
     is_html(path) || is_markdown(path) || is_drawing(path)
+}
+
+/// An image the viewer can show: the formats browsers display.
+pub fn is_image(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif")
+    )
 }
 
 /// A Markdown note. A drawing in Obsidian's form is Markdown too, but it is not a note.
@@ -95,10 +115,19 @@ fn scan(walk: &mut Walk, root: &Path, dir: &Path) -> Option<Dir> {
             if let Some(sub) = scan(walk, root, &path) {
                 dirs.push(sub);
             }
-        } else if is_page(&path) {
+        } else {
+            let kind = if is_page(&path) {
+                Kind::Page
+            } else if is_image(&path) {
+                Kind::Image
+            } else {
+                Kind::Other
+            };
+            let stem = if kind == Kind::Page { path.file_stem() } else { path.file_name() };
             files.push(File {
-                name: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                name: stem.unwrap_or_default().to_string_lossy().into_owned(),
                 path: rel(root, &path),
+                kind,
             });
         }
     }
