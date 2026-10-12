@@ -107,13 +107,15 @@ pub fn draw_forward(cr: &gtk::cairo::Context) {
 /// A 300° arc open at the upper right, with the arrowhead at its end.
 pub fn draw_reload(cr: &gtk::cairo::Context) {
     cr.set_line_width(1.5);
+    // The head is a right-angle corner at the arc's end, not barbs along its
+    // tangent: barbs at 45° merge with the arc at 16 px (issue #22).
     let (cx, cy, r) = (8.0, 8.5, 5.0);
-    let end = 3.0 * PI / 2.0;
-    cr.arc(cx, cy, r, -PI / 6.0, end);
-    let (tx, ty) = (cx, cy - r);
-    cr.move_to(tx - 3.0, ty - 3.0);
+    let end = -0.6;
+    cr.arc(cx, cy, r, 0.0, 2.0 * PI + end);
+    let (tx, ty) = (cx + r * end.cos(), cy + r * end.sin());
+    cr.move_to(tx, ty - 3.5);
     cr.line_to(tx, ty);
-    cr.line_to(tx - 3.0, ty + 3.0);
+    cr.line_to(tx - 3.5, ty);
 }
 
 /// A crosshair: a ring with four ticks. The centre dot is a small stroked

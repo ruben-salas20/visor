@@ -1,6 +1,6 @@
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::bar::Bar;
-use crate::ui::icons::{draw_close, draw_list, draw_plus, draw_target, drawn_icon, icon_button};
+use crate::ui::icons::{draw_back, draw_close, draw_forward, draw_list, draw_plus, draw_reload, draw_target, drawn_icon, icon_button};
 use crate::ui::tabs::Side;
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
@@ -14,6 +14,9 @@ pub struct Pane {
     id: u64,
     root: gtk::Box,
     strip: gtk::Box,
+    /// Back, forward and reload: they act on this side's page.
+    back: gtk::Button,
+    forward: gtk::Button,
     tab_list: gtk::Box,
     /// The annotation buttons, shown only on vault pages: elsewhere they do nothing.
     annot_tools: gtk::Box,
@@ -34,6 +37,23 @@ impl Pane {
         let strip = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.style_context().add_class("visor-bar");
         strip.style_context().add_class("visor-strip");
+        let nav_tools = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        let nav = |draw: fn(&gtk::cairo::Context), tip: &str, action: fn() -> Action| {
+            let b = icon_button(tip, draw);
+            b.set_can_focus(false);
+            b.set_valign(gtk::Align::Center);
+            let proxy = proxy.clone();
+            b.connect_clicked(move |_| {
+                let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(id)));
+                let _ = proxy.send_event(UserEvent::Action(action()));
+            });
+            nav_tools.pack_start(&b, false, false, 0);
+            b
+        };
+        let back = nav(draw_back, "Atrás (Alt+←)", || Action::Back);
+        let forward = nav(draw_forward, "Adelante (Alt+→)", || Action::Forward);
+        nav(draw_reload, "Recargar (Ctrl+R)", || Action::Reload);
+        strip.pack_start(&nav_tools, false, false, 0);
         let tab_list = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.pack_start(&tab_list, true, true, 0);
         let annot_tools = gtk::Box::new(gtk::Orientation::Horizontal, 2);
@@ -68,7 +88,7 @@ impl Pane {
         views.show();
         overlay.show();
         root.show();
-        Pane { id, root, strip, tab_list, annot_tools, bar, views, drop, whole, proxy: proxy.clone() }
+        Pane { id, root, strip, back, forward, tab_list, annot_tools, bar, views, drop, whole, proxy: proxy.clone() }
     }
 
     /// Shows or hides the drop zone. `whole`: a drop takes the side, not a half.
@@ -92,6 +112,11 @@ impl Pane {
 
     pub fn bar(&self) -> &Bar {
         &self.bar
+    }
+
+    pub fn set_nav(&self, back: bool, forward: bool) {
+        self.back.set_sensitive(back);
+        self.forward.set_sensitive(forward);
     }
 
     /// Fullscreen: only the side with the page shows, and without its chrome.

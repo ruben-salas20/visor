@@ -656,7 +656,7 @@ impl App {
     fn update_nav(&self, p: usize) {
         let Some(view) = self.tabs.side(p).tab().view().and_then(|id| self.view_of(id)) else { return };
         let view = view.webview();
-        self.panes[p].bar().set_nav(view.can_go_back(), view.can_go_forward());
+        self.panes[p].set_nav(view.can_go_back(), view.can_go_forward());
     }
 
     fn style_view(&self, view: &WebView) {

@@ -1,37 +1,20 @@
 use crate::ui::action::{Action, UserEvent};
-use crate::ui::icons::{draw_back, draw_forward, draw_reload, icon_button};
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
 use tao::event_loop::EventLoopProxy;
 
-/// Native toolbar above a page: back, forward, reload and the address field.
+/// The address field, shown only on demand (Ctrl+L). Navigation buttons live in
+/// the tab strip of each side (see `panes::Pane`).
 pub struct Bar {
     root: gtk::Box,
-    back: gtk::Button,
-    forward: gtk::Button,
     address: gtk::Entry,
 }
 
 impl Bar {
-    /// `pane` is the id of the side it belongs to: its controls act there.
+    /// `pane` is the id of the side it belongs to: focusing the field focuses it.
     pub fn new(proxy: &EventLoopProxy<UserEvent>, pane: u64) -> Bar {
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         root.style_context().add_class("visor-bar");
-
-        let button = |draw: fn(&gtk::cairo::Context), tooltip: &str, action: fn() -> Action| {
-            let b = icon_button(tooltip, draw);
-            b.set_can_focus(false);
-            let proxy = proxy.clone();
-            b.connect_clicked(move |_| {
-                let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(pane)));
-                let _ = proxy.send_event(UserEvent::Action(action()));
-            });
-            root.pack_start(&b, false, false, 0);
-            b
-        };
-        let back = button(draw_back, "Atrás (Alt+←)", || Action::Back);
-        let forward = button(draw_forward, "Adelante (Alt+→)", || Action::Forward);
-        button(draw_reload, "Recargar (Ctrl+R)", || Action::Reload);
 
         let address = gtk::Entry::new();
         address.set_hexpand(true);
@@ -62,7 +45,7 @@ impl Bar {
         root.pack_start(&address, true, true, 4);
         root.show_all();
 
-        Bar { root, back, forward, address }
+        Bar { root, address }
     }
 
     pub fn widget(&self) -> &gtk::Box {
@@ -79,11 +62,6 @@ impl Bar {
     /// Marks the address as not understood; typing again clears the mark.
     pub fn set_error(&self) {
         self.address.style_context().add_class("error");
-    }
-
-    pub fn set_nav(&self, back: bool, forward: bool) {
-        self.back.set_sensitive(back);
-        self.forward.set_sensitive(forward);
     }
 
     pub fn set_visible(&self, visible: bool) {
