@@ -56,27 +56,31 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ## Referencia
 
-2026-10-11, commit `5e67e74` (#6, #7, #14, #16 y #17: imágenes por URL, LaTeX e imágenes pegadas en dibujos, archivos ocultos, Text Elements, actualizar a mano, versión en el panel), enchufado, perfil `performance`. Tres rondas alternadas con `6399c0b`, la referencia anterior; mediana y, entre paréntesis, el rango.
+2026-10-12, commit `08e97d2` (#20 a #23: enlaces con carpeta, panel con carpetas vacías y archivos que visor no abre, botones de navegación en la fila de pestañas, ajuste para ocultar esos archivos), enchufado, perfil `performance`. Dos rondas alternadas con `1d512cd`; el valor del resumen de `medir.py` y, entre paréntesis, el rango. Las filas sin columna «Antes» vienen de medidas anteriores y no se repitieron.
 
-| Medida | Valor | Antes (`6399c0b`) |
+| Medida | Valor | Antes (`1d512cd`) |
 |---|---|---|
-| Arranque en frío, nota mínima (`minima.md`) | 219 ms (217–222) | 224 ms (223–227) |
-| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 758 ms (754–760) | 786 ms (770–805) |
-| Arranque en frío, HTML suelto | 210 ms (205–233) | 213 ms (201–214) |
-| Cambio de página, dentro de la app (con la CLI) | 9,2 ms; 75 ms | 9,6 ms; 46 ms |
-| Pestaña nueva, dentro de la app (con la CLI) | 145 ms (137–146); 172 ms | 133 ms (133–142); 160 ms |
-| Memoria en reposo, nota mínima | 186 MB (183–186) | 183 MB (177–186) |
-| Memoria en reposo, `ondas.md` | 289 MB | 288 MB |
-| Memoria en reposo, HTML suelto | 154 MB | 154 MB |
-| Memoria con el editor abierto (nota mínima) | 207 MB | 204 MB (204–207) |
-| CPU en reposo, nota mínima u `ondas.md` | 0–0,07 % | 0,03–0,07 % |
+| Arranque en frío, nota mínima (`minima.md`) | 229 ms (225–229) | 253 ms (223–253) |
+| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 762 ms (717–762) | 775 ms (748–775) |
+| Arranque en frío, HTML suelto | 260 ms (224–260); 207–220 ms al repetir | 215 ms (207–215) |
+| Cambio de página, dentro de la app (con la CLI) | 11,2 ms (8,5–11,2); 37 ms | 9,2 ms (9,0–9,2); 36 ms |
+| Pestaña nueva, dentro de la app (con la CLI) | 145 ms (142–145); 176 ms | 145 ms (143–145); 172 ms |
+| Memoria en reposo, nota mínima | 161 MB (159–161) | 162 MB (159–162) |
+| Memoria en reposo, `ondas.md` | 261 MB (259–261) | 260 MB |
+| Memoria en reposo, HTML suelto | **142 MB** | 130 MB |
+| Memoria con el editor abierto (nota mínima) | 177 MB | 176 MB |
+| CPU en reposo, nota mínima u `ondas.md` | 0–0,07 % | 0–0,07 % |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js (2026-10-07) | |
 | Un dibujo de Excalidraw abierto, frente a una nota | ~+45 MB en lectura; en edición, 240 MB frente a 207 MB de una nota (ADR 0036) | |
 | Un dibujo con fórmulas LaTeX, frente a uno sin ellas | ~225 ms y ~170 KB la primera vez, ~70 ms al recargar; +2–5 MB (3 medidas, poco fiable) | |
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
-| Binario (`cargo build --release`, con `strip`) | 5 333 800 bytes | 5 285 088 bytes |
+| Binario (`cargo build --release`, con `strip`) | 5 361 712 bytes | 5 350 000 bytes |
 
-Las dos primeras rondas daban más memoria con la nota mínima (+3–9 MB) y más tiempo de pestaña nueva (+4–12 ms); la tercera dio menos memoria con el binario nuevo y acercó la pestaña nueva (141,5 frente a 145,1 ms). Los rangos se solapan: es ruido, aunque la pestaña nueva conviene vigilarla en la próxima medida. Los 48 KB del binario son el botón de actualizar y `visor update` (~17 KB), las imágenes pegadas (~17 KB), las fórmulas (~6 KB) y el resto de cambios.
+**Coste conocido, aceptado: +11,4 MB con un HTML suelto.** Sale igual en todas las repeticiones (130 → 141,5 MB) y no aparece con notas de la bóveda. Lo causan los tres botones de navegación visibles en la fila de pestañas (#22, `b9cc9c9`): el commit anterior da 130 MB, y el mismo commit con los botones creados pero sin colocar en la fila, también. No depende del icono (con botones de texto sube igual), del tooltip ni de que estén desactivados, y no carga glycin. Crece el *heap* del proceso principal (+16,7 MB) y bajan los búferes `memfd:gdk-wayland` (−5,5 MB). No es un búfer extra por redibujar: pasar el ratón por la fila no cambia la cifra de antes ni la de después. Con una bóveda, el panel lateral ya paga ese coste y los botones no añaden nada. La causa exacta en GTK3 sigue sin identificar.
+
+La memoria absoluta es ~25 MB menor que en la referencia del 2026-10-11 con los dos binarios: es la deriva entre días descrita abajo, no un cambio del código.
+
+En la referencia anterior (`5e67e74`, tres rondas con `6399c0b`), las dos primeras rondas daban más memoria con la nota mínima (+3–9 MB) y más tiempo de pestaña nueva (+4–12 ms); la tercera dio menos memoria con el binario nuevo y acercó la pestaña nueva (141,5 frente a 145,1 ms). Los rangos se solapan: es ruido, aunque la pestaña nueva conviene vigilarla en la próxima medida. Los 48 KB del binario son el botón de actualizar y `visor update` (~17 KB), las imágenes pegadas (~17 KB), las fórmulas (~6 KB) y el resto de cambios.
 
 La memoria bajó ~80 MB respecto de la referencia anterior (217 MB con la nota mínima en `02727b2`) sin que cambiara el código: el binario de `02727b2`, medido el mismo día con el mismo método, da ~131 MB. La comparativa del README dio 215 MB esa tarde y la bajada apareció horas después, sin reiniciar. Se descartaron la consulta de actualizaciones, la pantalla, `alsa-plugins` y otra instancia de visor abierta (esta última baja la medida solo 3–5 MB). La causa sigue sin identificar: compara solo rondas alternadas de una misma ejecución, nunca cifras de días distintos.
 
