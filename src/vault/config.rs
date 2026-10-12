@@ -27,6 +27,8 @@ pub struct Config {
     pub auto_update: Option<bool>,
     /// Files visor cannot open, listed in the panel. `None` means shown; `Some(false)` is the only stored off.
     pub show_other_files: Option<bool>,
+    /// Engine for text in the address field that is not an address (`address::Engine::id`). `None` is the default.
+    pub search_engine: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -147,6 +149,7 @@ mod tests {
         config.add(Path::new("/a/b"));
         config.port = Some(4242);
         config.bar_shown = true;
+        config.search_engine = Some("google".into());
         config.workspaces.insert(
             "/a/b".into(),
             Workspace { panes: vec![PaneState { tabs: vec!["x.md".into()], active: 0 }], focused: 0 },
@@ -157,6 +160,7 @@ mod tests {
         assert_eq!(loaded.current.as_deref(), Some(Path::new("/a/b")));
         assert_eq!(loaded.port, Some(4242));
         assert!(loaded.bar_shown);
+        assert_eq!(loaded.search_engine.as_deref(), Some("google"));
         assert_eq!(loaded.workspaces[Path::new("/a/b")].panes[0].tabs, ["x.md"]);
         assert!(!dir.join("nueva/.config.json.visor-tmp").exists());
         assert!(Config::load_from(&dir.join("no-existe.json")).vaults.is_empty());
@@ -177,6 +181,17 @@ mod tests {
         Config::load_from(&path);
         assert_eq!(fs::read_to_string(dir.join("config.json.bak")).unwrap(), "{ \"vaults\": [");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn config_without_search_engine_loads_as_duckduckgo() {
+        let dir = std::env::temp_dir().join(format!("visor-config-search-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, r#"{"vaults": [], "bar_shown": true}"#).unwrap();
+        assert!(Config::load_from(&path).search_engine.is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 

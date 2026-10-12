@@ -270,11 +270,23 @@ ACTUALIZACIONES
   y la instala sola para el siguiente arranque. Se desactiva en Ajustes
   (Ctrl+,). Un binario compilado con cargo no se toca.
 
+BUSCAR DESDE LA BARRA
+  Lo escrito en la barra (Ctrl+L) que no es una URL, una ruta de la
+  bóveda ni un dominio (como «example.com») se busca en el buscador
+  elegido en Ajustes (Ctrl+,): DuckDuckGo, el de partida, o Google. La
+  búsqueda se abre en la pestaña actual.
+  - Empezar por «?» fuerza la búsqueda: «? ondas» busca «ondas» aunque
+    parezca una ruta o una dirección.
+  - Una ruta mal escrita (con «/», como «estudio/fisica/ondas», o con
+    extensión, como «ondas.md») da error y no se busca, para no enviar
+    a un buscador el nombre de una nota por error.
+
 ATAJOS EN LA APP
   Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel
   Ctrl+R / F5  recargar
-  Ctrl+L  barra de direcciones: URL, dominio, ruta de la bóveda o ruta
-          absoluta. Escape vuelve a la página.
+  Ctrl+L  barra de direcciones: URL, dominio, ruta de la bóveda, ruta
+          absoluta o búsqueda. Escape sale de la barra (en una pestaña
+          vacía, la pestaña queda en blanco).
   Ctrl+Shift+B  mostrar u ocultar la barra (empieza oculta; se
           recuerda; Ctrl+L la muestra mientras escribes)
   Ctrl+E  editar la nota .md o el dibujo abiertos, o volver a la vista
@@ -282,14 +294,15 @@ ATAJOS EN LA APP
   Ctrl+Shift+A  anotar un elemento o un punto
   Ctrl+Shift+L  lista de anotaciones de la página (ambos botones, a la
           derecha de las pestañas, solo en páginas de la bóveda)
-  Ctrl+T  pestaña nueva (o «+»)     Ctrl+W  cerrarla (o clic central)
+  Ctrl+T  pestaña nueva, con el cursor en la barra (o «+»)
+  Ctrl+W  cerrarla (o clic central)
   Ctrl+Tab / Ctrl+Shift+Tab  pestaña siguiente / anterior
   Ctrl+1 … Ctrl+8  pestaña número N del lado con foco; Ctrl+9, la última
   Ctrl+| (o Ctrl+\)  dividir la ventana o volver a un lado
   Ctrl+Alt+←  Ctrl+Alt+→  lado izquierdo o derecho
   Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño (se
           recuerda)
-  Ctrl+,  ajustes: tema, tamaño del texto y actualizaciones
+  Ctrl+,  ajustes: tema, tamaño del texto, actualizaciones y buscador
   Ctrl+K  lista de atajos. En un dibujo de Excalidraw, Ctrl+K sigue
           siendo el enlace de Excalidraw.
   Alt+←  atrás    Alt+→  adelante (también los botones laterales del

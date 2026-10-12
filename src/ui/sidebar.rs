@@ -1,6 +1,7 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/adr/0003.
 use crate::ui::action::{Action, SidebarMsg, UserEvent};
+use crate::ui::address::Engine;
 use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_plus, drawn_icon, icon_button};
 use crate::ui::theme::Theme;
 use crate::vault::{self, Dir};
@@ -152,6 +153,7 @@ pub struct Sidebar {
     zoom_label: gtk::Label,
     auto_update: gtk::CheckButton,
     show_other: gtk::CheckButton,
+    search_engine: gtk::ComboBoxText,
     update: UpdateBox,
     /// Set while the settings are filled in, so that is not sent as a change.
     syncing: Rc<Cell<bool>>,
@@ -214,7 +216,7 @@ impl Sidebar {
         foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
         let update = UpdateBox::new(proxy);
-        let (settings, theme_buttons, zoom_label, auto_update, show_other) = settings_popover(&gear, proxy, &syncing, &update);
+        let (settings, theme_buttons, zoom_label, auto_update, show_other, search_engine) = settings_popover(&gear, proxy, &syncing, &update);
         gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -330,6 +332,7 @@ impl Sidebar {
             zoom_label,
             auto_update,
             show_other,
+            search_engine,
             update,
             syncing,
             form,
@@ -414,7 +417,7 @@ impl Sidebar {
 
     /// Fills in the settings without reporting them as changes. Theme names
     /// other than «claro» and «oscuro» show as «Sistema», as the app treats them.
-    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool, show_other: bool) {
+    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool, show_other: bool, search_engine: Engine) {
         let theme = match theme {
             Some(t @ ("claro" | "oscuro")) => Some(t),
             _ => None,
@@ -425,6 +428,7 @@ impl Sidebar {
         }
         self.auto_update.set_active(auto_update);
         self.show_other.set_active(show_other);
+        self.search_engine.set_active_id(Some(search_engine.id()));
         self.syncing.set(false);
         self.set_show_other(show_other);
         self.set_zoom(zoom);
@@ -1175,7 +1179,7 @@ fn settings_popover(
     proxy: &EventLoopProxy<UserEvent>,
     syncing: &Rc<Cell<bool>>,
     update: &UpdateBox,
-) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton, gtk::CheckButton) {
+) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
     let caption = |text: &str| {
         let label = gtk::Label::new(Some(text));
         label.set_xalign(0.0);
@@ -1257,6 +1261,23 @@ fn settings_popover(
         }
     });
 
+    let search_engine = gtk::ComboBoxText::new();
+    for engine in Engine::ALL {
+        search_engine.append(Some(engine.id()), engine.label());
+    }
+    let (syncing_flag, p) = (syncing.clone(), proxy.clone());
+    search_engine.connect_changed(move |c| {
+        if !syncing_flag.get() {
+            let engine = Engine::from_id(c.active_id().as_deref());
+            let _ = p.send_event(UserEvent::Action(Action::SetSearchEngine(engine)));
+        }
+    });
+    let search_note = gtk::Label::new(Some("Lo escrito en la barra que no sea una dirección se envía al buscador."));
+    search_note.set_xalign(0.0);
+    search_note.set_line_wrap(true);
+    search_note.set_max_width_chars(32);
+    search_note.style_context().add_class("visor-muted");
+
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
     column.pack_start(&caption("Tema"), false, false, 0);
     column.pack_start(&theme_row, false, false, 0);
@@ -1264,6 +1285,9 @@ fn settings_popover(
     column.pack_start(&zoom_row, false, false, 0);
     column.pack_start(&show_other, false, false, 4);
     column.pack_start(&auto_update, false, false, 4);
+    column.pack_start(&caption("Buscador"), false, false, 0);
+    column.pack_start(&search_engine, false, false, 0);
+    column.pack_start(&search_note, false, false, 0);
     column.pack_start(&update.area, false, false, 4);
     column.show_all();
 
@@ -1271,7 +1295,7 @@ fn settings_popover(
     settings.style_context().add_class("visor-settings");
     settings.set_position(gtk::PositionType::Top);
     settings.add(&column);
-    (settings, themes, zoom_label, auto_update, show_other)
+    (settings, themes, zoom_label, auto_update, show_other, search_engine)
 }
 
 /// The open file and a drop target get the accent color and a background.

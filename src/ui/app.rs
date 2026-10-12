@@ -1,6 +1,7 @@
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
+use crate::ui::address::{self, Engine, Plan};
 use crate::ui::bar::Bar;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
@@ -151,6 +152,7 @@ pub fn launch() -> i32 {
         config.zoom.unwrap_or(1.0),
         config.auto_update != Some(false),
         config.show_other_files != Some(false),
+        Engine::from_id(config.search_engine.as_deref()),
     );
     // Started for a page outside every vault: that page alone, without the
     // last vault and its tabs. See cli::start.
@@ -659,27 +661,34 @@ impl App {
     }
 
     /// Resolves what was typed in the address field: a URL, a vault path, an
-    /// absolute path, as the field shows for loose pages, or a bare domain.
+    /// absolute path, as the field shows for loose pages, a bare domain, or
+    /// text to search for. The rules are in `address::plan`.
     fn go(&mut self, text: &str) {
         let text = text.trim();
         if text.is_empty() {
             return;
         }
-        if vault::is_loose(text) {
-            if self.open(PathBuf::from(text), text, Place::Here).is_err() {
-                self.pane().bar().set_error();
-            }
-            return;
-        }
         let in_vault = self.vault().and_then(|v| Some(v.rel(&v.resolve(text)?)));
-        if is_web(text) {
-            self.open_in(text.to_string(), Place::Here);
-        } else if let Some(rel) = in_vault {
-            self.open_in(rel, Place::Here);
-        } else if !text.contains(char::is_whitespace) && text.contains('.') {
-            self.open_in(format!("https://{text}"), Place::Here);
-        } else {
-            self.pane().bar().set_error();
+        match address::plan(text, in_vault.as_deref()) {
+            Plan::Loose => {
+                if self.open(PathBuf::from(text), text, Place::Here).is_err() {
+                    self.pane().bar().set_error();
+                }
+            }
+            Plan::Web => {
+                self.open_in(text.to_string(), Place::Here);
+            }
+            Plan::Vault(rel) => {
+                self.open_in(rel.to_string(), Place::Here);
+            }
+            Plan::Domain => {
+                self.open_in(format!("https://{text}"), Place::Here);
+            }
+            Plan::Search(query) => {
+                let engine = Engine::from_id(self.config.search_engine.as_deref());
+                self.open_in(address::search_url(engine, query), Place::Here);
+            }
+            Plan::Error => self.pane().bar().set_error(),
         }
     }
 
@@ -1057,6 +1066,10 @@ impl App {
                 self.config.auto_update = Some(on).filter(|on| !on);
                 self.save_config_soon();
             }
+            Action::SetSearchEngine(engine) => {
+                self.config.search_engine = Some(engine).filter(|e| *e != Engine::ALL[0]).map(|e| e.id().to_string());
+                self.save_config_soon();
+            }
             Action::SetShowOtherFiles(on) => {
                 self.config.show_other_files = Some(on).filter(|on| !on);
                 self.save_config_soon();
@@ -1096,6 +1109,7 @@ impl App {
             }
             Action::NewTab => {
                 self.open_in(String::new(), Place::NewTab);
+                self.pane().bar().focus_address();
             }
             Action::CloseTab(id) => {
                 let effects = self.tabs.close(id);
@@ -1224,7 +1238,9 @@ impl App {
         if nav.revealed {
             self.show_active(nav.side);
             if focused_active {
-                self.focus_pane(nav.side, true);
+                // Ctrl+T puts the cursor in the bar before the empty page commits.
+                let typing = self.panes[nav.side].bar().is_typing();
+                self.focus_pane(nav.side, !typing);
             }
         }
         {
