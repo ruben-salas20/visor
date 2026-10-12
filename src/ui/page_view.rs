@@ -104,6 +104,27 @@ pub fn build_page(
         .build_gtk(container)?;
     let view = page.webview();
 
+    // Runs before WebKit's own handler and may change the event it gets.
+    view.connect_scroll_event(|widget, event| {
+        if event.direction() != gtk::gdk::ScrollDirection::Smooth {
+            return gtk::glib::Propagation::Proceed;
+        }
+        if event.source_device().map(|device| device.source()) != Some(gtk::gdk::InputSource::Mouse) {
+            return gtk::glib::Propagation::Proceed;
+        }
+        let (dx, dy) = event.delta();
+        let dx = whole_pixel_delta(dx, widget.allocated_width());
+        let dy = whole_pixel_delta(dy, widget.allocated_height());
+        // SAFETY: GTK keeps the event alive and writable for the whole signal
+        // emission; only its two delta fields are changed, and nothing else reads them meanwhile.
+        unsafe {
+            let raw = event.as_ptr() as *mut gtk::gdk::ffi::GdkEventScroll;
+            (*raw).delta_x = dx;
+            (*raw).delta_y = dy;
+        }
+        gtk::glib::Propagation::Proceed
+    });
+
     // WebKit reports the failures of every frame's resources, external iframes
     // included, so the app filters them. The main document is left out: a failed
     // page shows its own error. The signals are connected per resource, and
@@ -224,9 +245,38 @@ pub fn clean_position(json: &str) -> Option<String> {
     })
 }
 
+/// The wheel delta that makes WebKit scroll a whole number of pixels. WebKit
+/// scrolls by `delta * step`, where `step = (size^(2/3))` truncated to an
+/// integer and `size` is the view's height (or width). An odd step turns a
+/// 1.5 step into .5 px, and the page is then drawn between pixels: blurry text.
+fn whole_pixel_delta(delta: f64, size: i32) -> f64 {
+    if size <= 0 {
+        return delta;
+    }
+    let step = (size as f64).powf(2.0 / 3.0) as i32;
+    if step == 0 {
+        return delta;
+    }
+    (delta * step as f64).round() / step as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wheel_step_lands_on_whole_pixels() {
+        // Height 970 gives step 97: 1.5 * 97 = 145.5 is rounded to 146.
+        let delta = whole_pixel_delta(1.5, 970);
+        assert!(((delta * 97.0) - 146.0).abs() < 1e-9, "{delta}");
+        // Height 1009 gives step 100: 1.5 already lands on whole pixels.
+        assert_eq!(whole_pixel_delta(1.5, 1009), 1.5);
+        // Height 971 gives step 98.
+        assert_eq!(whole_pixel_delta(-1.5, 971), -1.5);
+        // No size yet: the delta is left as it was.
+        assert_eq!(whole_pixel_delta(1.5, 0), 1.5);
+        assert_eq!(whole_pixel_delta(-1.5, -3), -1.5);
+    }
 
     #[test]
     fn a_website_is_named_by_its_host_only() {
