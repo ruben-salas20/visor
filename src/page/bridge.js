@@ -1,4 +1,5 @@
 (() => {
+  const tr = (es, en) => ("__VISOR_LANG__" === "en" ? en : es);
   // Only pages visor serves: websites must not reach the logs and events that agents read.
   const served = ["__VISOR_BASE__", "__VISOR_LOOSE_BASE__"].some((base) => location.href.startsWith(base));
   if (window.top !== window || window.visor || !served) return;
@@ -44,8 +45,8 @@
       return false;
     };
   };
-  const allow = limiter((n) => `Se omitieron ${n} mensajes de consola: la página escribió más de ${LIMIT} por segundo.`);
-  const allowEvent = limiter((n) => `Se omitieron ${n} eventos de visor.send: la página envió más de ${LIMIT} por segundo.`);
+  const allow = limiter((n) => tr(`Se omitieron ${n} mensajes de consola: la página escribió más de ${LIMIT} por segundo.`, `Skipped ${n} console messages: the page wrote more than ${LIMIT} per second.`));
+  const allowEvent = limiter((n) => tr(`Se omitieron ${n} eventos de visor.send: la página envió más de ${LIMIT} por segundo.`, `Skipped ${n} visor.send events: the page sent more than ${LIMIT} per second.`));
   const MAX_EVENT = 16 * 1024;
   const log = (level, text) => allow() && post({ type: "console", level, text });
 
@@ -64,7 +65,7 @@
     const where = e.filename ? ` (${e.filename}:${e.lineno}:${e.colno})` : "";
     log("error", `${e.message}${where}`);
   }, true);
-  addEventListener("unhandledrejection", (e) => log("error", `Promesa rechazada: ${show(e.reason)}`));
+  addEventListener("unhandledrejection", (e) => log("error", tr(`Promesa rechazada: ${show(e.reason)}`, `Unhandled promise rejection: ${show(e.reason)}`)));
 
   window.visor = Object.freeze({
     send: (data) => {
@@ -72,7 +73,7 @@
       const json = stringify(data ?? null);
       // Same measure as visor: bytes of the serialized data. Short strings cannot reach it.
       if (json !== undefined && json.length * 3 > MAX_EVENT && new TextEncoder().encode(json).length > MAX_EVENT) {
-        log("warn", `Un evento de visor.send se descartó: pasa de ${MAX_EVENT / 1024} KB.`);
+        log("warn", tr(`Un evento de visor.send se descartó: pasa de ${MAX_EVENT / 1024} KB.`, `A visor.send event was dropped: it is larger than ${MAX_EVENT / 1024} KB.`));
         return;
       }
       post({ type: "event", data: data ?? null });

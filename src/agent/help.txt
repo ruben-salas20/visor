@@ -1,327 +1,317 @@
-visor: visor de bóvedas de HTML y Markdown para personas y agentes.
+visor: a viewer for HTML and Markdown vaults, for people and agents.
 
-Una bóveda es una carpeta. visor muestra sus páginas (.html, .md y
-dibujos de Excalidraw) en un árbol y renderiza la que se elige. Si un
-archivo cambia en disco, la vista se actualiza sola.
+A vault is a folder. visor shows its pages (.html, .md and
+Excalidraw drawings) in a tree and renders the one you pick. If a
+file changes on disk, the view updates by itself.
 
-USO
-  visor                      Abre la app.
-  visor open <ruta|URL> [--tab | --beside]
-                             Abre una carpeta como bóveda, muestra un
-                             archivo o carga una web (http o https).
-                             Abre la app si está cerrada. Espera a que
-                             la página cargue y devuelve lo mismo que
-                             status, más "problems": los errores y
-                             avisos que generó. Si no carga en 10 s,
-                             añade "warning".
-                             Sin opciones sustituye la pestaña activa;
-                             --tab abre una pestaña nueva; --beside, en
-                             el otro lado (divide la ventana si hace
-                             falta). Un .html que no está en ninguna
-                             bóveda se abre suelto. Una nota .md o un
-                             dibujo fuera de toda bóveda abren su
-                             carpeta como bóveda, salvo si es la
-                             carpeta personal (~) o la raíz (/): ahí
-                             da error.
-  visor close [<ruta>]       Cierra la pestaña activa del lado con el
-                             foco. Con ruta, cierra todas las pestañas
-                             que muestran ese archivo, en cualquier lado.
-                             Devuelve "closed" (cuántas cerró) y lo mismo
-                             que status. Si ninguna lo muestra, da error.
-  visor status               Bóveda y archivo que la persona ve:
-                             "file" (null en una web; la ruta absoluta
-                             si es un archivo suelto), "url" (en una
-                             web), "path" (ruta absoluta), "loaded"
-                             (terminó de cargar), "errors" (errores de
-                             su consola), "sides" (pestañas de cada
-                             lado: "list" de izquierda a derecha y
-                             "active"), "focused" (lado con el foco) y
-                             "last_event_id" (para events --after).
-  visor reload               Recarga la página actual. Devuelve lo
-                             mismo que open.
+USE
+  visor                      Opens the app.
+  visor open <path|URL> [--tab | --beside]
+                             Opens a folder as a vault, shows a file or
+                             loads a web page (http or https). Starts the
+                             app if it is closed. Waits for the page to
+                             load and returns the same as status, plus
+                             "problems": the errors and warnings it
+                             produced. If it does not load in 10 s, it
+                             adds "warning".
+                             With no options it replaces the active tab;
+                             --tab opens a new tab; --beside opens it on
+                             the other side (splits the window if needed).
+                             An .html that is not in any vault opens as a
+                             loose file. A .md note or a drawing outside
+                             every vault opens its folder as a vault,
+                             unless that folder is your home folder (~) or
+                             the root (/): there it is an error.
+  visor close [<path>]       Closes the active tab of the focused side.
+                             With a path, closes every tab that shows that
+                             file, on either side. Returns "closed" (how
+                             many it closed) and the same as status. If no
+                             tab shows it, it is an error.
+  visor status               The vault and file the person is viewing:
+                             "file" (null on a web page; the absolute path
+                             if it is a loose file), "url" (on a web page),
+                             "path" (absolute path), "loaded" (finished
+                             loading), "errors" (errors in its console),
+                             "sides" (tabs of each side: "list" from left
+                             to right, and "active"), "focused" (the side
+                             with focus) and "last_event_id" (for
+                             events --after).
+  visor reload               Reloads the current page. Returns the same
+                             as open.
   visor console [--errors] [--clear]
-                             Consola de la página actual: console.log,
-                             errores de JavaScript, recursos que no
-                             cargaron y promesas rechazadas. Guarda
-                             hasta 100 mensajes por segundo; si hay
-                             más, una línea dice cuántos se omitieron.
-  visor screenshot <archivo.png>
-                             Captura PNG de lo que la persona ve en la
-                             pestaña activa, dibujada por el motor de
-                             visor (WebKit). Solo páginas de la bóveda o
-                             sueltas. La ruta debe acabar en .png y se
-                             sustituye si existe. Devuelve "path" y
-                             "bytes".
-  visor eval <js>            Ejecuta JavaScript en la pestaña activa y
-                             devuelve "value" (JSON) y "type" (tipo de
-                             JavaScript). Solo páginas de la bóveda o
-                             sueltas, nunca webs. Vale el valor de la
-                             última instrucción; no espera promesas.
-                             Ejemplo: visor eval "document.title".
-  visor events [--after ID] [--wait SEG] [--limit N]
-                             Datos que las páginas enviaron con
-                             visor.send() y mensajes que la persona
-                             escribe en sus anotaciones. Sin opciones,
-                             los 20 últimos (se guardan 1000, también
-                             tras reiniciar). Con --wait espera hasta
-                             SEG segundos (máximo 600) a que llegue uno
-                             nuevo.
-  visor notes [ruta|--all]   Anotaciones de la página abierta, de otra
-                             página o de toda la bóveda (ruta y --all
-                             no se combinan). En la página abierta,
-                             "anchored" dice si cada una sigue
-                             encontrando su texto o elemento.
-  visor notes reply <id> <texto>
-                             Responde a una anotación; la persona la ve
-                             al momento en su nota.
-  visor update               Busca una versión nueva ahora (sin esperar al
-                             día) y la instala si existe. Devuelve "message"
-                             con el resultado. No reinicia visor: la versión
-                             nueva se usa al volver a abrirlo. Una copia en
-                             target/ no se reemplaza.
-  visor mcp                  Servidor MCP por stdio (ver MCP).
-  visor help                 Esta ayuda.
+                             Console of the current page: console.log,
+                             JavaScript errors, resources that did not
+                             load and rejected promises. Keeps up to 100
+                             messages per second; if there are more, a
+                             line says how many were skipped.
+  visor screenshot <file.png>
+                             PNG capture of what the person sees in the
+                             active tab, drawn by visor's engine (WebKit).
+                             Only vault or loose pages. The path must end
+                             in .png and is replaced if it exists. Returns
+                             "path" and "bytes".
+  visor eval <js>            Runs JavaScript in the active tab and returns
+                             "value" (JSON) and "type" (the JavaScript
+                             type). Only vault or loose pages, never web
+                             pages. Returns the value of the last
+                             statement; does not wait for promises.
+                             Example: visor eval "document.title".
+  visor events [--after ID] [--wait SEC] [--limit N]
+                             Data that pages sent with visor.send() and
+                             messages the person writes in their
+                             annotations. With no options, the last 20
+                             (1000 are kept, also after a restart). With
+                             --wait, waits up to SEC seconds (maximum 600)
+                             for a new one to arrive.
+  visor notes [path|--all]   Annotations of the open page, of another
+                             page or of the whole vault (a path and --all
+                             cannot be combined). For the open page,
+                             "anchored" says whether each one still finds
+                             its text or element.
+  visor notes reply <id> <text>
+                             Replies to an annotation; the person sees it
+                             at once in their note.
+  visor update               Checks for a new version now (without waiting
+                             for the daily check) and installs it if there
+                             is one. Returns "message" with the result. It
+                             does not restart visor: the new version is
+                             used when it is opened again. A copy in
+                             target/ is not replaced.
+  visor mcp                  MCP server over stdio (see MCP).
+  visor help                 This help.
 
-Todas las órdenes responden en JSON. "ok": false indica un error, y la
-orden termina con código 1. <ruta> puede ser relativa a la carpeta
-actual o a la bóveda abierta.
+Every command answers in JSON. "ok": false means an error, and the
+command exits with code 1. <path> can be relative to the current folder
+or to the open vault.
 
 MCP
-  Registra el servidor con: claude mcp add visor -- visor mcp
-  Cada herramienta equivale a una orden. Argumentos:
+  Register the server with: claude mcp add visor -- visor mcp
+  Each tool is equivalent to a command. Arguments:
 
-      open         target (ruta o URL), place ("here", "tab" o "beside")
-      close        target (ruta absoluta; sin él, la pestaña activa)
+      open         target (path or URL), place ("here", "tab" or "beside")
+      close        target (absolute path; without it, the active tab)
       status, reload
       console      errors_only (= --errors), clear
-      screenshot   path (ruta absoluta que acabe en .png)
+      screenshot   path (absolute path ending in .png)
       eval         code (JavaScript)
       events       after, wait, limit
-      notes        page (una ruta) o all, no los dos
+      notes        page (one path) or all, not both
       notes_reply  id, text
-      update       comprueba si hay una versión nueva y la instala; no reinicia
-      guide        devuelve este texto
+      update       checks for a new version and installs it; does not restart
+      guide        returns this text
 
-PESTAÑAS Y LADOS
-  La ventana puede dividirse en dos lados, cada uno con sus pestañas.
-  open, reload, console y notes actúan sobre la pestaña activa del lado
-  con el foco: lo que la persona está mirando. close hace lo mismo, o
-  cierra las pestañas de un archivo con ruta. Solo 3 páginas siguen
-  cargadas a la vez; las demás pestañas se recargan al volver a ellas,
-  y su consola empieza vacía.
+TABS AND SIDES
+  The window can be split into two sides, each with its own tabs.
+  open, reload, console and notes act on the active tab of the side
+  with focus: what the person is looking at. close does the same, or
+  closes the tabs of a file given by path. Only 3 pages stay loaded at
+  the same time; the other tabs reload when you go back to them, and
+  their console starts empty.
 
-ARCHIVOS SUELTOS
-  Para enseñar una muestra rápida no hace falta una bóveda:
-  `visor open /ruta/muestra.html`.
-  - Su carpeta no se convierte en bóveda ni se añade a la lista. Con la
-    app cerrada, se abre sin panel y sin la última bóveda; con una
-    bóveda abierta, va a una pestaña y la bóveda sigue igual.
-  - Funcionan las rutas relativas a su carpeta y subcarpetas, no las
-    que salen de ella (../) ni los archivos o carpetas que empiezan por
-    punto. Tiene su propio origen: no puede leer la bóveda.
-  - Se recarga sola si cambian ella o los archivos de su carpeta (no
-    los de las subcarpetas).
-  - Tiene visor.send(), `visor console`, `visor reload`, `visor eval` y
-    `visor screenshot`, pero no anotaciones.
-  - Para abrir su carpeta como bóveda: `visor open <carpeta>`.
+LOOSE FILES
+  To show a quick sample you do not need a vault:
+  `visor open /path/sample.html`.
+  - Its folder does not become a vault and is not added to the list. With
+    the app closed, it opens without the panel and without the last vault;
+    with a vault open, it goes to a tab and the vault stays as it was.
+  - Paths relative to its folder and subfolders work, but not those that
+    leave it (../) or files and folders that start with a dot. It has its
+    own origin: it cannot read the vault.
+  - It reloads by itself if it or the files in its folder change (not the
+    files in subfolders).
+  - It has visor.send(), `visor console`, `visor reload`, `visor eval` and
+    `visor screenshot`, but no annotations.
+  - To open its folder as a vault: `visor open <folder>`.
 
-NOTAS EN MARKDOWN
-  - Los .md aparecen en el árbol junto a los .html y se muestran
-    renderizados con el tema. Admiten tablas, notas al pie, listas de
-    tareas, alertas (> [!NOTE]), fórmulas ($...$ y $$...$$, KaTeX),
-    código coloreado y diagramas (bloques ```mermaid).
-  - El front matter YAML se muestra como tabla de propiedades encima del
-    texto. Se leen claves de primer nivel con textos, listas ([a, b] o
-    líneas con "- ") y textos de varias líneas (> o |); lo anidado sale
-    como texto. Si una línea no es "clave: valor", el bloque se muestra
-    tal cual.
-  - Enlaces al estilo Obsidian: [[nota]], [[carpeta/nota]],
-    [[nota#Sección]] y [[nota|texto]], buscados por nombre en toda la
-    bóveda. Con carpetas, vale la ruta desde la raíz de la bóveda o
-    su final: [[fases/nota]] encuentra curso/fases/nota.md. Un enlace
-    a una nota que no existe la crea al hacer clic; si lleva carpetas
-    ([[carpeta/nota]]), la crea desde la raíz de la bóveda y crea las
-    carpetas que falten.
-    ![[foto.png]] muestra una imagen buscada por nombre.
-  - La persona marca las tareas (- [ ] / - [x]) con un clic y visor lo
-    guarda en el .md. Vuelve a leer el archivo antes de cambiarlo.
-  - Avisa a la persona antes de editar una nota que tenga abierta en
-    el editor: verá un aviso y su editor no cambia, y si sigue
-    escribiendo, su texto sustituye al tuyo.
+MARKDOWN NOTES
+  - .md files appear in the tree next to the .html files and are shown
+    rendered with the theme. They support tables, footnotes, task lists,
+    alerts (> [!NOTE]), formulas ($...$ and $$...$$, KaTeX), syntax-
+    highlighted code and diagrams (```mermaid blocks).
+  - YAML front matter is shown as a property table above the text. Top-
+    level keys with text, lists ([a, b] or lines starting with "- ") and
+    multi-line text (> or |) are read; anything nested is shown as text.
+    If a line is not "key: value", the block is shown as it is.
+  - Obsidian-style links: [[note]], [[folder/note]], [[note#Section]] and
+    [[note|text]], looked up by name across the whole vault. With folders,
+    the path from the vault root or its end is enough: [[phases/note]]
+    finds course/phases/note.md. A link to a note that does not exist
+    creates it when clicked; if it has folders ([[folder/note]]), it is
+    created from the vault root, and any missing folders are created too.
+    ![[photo.png]] shows an image looked up by name.
+  - The person ticks tasks (- [ ] / - [x]) with a click and visor saves it
+    to the .md. It reads the file again before changing it.
+  - It warns the person before you edit a note that is open in the editor:
+    they will see a warning and their editor does not change, and if they
+    keep typing, their text replaces yours.
 
-DIBUJOS DE EXCALIDRAW
-  - visor muestra y edita dos formatos: .excalidraw.md (el del plugin de
-    Excalidraw de Obsidian) y .excalidraw (JSON de excalidraw.com). Salen
-    en el árbol junto a las demás páginas.
-  - Se abren en modo lectura. Ctrl+E los edita. Se guardan solos, 0,8 s
-    después del último cambio, en el mismo formato que tenían.
-  - En un .excalidraw.md se regeneran "## Text Elements" y "## Element
-    Links" desde el dibujo. En "## Embedded Files" se quita la línea de
-    cada imagen borrada (si no quedan, la sección entera); el archivo de
-    la imagen se queda en la bóveda. El resto del archivo (frontmatter y
-    el texto ajeno) se conserva tal cual.
-  - Las imágenes de "## Embedded Files" se buscan por nombre en la bóveda.
-    Las imágenes por URL se muestran solo como imagen: ninguna página lee
-    su contenido, aunque `visor screenshot` las captura. Al exportar a
-    PNG o SVG, quedan como huecos y un aviso lo dice. Las fórmulas
-    LaTeX (`<id>: $$…$$`) se dibujan con KaTeX, que solo se carga en los
-    dibujos que tienen alguna.
-  - Una imagen pegada o insertada en un .excalidraw.md se guarda junto al
-    dibujo como "<nombre> <fecha y hora>.png" (o .jpg, .webp, .gif), con
-    " 2", " 3"… si ya existe. Solo PNG, JPEG, WebP y GIF, hasta 10 MB; SVG
-    no. Si no se puede guardar, la barra de estado lo dice y el dibujo no
-    se guarda hasta que la borres.
-  - `visor screenshot` sirve para comprobar el resultado.
+EXCALIDRAW DRAWINGS
+  - visor shows and edits two formats: .excalidraw.md (the one from the
+    Excalidraw plugin for Obsidian) and .excalidraw (JSON from
+    excalidraw.com). They appear in the tree next to the other pages.
+  - They open in read-only mode. Ctrl+E edits them. They save by
+    themselves, 0.8 s after the last change, in the same format they had.
+  - In an .excalidraw.md, "## Text Elements" and "## Element Links" are
+    regenerated from the drawing. From "## Embedded Files" the line of each
+    deleted image is removed (if none are left, the whole section); the
+    image file stays in the vault. The rest of the file (front matter and
+    other text) is kept as it is.
+  - Images in "## Embedded Files" are looked up by name in the vault.
+    Images by URL are shown only as images: no page reads their content,
+    although `visor screenshot` captures them. When exporting to PNG or SVG
+    they become gaps, and a warning says so. LaTeX formulas (`<id>: $$…$$`)
+    are drawn with KaTeX, which only loads in drawings that have one.
+  - An image pasted or inserted into an .excalidraw.md is saved next to the
+    drawing as "<name> <date and time>.png" (or .jpg, .webp, .gif), with
+    " 2", " 3"… if it already exists. Only PNG, JPEG, WebP and GIF, up to
+    10 MB; not SVG. If it cannot be saved, the status bar says so and the
+    drawing is not saved until you delete the image.
+  - `visor screenshot` is useful to check the result.
 
-ANOTACIONES
-  La persona resalta texto, lo comenta o anota un elemento o un punto
-  (un gráfico, una imagen, un canvas). Se guardan aparte, en
-  <bóveda>/.visor/anotaciones/<ruta de la página>.json, y no modifican
-  la página. Responde con `visor notes reply`; no edites esos archivos.
-  - "target" dice dónde: el texto citado ("quote.exact", con contexto
-    "prefix" y "suffix") o el elemento ("element": tag, id, selector
-    css, texto) y el punto ("point": x e y de 0 a 1).
-  - "title" nombra las anotaciones de elementos (el nombre que dio la
-    persona o uno calculado, p. ej. «Diagrama en “Ondas”»); las
-    antiguas pueden no tenerlo. Pon aria-label, alt o un pie
-    (figcaption, caption) a gráficos, imágenes y tablas para que el
-    título diga qué son.
-  - Cada anotación es una conversación: "comment" es lo que escribió la
-    persona y "replies", los mensajes siguientes en orden, con "author"
-    ("persona" o "agente") y "text".
-  - "pending": true significa que la persona espera tu respuesta (el
-    último mensaje es suyo). Tras tu respuesta pasa a false.
-  - Un comentario nuevo o editado, o una respuesta de la persona,
-    llega a `visor events` como evento con "file" y "annotation"
-    ("id", "action": "comment" o "reply", "text"), sin "data". Los
-    eventos de visor.send() siempre traen "data".
-  - Si cambias la página, las anotaciones se reubican solas mientras
-    el texto citado exista. Si lo quitas, quedan huérfanas
-    ("anchored": false) y la persona las ve en su lista. Conserva el
-    texto anotado cuando puedas.
+ANNOTATIONS
+  The person highlights text, comments on it, or annotates an element or a
+  point (a chart, an image, a canvas). They are saved apart, in
+  <vault>/.visor/anotaciones/<page path>.json, and do not change the page.
+  Reply with `visor notes reply`; do not edit those files.
+  - "target" says where: the quoted text ("quote.exact", with the context
+    "prefix" and "suffix") or the element ("element": tag, id, CSS
+    selector, text), and the point ("point": x and y from 0 to 1).
+  - "title" names element annotations (the name the person gave or a
+    computed one, e.g. "Diagram in “Ondas”"); older ones may not have
+    it. Add aria-label, alt or a caption (figcaption, caption) to charts,
+    images and tables so the title says what they are.
+  - Each annotation is a conversation: "comment" is what the person wrote,
+    and "replies" are the following messages in order, with "author"
+    ("persona" or "agente", the literal values) and "text".
+  - "pending": true means the person is waiting for your reply (the last
+    message is theirs). After your reply it becomes false.
+  - A new or edited comment, or a reply from the person, reaches
+    `visor events` as an event with "file" and "annotation" ("id",
+    "action": "comment" or "reply", "text"), without "data". Events from
+    visor.send() always carry "data".
+  - If you change the page, annotations are re-anchored by themselves as
+    long as the quoted text exists. If you remove it, they become orphans
+    ("anchored": false) and the person sees them in their list. Keep the
+    annotated text when you can.
 
-ESCRIBIR PÁGINAS PARA VISOR
-  - Cada página es un .html autónomo. Se permite JavaScript, CSS y
-    librerías desde un CDN. Funcionan las rutas relativas (imágenes,
-    CSS, JS, JSON, vídeo, audio y enlaces a otras páginas).
-  - Se sirven desde 127.0.0.1 con un origen fijo, así que localStorage
-    e IndexedDB persisten. Todas las bóvedas comparten origen: usa
-    claves con prefijo propio, p. ej. "fisica/ondas:progreso".
-  - Los errores de `visor console` usan rutas de la bóveda, como
-    historia/roma.html:2:69 (archivo, línea, columna).
-  - Un recurso que no carga (CSS, imagen, script, fetch, también un
-    @import dentro de otro CSS) aparece como error, con la ruta de la
-    bóveda y el código HTTP («respondió 404») o «error de red». Si
-    viene de otra web, solo se nombra su servidor, sin ruta ni detalle:
-    «No se pudo cargar un recurso de cdn.jsdelivr.net (error de red)».
-  - No se muestran las carpetas que empiezan por "." ni node_modules.
-    Los enlaces simbólicos a carpetas se siguen solo si apuntan dentro de
-    la bóveda, y cada carpeta real se lista una vez.
-  - Enlaces: http y https se abren dentro de visor; mailto abre el
-    correo; otros esquemas se ignoran. target="_blank" abre una pestaña
-    nueva; Ctrl+clic o clic central, una que se carga al mostrarla.
-  - Las webs externas no tienen visor.send() y su consola no se
-    registra: lo que publiquen no debe llegar a un agente. Por eso
-    `visor eval` y `visor screenshot` tampoco funcionan en ellas.
-  - window.visor.send(datos) envía cualquier dato serializable a
-    `visor events`, que lo guarda con id, hora, bóveda y archivo:
+WRITING PAGES FOR VISOR
+  - Each page is a self-contained .html file. JavaScript, CSS and libraries
+    from a CDN are allowed. Relative paths work (images, CSS, JS, JSON,
+    video, audio and links to other pages).
+  - They are served from 127.0.0.1 with a fixed origin, so localStorage and
+    IndexedDB persist. All vaults share the origin: use keys with your own
+    prefix, e.g. "fisica/ondas:progreso".
+  - The errors in `visor console` use vault paths, such as
+    historia/roma.html:2:69 (file, line, column).
+  - A resource that does not load (CSS, image, script, fetch, and also an
+    @import inside another CSS file) appears as an error, with the vault
+    path and the HTTP code ("responded 404") or "network error". If it comes
+    from another website, only its server is named, without path or detail:
+    "Could not load a resource from cdn.jsdelivr.net (network error)".
+  - Folders that start with "." and node_modules are not shown. Symbolic
+    links to folders are followed only if they point inside the vault, and
+    each real folder is listed once.
+  - Links: http and https open inside visor; mailto opens the mail app;
+    other schemes are ignored. target="_blank" opens a new tab; Ctrl+click
+    or middle click, a tab that loads when shown.
+  - External websites have no visor.send() and their console is not
+    recorded: what they publish must not reach an agent. That is why
+    `visor eval` and `visor screenshot` do not work on them either.
+  - window.visor.send(data) sends any serializable data to `visor events`,
+    which stores it with id, time, vault and file:
 
-      visor.send({ tipo: "respuesta", pregunta: 3, elegida: "b" });
+      visor.send({ type: "answer", question: 3, chosen: "b" });
 
-    Cada página puede enviar como mucho 100 eventos por segundo y cada
-    uno hasta 16 KB serializado. Lo que pase se descarta, y una línea
-    de `visor console` dice cuántos eventos se omitieron o que uno era
-    demasiado grande.
-  - El evento "kit:review" de window, que lanzan los bloques de repaso
-    del kit de estudio, se reenvía con visor.send(e.detail) y los
-    mismos límites.
+    Each page can send at most 100 events per second, and each one up to
+    16 KB serialized. Anything beyond that is discarded, and a line in
+    `visor console` says how many events were skipped or that one was too
+    large.
+  - The "kit:review" event on window, fired by the review blocks of the
+    study kit, is forwarded with visor.send(e.detail) and the same limits.
 
-  - Con Omarchy, cada página recibe los colores del tema como variables
-    CSS, actualizadas al cambiar de tema:
+  - With Omarchy, each page receives the theme colors as CSS variables,
+    updated when the theme changes:
 
       --visor-bg  --visor-fg  --visor-accent  --visor-muted
-      --visor-selection  --visor-mode (light o dark)
+      --visor-selection  --visor-mode (light or dark)
       --visor-red  --visor-orange  --visor-yellow  --visor-green
       --visor-cyan  --visor-blue  --visor-magenta  --visor-brown
       --visor-font-mono
 
-    Fuera de Omarchy no existen: usa valor de reserva.
+    Outside Omarchy they do not exist: use a fallback value.
 
       body { background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
 
-  - Si el tema cambia con la página abierta, llega el evento "visor:tema"
-    con el modo, "dark" o "light", en e.detail.modo. Las variables
-    --visor-* ya tienen los valores nuevos cuando llega. Úsalo para
-    redibujar un canvas, Three.js o un gráfico:
+  - If the theme changes while the page is open, the "visor:tema" event
+    arrives with the mode, "dark" or "light", in e.detail.modo. The
+    --visor-* variables already have the new values when it arrives. Use it
+    to redraw a canvas, Three.js or a chart:
 
       addEventListener("visor:tema", (e) => {
         const css = getComputedStyle(document.documentElement);
         dibujar(css.getPropertyValue("--visor-bg").trim(), e.detail.modo);
       });
 
-FLUJO TÍPICO DE UN AGENTE
-  1. Escribe o edita el HTML en la bóveda.
-  2. `visor open <archivo>` para mostrarlo y ver sus errores; si los
-     hay, corrige y `visor reload`.
-  3. Si la página pide algo a la persona, o para seguir sus
-     anotaciones, espera con `visor events --wait 300`.
-  4. Con un evento "annotation": lee la conversación con `visor notes`,
-     responde con `visor notes reply <id> <texto>` y vuelve a esperar.
+TYPICAL AGENT WORKFLOW
+  1. Write or edit the HTML in the vault.
+  2. `visor open <file>` to show it and see its errors; if there are any,
+     fix them and `visor reload`.
+  3. If the page asks the person for something, or to follow their
+     annotations, wait with `visor events --wait 300`.
+  4. With an "annotation" event: read the conversation with `visor notes`,
+     reply with `visor notes reply <id> <text>`, and wait again.
 
-ACTUALIZACIONES
-  visor busca una versión nueva al arrancar, como mucho una vez al día,
-  y la instala sola para el siguiente arranque. Se desactiva en Ajustes
-  (Ctrl+,). Un binario compilado con cargo no se toca.
+UPDATES
+  visor checks for a new version at startup, at most once a day, and
+  installs it by itself for the next start. It can be turned off in Settings
+  (Ctrl+,). A binary built with cargo is not touched.
 
-BUSCAR DESDE LA BARRA
-  Lo escrito en la barra (Ctrl+L) que no es una URL, una ruta de la
-  bóveda ni un dominio (como «example.com») se busca en el buscador
-  elegido en Ajustes (Ctrl+,): DuckDuckGo, el de partida, o Google. La
-  búsqueda se abre en la pestaña actual.
-  - Empezar por «?» fuerza la búsqueda: «? ondas» busca «ondas» aunque
-    parezca una ruta o una dirección.
-  - Una ruta mal escrita (con «/», como «estudio/fisica/ondas», o con
-    extensión, como «ondas.md») da error y no se busca, para no enviar
-    a un buscador el nombre de una nota por error.
+SEARCH FROM THE BAR
+  What is typed in the bar (Ctrl+L) that is not a URL, a vault path or a
+  domain (such as "example.com") is searched with the search engine chosen
+  in Settings (Ctrl+,): DuckDuckGo, the default, or Google. The search opens
+  in the current tab.
+  - Starting with "?" forces a search: "? ondas" searches for "ondas" even
+    if it looks like a path or an address.
+  - A mistyped path (with "/", such as "study/physics/waves", or with an
+    extension, such as "waves.md") is an error and is not searched, so the
+    name of a note is never sent to a search engine by mistake.
 
-ATAJOS EN LA APP
-  Ctrl+O  abrir carpeta      Ctrl+B  mostrar u ocultar el panel
-  Ctrl+R / F5  recargar
-  Ctrl+L  barra de direcciones: URL, dominio, ruta de la bóveda, ruta
-          absoluta o búsqueda. Escape sale de la barra (en una pestaña
-          vacía, la pestaña queda en blanco).
-  Ctrl+Shift+B  mostrar u ocultar la barra (empieza oculta; se
-          recuerda; Ctrl+L la muestra mientras escribes)
-  Ctrl+E  editar la nota .md o el dibujo abiertos, o volver a la vista
-  Ctrl+N  nueva nota en la carpeta de la actual
-  Ctrl+Shift+A  anotar un elemento o un punto
-  Ctrl+Shift+L  lista de anotaciones de la página (ambos botones, a la
-          derecha de las pestañas, solo en páginas de la bóveda)
-  Ctrl+T  pestaña nueva, con el cursor en la barra (o «+»)
-  Ctrl+W  cerrarla (o clic central)
-  Ctrl+Tab / Ctrl+Shift+Tab  pestaña siguiente / anterior
-  Ctrl+1 … Ctrl+8  pestaña número N del lado con foco; Ctrl+9, la última
-  Ctrl+| (o Ctrl+\)  dividir la ventana o volver a un lado
-  Ctrl+Alt+←  Ctrl+Alt+→  lado izquierdo o derecho
-  Ctrl++  Ctrl+-  Ctrl+0  aumentar, reducir o restablecer el tamaño (se
-          recuerda)
-  Ctrl+,  ajustes: tema, tamaño del texto, actualizaciones y buscador
-  Ctrl+K  lista de atajos. En un dibujo de Excalidraw, Ctrl+K sigue
-          siendo el enlace de Excalidraw.
-  Alt+←  atrás    Alt+→  adelante (también los botones laterales del
-          ratón)
+SHORTCUTS IN THE APP
+  Ctrl+O  open folder        Ctrl+B  show or hide the panel
+  Ctrl+R / F5  reload
+  Ctrl+L  address bar: URL, domain, vault path, absolute path or search.
+          Escape leaves the bar (in an empty tab, the tab stays blank).
+  Ctrl+Shift+B  show or hide the bar (starts hidden; remembered;
+          Ctrl+L shows it while you type)
+  Ctrl+E  edit the open .md note or drawing, or go back to the view
+  Ctrl+N  new note in the folder of the current one
+  Ctrl+Shift+A  annotate an element or a point
+  Ctrl+Shift+L  list of the page's annotations (both buttons, on the right
+          of the tabs, only on vault pages)
+  Ctrl+T  new tab, with the cursor in the bar (or "+")
+  Ctrl+W  close it (or middle click)
+  Ctrl+Tab / Ctrl+Shift+Tab  next / previous tab
+  Ctrl+1 … Ctrl+8  tab number N of the focused side; Ctrl+9, the last one
+  Ctrl+| (o Ctrl+\)  split the window or go back to one side
+  Ctrl+Alt+←  Ctrl+Alt+→  left or right side
+  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered)
+  Ctrl+,  settings: theme, text size, updates and search engine
+  Ctrl+K  list of shortcuts. In an Excalidraw drawing, Ctrl+K is still
+          Excalidraw's link.
+  Alt+←  back    Alt+→  forward (also the mouse side buttons)
   Panel:
-  - El divisor se arrastra y se recuerda. Ctrl+clic abre en una
-    pestaña nueva; Ctrl+Alt+clic, en el otro lado.
-  - Arrastrar un archivo a la mitad izquierda o derecha de la página
-    divide la ventana y lo abre en ese lado; con la ventana dividida,
-    lo abre en una pestaña nueva del lado donde se suelta.
-  - Clic derecho o Supr sobre un archivo o carpeta lo manda a la
-    papelera con sus anotaciones. Arrastrarlo a otra carpeta lo mueve;
-    soltarlo en el hueco libre, a la raíz. Al mover se actualizan los
-    enlaces de las notas .md, no los de las páginas HTML.
-  - Un archivo que visor no abre se puede abrir con otra aplicación,
-    desde el clic derecho o desde el aviso que sale al pulsarlo.
-  - El botón de carpeta, junto al «+», crea carpetas; el clic derecho
-    sobre una carpeta crea notas o carpetas dentro.
-  Cada bóveda recuerda sus pestañas y su división.
+  - The divider can be dragged and is remembered. Ctrl+click opens in a
+    new tab; Ctrl+Alt+click, on the other side.
+  - Dragging a file onto the left or right half of the page splits the
+    window and opens it on that side; with the window already split, it
+    opens in a new tab on the side where it is dropped.
+  - Right click or Del on a file or folder sends it to the trash with its
+    annotations. Dragging it to another folder moves it; dropping it on
+    the empty space moves it to the root. When moving, links in .md notes
+    are updated, not those in HTML pages.
+  - A file that visor does not open can be opened with another application,
+    from the right click or from the notice that appears when you click it.
+  - The folder button, next to the "+", creates folders; right click on a
+    folder creates notes or folders inside it.
+  Each vault remembers its tabs and its split.

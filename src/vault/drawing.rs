@@ -3,6 +3,8 @@
 //! is read and written by `page/drawing-format.js`, which `tools/excalidraw/test`
 //! covers.
 
+use crate::i18n::tr;
+use crate::trf;
 use crate::vault::{self, markdown::ASSETS};
 use serde_json::{Value, json};
 use std::{fs, fs::OpenOptions, io::ErrorKind, path::Path};
@@ -28,15 +30,18 @@ pub fn page(rel: &str) -> String {
     let title = Path::new(rel).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     // The script tags carry the folder and file names: a `<` in them must not end the script.
     let escape = |json: String| json.replace('<', "\\u003c");
+    let script = SCRIPT.replace("__VISOR_LANG__", crate::i18n::lang().code());
     format!(
-        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
 <title>{title}</title>\
 <link rel=\"stylesheet\" href=\"{assets}excalidraw/excalidraw.css\"><style>{STYLE}</style></head><body>\
 <div id=\"dibujo\"></div><div id=\"status\" role=\"status\" data-visor-skip></div>\
 <script>window.EXCALIDRAW_ASSET_PATH = {fonts};window.__visorDrawingConfig = {config};</script>\
 <script src=\"{assets}excalidraw/excalidraw.min.js\"></script>\
-<script>{FORMAT}</script><script>{SCRIPT}</script></body></html>",
+<script>{FORMAT}</script><script>{script}</script></body></html>",
+        lang = crate::i18n::lang().code(),
+        script = script,
         title = crate::vault::markdown::escape(&title),
         config = escape(config),
         fonts = escape(fonts),
@@ -85,10 +90,10 @@ fn stem_of(drawing: &Path) -> String {
 /// is reserved with `create_new` first, so an existing file is never replaced.
 pub fn save_image(drawing: &Path, stamp: &str, bytes: &[u8]) -> Result<String, String> {
     if bytes.len() > MAX_IMAGE {
-        return Err("La imagen pesa más de 10 MB.".into());
+        return Err(tr("La imagen pesa más de 10 MB.", "The image is over 10 MB.").into());
     }
-    let ext = image_extension(bytes).ok_or("Solo se pueden añadir imágenes PNG, JPEG, WebP o GIF.")?;
-    let dir = drawing.parent().ok_or("El dibujo no está en una carpeta.")?;
+    let ext = image_extension(bytes).ok_or(tr("Solo se pueden añadir imágenes PNG, JPEG, WebP o GIF.", "Only PNG, JPEG, WebP or GIF images can be added."))?;
+    let dir = drawing.parent().ok_or(tr("El dibujo no está en una carpeta.", "The drawing is not in a folder."))?;
     let base = format!("{} {stamp}", stem_of(drawing));
     let mut n = 1;
     loop {
@@ -99,12 +104,12 @@ pub fn save_image(drawing: &Path, stamp: &str, bytes: &[u8]) -> Result<String, S
                 // The empty reservation is ours: removing it is not removing a file of the vault.
                 if let Err(e) = vault::write_atomic(&path, bytes) {
                     let _ = fs::remove_file(&path);
-                    return Err(format!("No se pudo guardar la imagen: {e}"));
+                    return Err(trf!("No se pudo guardar la imagen: {e}", "Could not save the image: {e}"));
                 }
                 return Ok(name);
             }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => n += 1,
-            Err(e) => return Err(format!("No se pudo crear la imagen: {e}")),
+            Err(e) => return Err(trf!("No se pudo crear la imagen: {e}", "Could not create the image: {e}")),
         }
     }
 }

@@ -111,6 +111,8 @@ pub enum Action {
     FocusSide(usize),
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
     SetTheme(Option<String>),
+    /// The language chosen in the settings: "es", "en", or `None` for the system's.
+    SetLanguage(Option<String>),
     SetAutoUpdate(bool),
     SetShowOtherFiles(bool),
     /// The engine for text in the address field that is not an address.

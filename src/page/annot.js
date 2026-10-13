@@ -3,6 +3,7 @@
 // CSS Custom Highlight API; markers, toolbars and dialogs live in a shadow root
 // attached to <html>, outside <body>, so the page's own text never includes them.
 (() => {
+  const tr = (es, en) => ("__VISOR_LANG__" === "en" ? en : es);
   const BASE = "__VISOR_BASE__";
   if (window.top !== window || window.__visorAnnot || !location.href.startsWith(BASE)) return;
 
@@ -14,6 +15,7 @@
   const storeUrl = BASE + ".visor/anotaciones/" + page.split("/").map(encodeURIComponent).join("/") + ".json";
   const send = (m) => window.__visorPost(m);
   const COLORS = { amarillo: "#f2c94c", verde: "#6fcf97", azul: "#56a0f5", rosa: "#f28bb0" };
+  const COLOR_NAMES = { amarillo: tr("amarillo", "yellow"), verde: tr("verde", "green"), azul: tr("azul", "blue"), rosa: tr("rosa", "pink") };
   const SKIP = "script,style,noscript,textarea,template,[data-visor-skip]";
   const CONTEXT = 32;
 
@@ -174,21 +176,21 @@
 
   // What a person would call the element, never its tag name.
   function kindOf(tag, el) {
-    if (el?.closest?.("table")) return "Tabla";
-    if (el?.closest?.("pre")) return "Código";
-    if (el?.closest?.(".katex,math,mjx-container")) return "Fórmula";
-    if (el instanceof SVGElement) return outerSvg(el).getAttribute("role") === "img" ? "Imagen" : "Diagrama";
+    if (el?.closest?.("table")) return tr("Tabla", "Table");
+    if (el?.closest?.("pre")) return tr("Código", "Code");
+    if (el?.closest?.(".katex,math,mjx-container")) return tr("Fórmula", "Formula");
+    if (el instanceof SVGElement) return outerSvg(el).getAttribute("role") === "img" ? tr("Imagen", "Image") : tr("Diagrama", "Diagram");
     const kinds = {
-      img: "Imagen", picture: "Imagen", figure: "Figura", canvas: "Diagrama", svg: "Diagrama",
-      video: "Vídeo", audio: "Audio", iframe: "Contenido incrustado", embed: "Contenido incrustado", object: "Contenido incrustado",
-      table: "Tabla", caption: "Tabla", thead: "Tabla", tbody: "Tabla", tr: "Tabla", td: "Tabla", th: "Tabla",
-      pre: "Código", code: "Código", math: "Fórmula",
-      ul: "Lista", ol: "Lista", li: "Lista", dl: "Lista",
-      p: "Párrafo", blockquote: "Cita", a: "Enlace",
-      button: "Control", input: "Control", select: "Control", textarea: "Control", label: "Control",
-      h1: "Encabezado", h2: "Encabezado", h3: "Encabezado", h4: "Encabezado", h5: "Encabezado", h6: "Encabezado",
+      img: tr("Imagen", "Image"), picture: tr("Imagen", "Image"), figure: tr("Figura", "Figure"), canvas: tr("Diagrama", "Diagram"), svg: tr("Diagrama", "Diagram"),
+      video: tr("Vídeo", "Video"), audio: tr("Audio", "Audio"), iframe: tr("Contenido incrustado", "Embedded content"), embed: tr("Contenido incrustado", "Embedded content"), object: tr("Contenido incrustado", "Embedded content"),
+      table: tr("Tabla", "Table"), caption: tr("Tabla", "Table"), thead: tr("Tabla", "Table"), tbody: tr("Tabla", "Table"), tr: tr("Tabla", "Table"), td: tr("Tabla", "Table"), th: tr("Tabla", "Table"),
+      pre: tr("Código", "Code"), code: tr("Código", "Code"), math: tr("Fórmula", "Formula"),
+      ul: tr("Lista", "List"), ol: tr("Lista", "List"), li: tr("Lista", "List"), dl: tr("Lista", "List"),
+      p: tr("Párrafo", "Paragraph"), blockquote: tr("Cita", "Quote"), a: tr("Enlace", "Link"),
+      button: tr("Control", "Control"), input: tr("Control", "Control"), select: tr("Control", "Control"), textarea: tr("Control", "Control"), label: tr("Control", "Control"),
+      h1: tr("Encabezado", "Heading"), h2: tr("Encabezado", "Heading"), h3: tr("Encabezado", "Heading"), h4: tr("Encabezado", "Heading"), h5: tr("Encabezado", "Heading"), h6: tr("Encabezado", "Heading"),
     };
-    return kinds[tag] || "Elemento";
+    return kinds[tag] || tr("Elemento", "Element");
   }
 
   function outerSvg(el) {
@@ -223,9 +225,9 @@
     const caption = el.closest("figure")?.querySelector("figcaption") || el.closest("table")?.caption;
     if (caption && clean(caption.textContent)) return clip(clean(caption.textContent));
     const kind = kindOf(el.tagName.toLowerCase(), el);
-    if (kind === "Encabezado") return clip(`Encabezado “${clean(el.textContent)}”`);
+    if (kind === tr("Encabezado", "Heading")) return clip(tr(`Encabezado “${clean(el.textContent)}”`, `Heading “${clean(el.textContent)}”`));
     const section = sectionOf(el);
-    return clip(section ? `${kind} en “${section}”` : kind);
+    return clip(section ? tr(`${kind} en “${section}”`, `${kind} in “${section}”`) : kind);
   }
 
   // Title of an element note: the saved one, or for notes saved before titles
@@ -444,12 +446,12 @@
 
   function placePin(note, cls, left, top) {
     const color = COLORS[note.color] || COLORS.amarillo;
-    const title = note.comment || note.title || "Anotación";
+    const title = note.comment || note.title || tr("Anotación", "Annotation");
     let pin = pins.get(note.id);
     if (!pin) {
       const button = document.createElement("button");
       button.style.color = "#222";
-      button.setAttribute("aria-label", "Abrir anotación");
+      button.setAttribute("aria-label", tr("Abrir anotación", "Open annotation"));
       const id = note.id;
       // Looked up at click time: a save or a reload replaces the note objects.
       button.onclick = (e) => {
@@ -473,7 +475,7 @@
     if (pin.title !== title) {
       button.title = title;
       // One name per marker: a page full of "Abrir anotación" tells a screen reader nothing.
-      button.setAttribute("aria-label", "Abrir anotación: " + cut(title, 80));
+      button.setAttribute("aria-label", tr("Abrir anotación: ", "Open annotation: ") + cut(title, 80));
       pin.title = title;
     }
   }
@@ -484,8 +486,8 @@
   // The last save failed: the text in the popover exists nowhere else.
   let failedSave = false;
   const MAX_COMMENT = 20000;
-  const UNSAVED = "Tienes texto sin guardar. ";
-  const ESCAPE_AGAIN = "Pulsa Guardar para conservarlo, o Escape otra vez para descartarlo.";
+  const UNSAVED = tr("Tienes texto sin guardar. ", "You have unsaved text. ");
+  const ESCAPE_AGAIN = tr("Pulsa Guardar para conservarlo, o Escape otra vez para descartarlo.", "Press Save to keep it, or Escape again to discard it.");
   // A new note that was never saved goes with its popover, whatever closed it.
   // Look it up in `notes`: after saving, `popNote` is still the unsaved copy.
   function closePop() {
@@ -497,7 +499,7 @@
 
   // Closing throws the typed text away, so the first try only warns when there is
   // text to lose. The second try always goes through.
-  function closePopSafely(discard = closePop, again = "Pulsa Guardar para conservarlo, o repite lo que ibas a hacer para descartarlo.") {
+  function closePopSafely(discard = closePop, again = tr("Pulsa Guardar para conservarlo, o repite lo que ibas a hacer para descartarlo.", "Press Save to keep it, or repeat what you were doing to discard it.")) {
     if (!pop) return true;
     if (hasUnsaved() && !warned) {
       warned = true;
@@ -552,7 +554,7 @@
     popNote = note;
     pop.className = "card pop";
     pop.setAttribute("role", "dialog");
-    pop.setAttribute("aria-label", "Anotación");
+    pop.setAttribute("aria-label", tr("Anotación", "Annotation"));
     const header = document.createElement("header");
     let name = null;
     if (note.target.kind === "text") {
@@ -569,9 +571,9 @@
       name.className = "name";
       name.maxLength = TITLE_MAX;
       name.value = titleOf(note);
-      name.placeholder = "Título";
-      name.setAttribute("aria-label", "Título de la anotación");
-      name.title = "Título de la anotación. Haz clic para cambiarlo.";
+      name.placeholder = tr("Título", "Title");
+      name.setAttribute("aria-label", tr("Título de la anotación", "Annotation title"));
+      name.title = tr("Título de la anotación. Haz clic para cambiarlo.", "Annotation title. Click to change it.");
       name.addEventListener("keydown", (e) => {
         // Stopped here: the handler of the whole popover would take this Enter as "save".
         if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); area.focus(); }
@@ -582,13 +584,13 @@
     const swatches = document.createElement("div");
     swatches.className = "swatches";
     swatches.setAttribute("role", "group");
-    swatches.setAttribute("aria-label", "Color");
+    swatches.setAttribute("aria-label", tr("Color", "Color"));
     for (const [cname, value] of Object.entries(COLORS)) {
       const sw = document.createElement("button");
       sw.className = "swatch";
       sw.style.backgroundColor = value;
-      sw.title = cname;
-      sw.setAttribute("aria-label", "Color " + cname);
+      sw.title = COLOR_NAMES[cname];
+      sw.setAttribute("aria-label", "Color " + COLOR_NAMES[cname]);
       sw.setAttribute("aria-pressed", String(cname === color));
       sw.onclick = () => {
         color = cname;
@@ -598,18 +600,18 @@
     }
     header.append(swatches);
     const area = document.createElement("textarea");
-    area.placeholder = "Escribe una nota…";
+    area.placeholder = tr("Escribe una nota…", "Write a note…");
     area.value = note.comment || "";
     area.maxLength = MAX_COMMENT;
-    area.setAttribute("aria-label", "Comentario");
+    area.setAttribute("aria-label", tr("Comentario", "Comment"));
     pop.append(header, area);
     const list = document.createElement("div");
     list.className = "replies";
     const form = document.createElement("div");
     form.className = "reply-form";
     const box = document.createElement("textarea");
-    box.placeholder = "Escribe una respuesta…";
-    box.setAttribute("aria-label", "Respuesta");
+    box.placeholder = tr("Escribe una respuesta…", "Write a reply…");
+    box.setAttribute("aria-label", tr("Respuesta", "Reply"));
     box.maxLength = MAX_COMMENT;
     const err = document.createElement("p");
     err.className = "reply-err";
@@ -619,8 +621,8 @@
     const answer = document.createElement("button");
     answer.className = "send";
     answer.type = "button";
-    answer.title = "Enviar respuesta (Enter)";
-    answer.setAttribute("aria-label", "Enviar respuesta");
+    answer.title = tr("Enviar respuesta (Enter)", "Send reply (Enter)");
+    answer.setAttribute("aria-label", tr("Enviar respuesta", "Send reply"));
     answer.innerHTML = SEND;
     answer.onclick = sendReply;
     field.append(box, answer);
@@ -631,7 +633,7 @@
     box.addEventListener("input", markFilled);
     area.addEventListener("input", hideWarn);
     // After hideWarn, which clears the line this one writes. The field stops at the limit, so say so.
-    const full = "Has llegado al máximo de 20 000 caracteres. No cabe más texto.";
+    const full = tr("Has llegado al máximo de 20 000 caracteres. No cabe más texto.", "You have reached the limit of 20,000 characters. No more text fits.");
     area.addEventListener("input", () => { if (area.value.length >= MAX_COMMENT) conv.warn.textContent = full; });
     box.addEventListener("input", () => { if (box.value.length >= MAX_COMMENT) err.textContent = full; else if (err.textContent === full) err.textContent = ""; });
     const warn = document.createElement("p");
@@ -645,14 +647,14 @@
     actions.className = "actions";
     const del = document.createElement("button");
     del.className = "danger";
-    del.textContent = "Eliminar";
+    del.textContent = tr("Eliminar", "Delete");
     del.onclick = () => { remove(note.id); closePop(); };
     const cancel = document.createElement("button");
-    cancel.textContent = "Cancelar";
+    cancel.textContent = tr("Cancelar", "Cancel");
     cancel.onclick = closePop;
     const ok = document.createElement("button");
     ok.className = "primary";
-    ok.textContent = "Guardar";
+    ok.textContent = tr("Guardar", "Save");
     ok.onclick = () => {
       const changed = { ...note, color, comment: area.value };
       if (name) changed.title = clip(clean(name.value)) || titleOf({ ...note, title: "" });
@@ -683,7 +685,7 @@
     const item = document.createElement("div");
     item.className = r.author === "agente" ? "reply" : "reply tu";
     const who = document.createElement("b");
-    who.textContent = r.author === "agente" ? "Agente" : "Tú";
+    who.textContent = r.author === "agente" ? tr("Agente", "Agent") : tr("Tú", "You");
     item.append(who, document.createTextNode(r.text));
     return item;
   }
@@ -792,11 +794,11 @@
       paint();
       openNote(mine, !job.before);
       failedSave = true;
-      conv.warn.textContent = `No se pudo guardar: ${sentence(error)} Tu texto sigue aquí; pulsa Guardar para intentarlo otra vez.`;
+      conv.warn.textContent = tr(`No se pudo guardar: ${sentence(error)} Tu texto sigue aquí; pulsa Guardar para intentarlo otra vez.`, `Could not save: ${sentence(error)} Your text is still here; press Save to try again.`);
       return;
     }
     if (!job?.before) dropLocal(id); else paint();
-    showToast(`No se pudo guardar la anotación. ${sentence(error)}`);
+    showToast(tr(`No se pudo guardar la anotación. ${sentence(error)}`, `Could not save the annotation. ${sentence(error)}`));
   }
 
   function deleteFailed(id, error) {
@@ -806,7 +808,7 @@
       notes.push(note);
       resolve();
     }
-    showToast(`No se pudo borrar la anotación. ${sentence(error)} Sigue en la página.`);
+    showToast(tr(`No se pudo borrar la anotación. ${sentence(error)} Sigue en la página.`, `Could not delete the annotation. ${sentence(error)} It is still on the page.`));
   }
 
   // An error that does not belong to an open popover. It stays until dismissed.
@@ -821,7 +823,7 @@
     const message = document.createElement("span");
     message.textContent = text;
     const close = document.createElement("button");
-    close.textContent = "Cerrar";
+    close.textContent = tr("Cerrar", "Close");
     close.onclick = closeToast;
     toast.append(message, close);
     ui.append(toast);
@@ -848,7 +850,7 @@
     toolbar = document.createElement("div");
     toolbar.className = "card toolbar";
     toolbar.setAttribute("role", "toolbar");
-    toolbar.setAttribute("aria-label", "Anotar selección");
+    toolbar.setAttribute("aria-label", tr("Anotar selección", "Annotate selection"));
     const make = (color, comment) => {
       // Before the note exists: a refused popover must not leave an unsaved note behind.
       if (comment && !closePopSafely()) return;
@@ -870,8 +872,8 @@
     for (const [name, value] of Object.entries(COLORS)) {
       const b = document.createElement("button");
       b.className = "dot";
-      b.title = "Resaltar en " + name;
-      b.setAttribute("aria-label", "Resaltar en " + name);
+      b.title = tr("Resaltar en ", "Highlight in ") + COLOR_NAMES[name];
+      b.setAttribute("aria-label", tr("Resaltar en ", "Highlight in ") + COLOR_NAMES[name]);
       const swatch = document.createElement("span");
       swatch.style.background = value;
       b.append(swatch);
@@ -881,7 +883,7 @@
     }
     const c = document.createElement("button");
     c.className = "text";
-    c.textContent = "Comentar";
+    c.textContent = tr("Comentar", "Comment");
     c.onmousedown = (e) => e.preventDefault();
     c.onclick = () => make("amarillo", true);
     toolbar.append(c);
@@ -963,7 +965,7 @@
     banner = document.createElement("div");
     banner.className = "card banner";
     banner.setAttribute("role", "status");
-    banner.textContent = "Haz clic en un elemento o en un punto para anotarlo. Escape para salir.";
+    banner.textContent = tr("Haz clic en un elemento o en un punto para anotarlo. Escape para salir.", "Click an element or a point to annotate it. Escape to exit.");
     ui.append(hover, banner);
     document.documentElement.style.cursor = "crosshair";
     addEventListener("mousemove", onPickMove, true);
@@ -998,13 +1000,13 @@
     ensureHost();
     panel = document.createElement("aside");
     panel.className = "card panel";
-    panel.setAttribute("aria-label", "Anotaciones de la página");
+    panel.setAttribute("aria-label", tr("Anotaciones de la página", "Page annotations"));
     const header = document.createElement("header");
     const h = document.createElement("span");
-    h.textContent = `Anotaciones (${notes.length})`;
+    h.textContent = tr(`Anotaciones (${notes.length})`, `Annotations (${notes.length})`);
     const close = document.createElement("button");
     close.textContent = "×";
-    close.setAttribute("aria-label", "Cerrar");
+    close.setAttribute("aria-label", tr("Cerrar", "Close"));
     close.style.cssText = "font-size:18px;width:28px;height:28px";
     close.onclick = closePanel;
     header.append(h, close);
@@ -1012,7 +1014,7 @@
     if (!notes.length) {
       const p = document.createElement("p");
       p.className = "empty";
-      p.textContent = "Todavía no hay anotaciones. Selecciona texto o pulsa Ctrl+Shift+A para anotar un elemento.";
+      p.textContent = tr("Todavía no hay anotaciones. Selecciona texto o pulsa Ctrl+Shift+A para anotar un elemento.", "No annotations yet. Select text or press Ctrl+Shift+A to annotate an element.");
       panel.append(p);
     }
     const list = document.createElement("ul");
@@ -1034,8 +1036,10 @@
       const meta = document.createElement("small");
       const n = note.replies?.length || 0;
       meta.textContent = [
-        anchors.has(note.id) ? "" : `Ya no se encuentra en la página: ${note.target.kind === "text" ? "el texto" : "el elemento"} cambió o se borró.`,
-        n ? `${n} respuesta${n > 1 ? "s" : ""}` : "",
+        anchors.has(note.id) ? "" : note.target.kind === "text"
+          ? tr("Ya no se encuentra en la página: el texto cambió o se borró.", "It is no longer on the page: the text changed or was deleted.")
+          : tr("Ya no se encuentra en la página: el elemento cambió o se borró.", "It is no longer on the page: the element changed or was deleted."),
+        n ? tr(`${n} respuesta${n > 1 ? "s" : ""}`, `${n} ${n > 1 ? "replies" : "reply"}`) : "",
       ].filter(Boolean).join(" · ");
       if (!anchors.has(note.id)) meta.className = "orphan";
       b.append(meta);
@@ -1125,7 +1129,7 @@
     reload: load,
     replyFailed,
     // Ctrl+E asks before it reloads the page away from an open popover with unsaved text.
-    leaveOk: () => closePopSafely(() => {}, "Pulsa Ctrl+E otra vez para abrir el editor y descartarlo."),
+    leaveOk: () => closePopSafely(() => {}, tr("Pulsa Ctrl+E otra vez para abrir el editor y descartarlo.", "Press Ctrl+E again to open the editor and discard it.")),
     saveFailed,
     deleteFailed,
   });

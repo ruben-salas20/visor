@@ -4,6 +4,8 @@
 //! Each annotation is a conversation: the person's comment, then `replies`
 //! from either side, in order. Messages are only ever added.
 
+use crate::i18n::tr;
+use crate::trf;
 use serde_json::{Value, json};
 use std::fs;
 use std::io;
@@ -39,10 +41,14 @@ fn load(root: &Path, page: &str) -> Result<Value, String> {
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(json!({ "page": page, "annotations": [] })),
-        Err(e) => return Err(format!("No se pueden leer las anotaciones de {page}: {e}")),
+        Err(e) => return Err(trf!("No se pueden leer las anotaciones de {page}: {e}", "Cannot read the annotations of {page}: {e}")),
     };
     serde_json::from_slice::<Value>(&bytes).ok().filter(|doc| doc["annotations"].is_array()).ok_or_else(|| {
-        format!("El archivo de anotaciones de {page} no se puede leer y no se ha tocado. Corrígelo o bórralo: {}", path.display())
+        trf!(
+            "El archivo de anotaciones de {page} no se puede leer y no se ha tocado. Corrígelo o bórralo: {}",
+            "The annotation file of {page} cannot be read and was not changed. Fix it or delete it: {}",
+            path.display()
+        )
     })
 }
 
@@ -71,10 +77,10 @@ fn title(value: &Value) -> Result<Option<String>, String> {
     if value.is_null() {
         return Ok(None);
     }
-    let s = value.as_str().ok_or("El título no es texto")?;
+    let s = value.as_str().ok_or(tr("El título no es texto", "The title is not text"))?;
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if s.chars().count() > MAX_TITLE {
-        return Err("Título demasiado largo".into());
+        return Err(tr("Título demasiado largo", "Title too long").into());
     }
     Ok((!s.is_empty()).then_some(s))
 }
@@ -92,17 +98,17 @@ fn set_title(note: &mut Value, title: Option<String>) {
 /// when the comment is new or changed and not blank, which agents must hear about.
 pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String> {
     let id = incoming["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-    let id = id.ok_or("Anotación sin id válido")?;
+    let id = id.ok_or(tr("Anotación sin id válido", "Annotation without a valid id"))?;
     let kind = incoming["target"]["kind"].as_str();
     if !matches!(kind, Some("text" | "element")) {
-        return Err("Tipo de anotación desconocido".into());
+        return Err(tr("Tipo de anotación desconocido", "Unknown annotation type").into());
     }
     let color = incoming["color"].as_str().filter(|c| COLORS.contains(c)).unwrap_or("amarillo");
-    let comment = text(&incoming["comment"]).ok_or("El comentario pasa de 20 000 caracteres.")?;
+    let comment = text(&incoming["comment"]).ok_or(tr("El comentario pasa de 20 000 caracteres.", "The comment is over 20,000 characters."))?;
     let title = title(&incoming["title"])?;
     let target = incoming["target"].clone();
     if target.to_string().len() > MAX_TEXT {
-        return Err("Ancla demasiado grande".into());
+        return Err(tr("Ancla demasiado grande", "Anchor too large").into());
     }
 
     let _guard = LOCK.lock().unwrap();
@@ -141,14 +147,17 @@ pub fn upsert(root: &Path, page: &str, incoming: &Value) -> Result<bool, String>
 /// Appends one message to an annotation's conversation. Nothing else changes.
 fn add_message(note: &mut Value, author: &str, text: &str) -> Result<(), String> {
     if text.trim().is_empty() || text.chars().count() > MAX_TEXT {
-        return Err("La respuesta está vacía o es demasiado larga.".into());
+        return Err(tr("La respuesta está vacía o es demasiado larga.", "The reply is empty or too long.").into());
     }
     if !note["replies"].is_array() {
         note["replies"] = json!([]);
     }
     let replies = note["replies"].as_array_mut().unwrap();
     if replies.len() >= MAX_REPLIES {
-        return Err(format!("La anotación ya tiene {MAX_REPLIES} mensajes y no admite más."));
+        return Err(trf!(
+            "La anotación ya tiene {MAX_REPLIES} mensajes y no admite más.",
+            "The annotation already has {MAX_REPLIES} messages and takes no more."
+        ));
     }
     replies.push(json!({ "author": author, "text": text, "created": crate::session::now() }));
     Ok(())
@@ -160,7 +169,7 @@ pub fn person_reply(root: &Path, page: &str, id: &str, text: &str) -> Result<(),
     let _guard = LOCK.lock().unwrap();
     let mut doc = load(root, page)?;
     let note = doc["annotations"].as_array_mut().unwrap().iter_mut().find(|a| a["id"] == id);
-    let note = note.ok_or_else(|| format!("No hay ninguna anotación con id {id}"))?;
+    let note = note.ok_or_else(|| trf!("No hay ninguna anotación con id {id}", "There is no annotation with id {id}"))?;
     add_message(note, "persona", text)?;
     store(root, page, &doc).map_err(|e| e.to_string())
 }
@@ -235,7 +244,7 @@ pub fn reply(root: &Path, id: &str, reply: &str) -> Result<String, String> {
         store(root, &page, &doc).map_err(|e| e.to_string())?;
         return Ok(page);
     }
-    Err(unreadable.unwrap_or_else(|| format!("No hay ninguna anotación con id {id}")))
+    Err(unreadable.unwrap_or_else(|| trf!("No hay ninguna anotación con id {id}", "There is no annotation with id {id}")))
 }
 
 #[cfg(test)]

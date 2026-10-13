@@ -1,6 +1,7 @@
 //! The webview of one page: what it may navigate to, how it reports focus,
 //! fullscreen and mouse buttons, and the scripts injected into it.
 
+use crate::i18n::tr;
 use crate::ui::action::{Action, LoadFailure, UserEvent};
 use crate::vault;
 use gtk::prelude::*;
@@ -42,7 +43,7 @@ pub fn host_of(url: &str) -> String {
     let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     let host = host.split(':').next().unwrap_or_default().to_ascii_lowercase();
     let plain = !host.is_empty() && host.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'.' || c == b'-');
-    if plain { host } else { "otro sitio".to_string() }
+    if plain { host } else { tr("otro sitio", "another site").to_string() }
 }
 
 /// Sends a failed resource of a page view to the app. Only web addresses
@@ -67,7 +68,7 @@ pub fn build_page(
 ) -> wry::Result<(WebView, Document)> {
     // A key only visor's scripts in the main frame know: wry injects them there
     // alone, while any frame can post to the handler.
-    let key = crate::http::secret().ok_or_else(|| wry::Error::Io(std::io::Error::other("sin números aleatorios")))?;
+    let key = crate::http::secret().ok_or_else(|| wry::Error::Io(std::io::Error::other(tr("sin números aleatorios", "no random numbers"))))?;
     // The document that was loaded, set when it commits. The webview's own
     // address follows history.pushState and pending loads, so it cannot say
     // which page sent a message.
@@ -82,9 +83,14 @@ pub fn build_page(
             BRIDGE
                 .replace("__VISOR_BASE__", vault::base())
                 .replace("__VISOR_LOOSE_BASE__", vault::loose_base())
-                .replace("__VISOR_KEY__", &key),
+                .replace("__VISOR_KEY__", &key)
+                .replace("__VISOR_LANG__", crate::i18n::lang().code()),
         )
-        .with_initialization_script(ANNOT.replace("__VISOR_BASE__", vault::base()))
+        .with_initialization_script(
+            ANNOT
+                .replace("__VISOR_BASE__", vault::base())
+                .replace("__VISOR_LANG__", crate::i18n::lang().code()),
+        )
         .with_ipc_handler(move |request: Request<String>| {
             let url = sender.borrow().clone();
             if let Some(body) = accept(request.body(), &key, &url) {

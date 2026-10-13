@@ -4,6 +4,8 @@
 //! the other side of a different build (a long-lived `visor mcp` outlives updates).
 pub mod tools;
 
+use crate::i18n::tr;
+use crate::trf;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -100,20 +102,23 @@ impl Command {
         let value = |name: &str| -> Result<Option<&str>, String> {
             match rest.iter().position(|a| a == name) {
                 None => Ok(None),
-                Some(i) => rest.get(i + 1).map(|v| Some(v.as_str())).ok_or_else(|| format!("{name} necesita un número.")),
+                Some(i) => rest.get(i + 1).map(|v| Some(v.as_str())).ok_or_else(|| trf!("{name} necesita un número.", "{name} needs a number.")),
             }
         };
         let count = |name: &str| -> Result<Option<u64>, String> {
             value(name)?
-                .map(|v| v.parse().map_err(|_| format!("{name} necesita un número.")))
+                .map(|v| v.parse().map_err(|_| trf!("{name} necesita un número.", "{name} needs a number.")))
                 .transpose()
         };
         match cmd {
             "open" => {
-                let usage = "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]";
+                let usage = tr(
+                    "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]",
+                    "Usage: visor open <folder, file or URL> [--tab | --beside]",
+                );
                 let raw = rest.iter().find(|a| !a.starts_with("--")).ok_or(usage)?;
                 if let Some(unknown) = rest.iter().find(|a| a.starts_with("--") && *a != "--tab" && *a != "--beside") {
-                    return Err(format!("Opción desconocida: {unknown}. {usage}"));
+                    return Err(trf!("Opción desconocida: {unknown}. {usage}", "Unknown option: {unknown}. {usage}"));
                 }
                 let place = if flag("--beside") {
                     Some(OpenPlace::Beside)
@@ -130,9 +135,9 @@ impl Command {
                 Ok(Self::Open { target, place })
             }
             "close" => {
-                let usage = "Uso: visor close [<ruta>]";
+                let usage = tr("Uso: visor close [<ruta>]", "Usage: visor close [<path>]");
                 if let Some(unknown) = rest.iter().find(|a| a.starts_with("--")) {
-                    return Err(format!("Opción desconocida: {unknown}. {usage}"));
+                    return Err(trf!("Opción desconocida: {unknown}. {usage}", "Unknown option: {unknown}. {usage}"));
                 }
                 match rest {
                     [] => Ok(Self::Close { target: None }),
@@ -144,9 +149,9 @@ impl Command {
             "reload" => Ok(Self::Reload),
             "update" => Ok(Self::Update),
             "screenshot" => {
-                let usage = "Uso: visor screenshot <archivo.png>";
+                let usage = tr("Uso: visor screenshot <archivo.png>", "Usage: visor screenshot <file.png>");
                 if let Some(unknown) = rest.iter().find(|a| a.starts_with("--")) {
-                    return Err(format!("Opción desconocida: {unknown}. {usage}"));
+                    return Err(trf!("Opción desconocida: {unknown}. {usage}", "Unknown option: {unknown}. {usage}"));
                 }
                 match rest {
                     [raw] => Ok(Self::Screenshot { target: Page::resolve(raw, Some(&cwd()?)) }),
@@ -155,7 +160,7 @@ impl Command {
             }
             "eval" => {
                 if rest.is_empty() {
-                    return Err("Uso: visor eval <js>".into());
+                    return Err(tr("Uso: visor eval <js>", "Usage: visor eval <js>").into());
                 }
                 Ok(Self::Eval { code: rest.join(" ") })
             }
@@ -163,13 +168,13 @@ impl Command {
             "events" => {
                 let wait = value("--wait")?
                     .map(|v| v.parse::<f64>().ok().filter(|w| w.is_finite() && *w >= 0.0))
-                    .map(|w| w.ok_or("--wait necesita un número."))
+                    .map(|w| w.ok_or(tr("--wait necesita un número.", "--wait needs a number.")))
                     .transpose()?;
                 Ok(Self::Events { after: count("--after")?, wait, limit: count("--limit")? })
             }
             "notes" => match rest.first().map(String::as_str) {
                 Some("reply") => {
-                    let usage = "Uso: visor notes reply <id> <texto>";
+                    let usage = tr("Uso: visor notes reply <id> <texto>", "Usage: visor notes reply <id> <text>");
                     let id = rest.get(1).ok_or(usage)?;
                     let text = rest[2..].join(" ");
                     if text.is_empty() {
@@ -181,7 +186,7 @@ impl Command {
                 Some(raw) => Ok(Self::Notes { scope: NotesScope::Page(Page::resolve(raw, Some(&cwd()?))) }),
                 None => Ok(Self::Notes { scope: NotesScope::Current }),
             },
-            other => Err(format!("Comando desconocido: {other}. Usa `visor help`.")),
+            other => Err(trf!("Comando desconocido: {other}. Usa `visor help`.", "Unknown command: {other}. Use `visor help`.")),
         }
     }
 
@@ -199,7 +204,10 @@ impl Command {
             "notes" => &["page", "all"],
             "notes_reply" => &["id", "text"],
             "status" | "reload" | "update" | "guide" => &[],
-            _ => return Err(format!("Herramienta desconocida: {tool}. Usa tools/list para ver las disponibles.")),
+            _ => return Err(trf!(
+                "Herramienta desconocida: {tool}. Usa tools/list para ver las disponibles.",
+                "Unknown tool: {tool}. Use tools/list to see the available tools.",
+            )),
         };
         let args = Args::new(args, allowed)?;
         Ok(match tool {
@@ -232,7 +240,7 @@ impl Command {
             "notes" => {
                 let (page, all) = (args.string("page")?, args.boolean("all")?.unwrap_or(false));
                 match (page, all) {
-                    (Some(_), true) => return Err("Usa page o all, no los dos.".into()),
+                    (Some(_), true) => return Err(tr("Usa page o all, no los dos.", "Use page or all, not both.").into()),
                     (_, true) => Self::Notes { scope: NotesScope::All },
                     (Some(page), _) => Self::Notes { scope: NotesScope::Page(Page::absolute_only(page)) },
                     (None, _) => Self::Notes { scope: NotesScope::Current },
@@ -265,9 +273,11 @@ impl Command {
     pub fn from_wire(request: &Value) -> Result<Self, String> {
         let name = request["cmd"].as_str().unwrap_or("");
         if !WIRE_NAMES.contains(&name) {
-            return Err(format!("Comando desconocido: {name}"));
+            return Err(trf!("Comando desconocido: {name}", "Unknown command: {name}"));
         }
-        let invalid = |field: &str| format!("Petición no válida: el campo {field} no es válido.");
+        let invalid = |field: &str| {
+            trf!("Petición no válida: el campo {field} no es válido.", "Invalid request: field {field} is not valid.")
+        };
         let text = |field: &str| request[field].as_str().map(String::from).ok_or_else(|| invalid(field));
         let optional = |field: &str| match &request[field] {
             Value::Null => Ok(None),
@@ -403,20 +413,20 @@ struct Args<'a>(&'a serde_json::Map<String, Value>);
 impl<'a> Args<'a> {
     fn new(value: &'a Value, allowed: &[&str]) -> Result<Self, String> {
         let Some(map) = value.as_object() else {
-            return Err("Los argumentos deben ser un objeto.".into());
+            return Err(tr("Los argumentos deben ser un objeto.", "Arguments must be an object.").into());
         };
         if let Some(key) = map.keys().find(|k| !allowed.contains(&k.as_str())) {
-            return Err(format!("Argumento desconocido: {key}."));
+            return Err(trf!("Argumento desconocido: {key}.", "Unknown argument: {key}."));
         }
         Ok(Self(map))
     }
 
     fn require(&self, key: &str) -> Result<(), String> {
-        if self.0.contains_key(key) { Ok(()) } else { Err(format!("Falta el argumento obligatorio: {key}.")) }
+        if self.0.contains_key(key) { Ok(()) } else { Err(trf!("Falta el argumento obligatorio: {key}.", "Missing required argument: {key}.")) }
     }
 
     fn invalid(key: &str) -> String {
-        format!("El argumento {key} no es válido.")
+        trf!("El argumento {key} no es válido.", "Argument {key} is not valid.")
     }
 
     /// A non-empty string.

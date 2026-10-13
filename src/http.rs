@@ -2,7 +2,9 @@
 //! 127.0.0.2, over plain HTTP. WebKitGTK only plays video and offers Media
 //! Source to network origins, not to custom schemes.
 
+use crate::i18n::tr;
 use crate::session::SharedRef;
+use crate::trf;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -72,7 +74,7 @@ fn serve(server: Server, realm: Realm, host: String, prefix: String, shared: Sha
 
 fn serve_asset(request: Request, name: &str) {
     let Some((_, bytes, brotli)) = ASSETS.iter().find(|(n, _, _)| *n == name) else {
-        let _ = request.respond(text(404, "No encontrado"));
+        let _ = request.respond(text(404, tr("No encontrado", "Not found")));
         return;
     };
     let mut response = Response::from_data(*bytes)
@@ -112,13 +114,13 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     // A web page could point a hostname of its own at 127.0.0.1 (DNS rebinding);
     // the Host header still carries that hostname.
     if value("Host").as_deref() != Some(host) {
-        let _ = request.respond(text(403, "Prohibido"));
+        let _ = request.respond(text(403, tr("Prohibido", "Forbidden")));
         return;
     }
     let url = request.url().split('#').next().unwrap_or("").to_string();
     let (path, query) = url.split_once('?').unwrap_or((&url, ""));
     let Some(rel) = path.strip_prefix(prefix) else {
-        let _ = request.respond(text(404, "No encontrado"));
+        let _ = request.respond(text(404, tr("No encontrado", "Not found")));
         return;
     };
     if realm == Realm::Vault
@@ -130,7 +132,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     let rel = percent_encoding::percent_decode_str(rel).decode_utf8_lossy().into_owned();
     // Each origin serves only its own kind of page.
     if vault::is_loose(&rel) != (realm == Realm::Loose) {
-        let _ = request.respond(text(404, &format!("No existe: {rel}")));
+        let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
         return;
     }
     if realm == Realm::Loose {
@@ -141,17 +143,17 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
                 serve_file(request, &path, range);
             }
             None => {
-                let _ = request.respond(text(404, &format!("No existe: {rel}")));
+                let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
             }
         }
         return;
     }
     let Some(vault) = shared.lock().unwrap().vault.clone() else {
-        let _ = request.respond(text(404, "No hay ninguna bóveda abierta"));
+        let _ = request.respond(text(404, tr("No hay ninguna bóveda abierta", "No vault is open")));
         return;
     };
     let Some(path) = vault.resolve(&rel) else {
-        let _ = request.respond(text(404, &format!("No existe: {rel}")));
+        let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
         return;
     };
     // Notes are rendered unless the editor asks for the source with `?raw`,
@@ -163,7 +165,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
             let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
                 Some(url) => text(302, "").with_header(header("Location", &url)),
-                None => text(404, "No existe"),
+                None => text(404, tr("No existe", "Does not exist")),
             };
             let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
             return;
@@ -172,13 +174,13 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
             let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
                 Some(url) => text(200, &url),
-                None => text(404, "No existe"),
+                None => text(404, tr("No existe", "Does not exist")),
             };
             let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
             return;
         }
         let Ok(source) = std::fs::read_to_string(&path) else {
-            let _ = request.respond(text(500, "No se pudo leer la nota"));
+            let _ = request.respond(text(500, tr("No se pudo leer la nota", "Could not read the note")));
             return;
         };
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
@@ -210,7 +212,7 @@ fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
 
 fn serve_file(request: Request, path: &Path, range: Option<String>) {
     let Ok(mut file) = File::open(path) else {
-        let _ = request.respond(text(500, "No se pudo leer el archivo"));
+        let _ = request.respond(text(500, tr("No se pudo leer el archivo", "Could not read the file")));
         return;
     };
     let len = file.metadata().map_or(0, |m| m.len());
@@ -228,7 +230,7 @@ fn serve_file(request: Request, path: &Path, range: Option<String>) {
         None => (200, 0, len),
     };
     if file.seek(SeekFrom::Start(start)).is_err() {
-        let _ = request.respond(text(500, "No se pudo leer el archivo"));
+        let _ = request.respond(text(500, tr("No se pudo leer el archivo", "Could not read the file")));
         return;
     }
     let body = file.take(size);

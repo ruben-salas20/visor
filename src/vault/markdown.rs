@@ -1,6 +1,7 @@
 //! Turns a Markdown note into a full page: themed, with math, code highlighting,
 //! Mermaid diagrams and `[[wiki]]` links, plus the editor behind Ctrl+E.
 
+use crate::trf;
 use crate::vault::{
     self,
     front_matter::{self, Value},
@@ -165,7 +166,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
                     match wiki_target(dest_url, rel, index.pages()) {
                         Some(url) => *dest_url = url.into(),
                         None => {
-                            *title = CowStr::from(format!("Crear la nota «{dest_url}»"));
+                            *title = CowStr::from(trf!("Crear la nota «{}»", "Create the note «{}»", dest_url));
                             let new = format!("#visor-new:{}", utf8_percent_encode(dest_url, NON_ALPHANUMERIC));
                             *dest_url = new.into();
                         }
@@ -205,15 +206,17 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
     }
     let stem = Path::new(rel).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     let dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
-    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets });
+    let lang = crate::i18n::lang().code();
+    let script = SCRIPT.replace("__VISOR_LANG__", lang);
+    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets, "lang": lang });
     format!(
-        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
 <title>{title}</title><style>{STYLE}</style>{head}</head><body>\
 <main id=\"note\">{body}</main>\
 <div id=\"edit\" hidden data-visor-skip><div id=\"status\" role=\"status\"></div>\
 <div id=\"editor\"></div></div>\
-<script>window.__visorNoteConfig = {config};\n{SCRIPT}</script></body></html>",
+<script>window.__visorNoteConfig = {config};\n{script}</script></body></html>",
         title = escape(&title.unwrap_or(stem)),
     )
 }

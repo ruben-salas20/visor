@@ -10,6 +10,8 @@ pub mod markdown;
 #[cfg(test)]
 mod walk_tests;
 
+use crate::i18n::tr;
+use crate::trf;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -429,35 +431,35 @@ impl Vault {
         // is listed under: `a/../b` would resolve, but store them elsewhere.
         let rel = rel_from_url(url)
             .filter(|r| !is_loose(r) && !r.split('/').any(|seg| seg == "." || seg == ".."))
-            .ok_or("La página no es de la bóveda")?;
-        let (rel, path) = self.locate(&rel).ok_or("La página no existe en la bóveda")?;
+            .ok_or(tr("La página no es de la bóveda", "The page is not in the vault"))?;
+        let (rel, path) = self.locate(&rel).ok_or(tr("La página no existe en la bóveda", "The page does not exist in the vault"))?;
         Ok((rel, path))
     }
 
     /// Like [`Vault::page`], but only Markdown notes.
     pub fn note(&self, url: &str) -> Result<(String, PathBuf), String> {
         let (rel, path) = self.page(url)?;
-        if is_markdown(&path) { Ok((rel, path)) } else { Err("Solo se pueden guardar notas .md".into()) }
+        if is_markdown(&path) { Ok((rel, path)) } else { Err(tr("Solo se pueden guardar notas .md", "Only .md notes can be saved").into()) }
     }
 
     /// Like [`Vault::page`], but only drawings.
     pub fn drawing(&self, url: &str) -> Result<(String, PathBuf), String> {
         let (rel, path) = self.page(url)?;
-        if is_drawing(&path) { Ok((rel, path)) } else { Err("Solo se pueden guardar dibujos".into()) }
+        if is_drawing(&path) { Ok((rel, path)) } else { Err(tr("Solo se pueden guardar dibujos", "Only drawings can be saved").into()) }
     }
 
     /// A file or folder of the vault named by the panel, never the vault itself
     /// nor anything outside it or hidden.
     pub fn entry(&self, rel: &str) -> Result<PathBuf, String> {
         if rel.is_empty() || rel.split('/').any(|seg| seg.starts_with('.') || seg.is_empty()) {
-            return Err(format!("Ruta no válida: {rel}"));
+            return Err(trf!("Ruta no válida: {rel}", "Invalid path: {rel}"));
         }
         // The parent is canonicalized, not the item, so a link is moved and not its target.
         let path = self.root.join(rel);
-        let parent = path.parent().and_then(|p| p.canonicalize().ok()).ok_or_else(|| format!("No existe: {rel}"))?;
-        let path = parent.join(path.file_name().ok_or("Ruta no válida")?);
+        let parent = path.parent().and_then(|p| p.canonicalize().ok()).ok_or_else(|| trf!("No existe: {rel}", "Does not exist: {rel}"))?;
+        let path = parent.join(path.file_name().ok_or(tr("Ruta no válida", "Invalid path"))?);
         if !parent.starts_with(&self.root) || fs::symlink_metadata(&path).is_err() {
-            return Err(format!("No existe: {rel}"));
+            return Err(trf!("No existe: {rel}", "Does not exist: {rel}"));
         }
         Ok(path)
     }
@@ -465,21 +467,25 @@ impl Vault {
     /// A folder of the vault; the empty path is the vault itself.
     pub fn folder(&self, rel: &str) -> Result<PathBuf, String> {
         let dir = if rel.is_empty() { self.root.clone() } else { self.entry(rel)? };
-        if dir.is_dir() { Ok(dir) } else { Err(format!("No es una carpeta: {rel}")) }
+        if dir.is_dir() { Ok(dir) } else { Err(trf!("No es una carpeta: {rel}", "Not a folder: {rel}")) }
     }
 
     /// The vault folder `dir` and a checked `name` for something new inside it.
     pub fn new_in<'a>(&self, dir: &str, name: &'a str) -> Result<(PathBuf, &'a str), String> {
         let name = name.trim();
         if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) {
-            return Err("El nombre no puede estar vacío, empezar por punto ni contener «/».".into());
+            return Err(tr(
+                "El nombre no puede estar vacío, empezar por punto ni contener «/».",
+                "The name cannot be empty, start with a dot or contain «/».",
+            )
+            .into());
         }
         let folder = if dir.is_empty() {
             self.root.clone()
         } else {
-            let folder = self.root.join(dir).canonicalize().map_err(|_| format!("No existe la carpeta {dir}"))?;
+            let folder = self.root.join(dir).canonicalize().map_err(|_| trf!("No existe la carpeta {dir}", "The folder {dir} does not exist"))?;
             if !folder.starts_with(&self.root) {
-                return Err("La carpeta está fuera de la bóveda.".into());
+                return Err(tr("La carpeta está fuera de la bóveda.", "The folder is outside the vault.").into());
             }
             folder
         };

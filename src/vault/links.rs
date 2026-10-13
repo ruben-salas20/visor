@@ -1,6 +1,7 @@
 //! Keeps the links of Markdown notes working after the sidebar moves a page
 //! or folder, like Obsidian. HTML pages are left as they are.
 
+use crate::trf;
 use crate::vault::{self, markdown};
 use percent_encoding::percent_decode_str;
 use pulldown_cmark::{Event, LinkType, Parser, Tag, TagEnd};
@@ -47,7 +48,7 @@ pub fn relink(root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>, String>
     if failed.is_empty() {
         Ok(changed)
     } else {
-        Err(format!("No se pudieron actualizar los enlaces de: {}", failed.join(", ")))
+        Err(trf!("No se pudieron actualizar los enlaces de: {}", "Could not update the links in: {}", failed.join(", ")))
     }
 }
 

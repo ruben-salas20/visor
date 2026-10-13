@@ -1,6 +1,8 @@
 //! Installs the newest GitHub release. The background check runs once a day at
 //! most; the button and `visor update` check at once. Shells out to curl and
 //! sha256sum, so no HTTPS crate is needed. See docs/adr/0035.
+use crate::i18n::tr;
+use crate::trf;
 use serde::Deserialize;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -47,8 +49,12 @@ pub enum Outcome {
 impl Outcome {
     pub fn message(&self) -> String {
         match self {
-            Self::Latest(version) => format!("Ya tienes la última versión ({version})."),
-            Self::Installed(version) => format!("Instalada la versión {version}. Se usará al volver a abrir visor."),
+            Self::Latest(version) => trf!("Ya tienes la última versión ({}).", "You already have the latest version ({}).", version),
+            Self::Installed(version) => trf!(
+                "Instalada la versión {}. Se usará al volver a abrir visor.",
+                "Version {} is installed. It will be used when visor is opened again.",
+                version
+            ),
             Self::Skipped(reason) | Self::Failed(reason) => reason.clone(),
         }
     }
@@ -57,7 +63,14 @@ impl Outcome {
 pub fn spawn() {
     std::thread::spawn(|| {
         if let Outcome::Installed(version) = run(false) {
-            eprintln!("visor se actualizó a la versión {version}. Se usará al volver a abrirlo.");
+            eprintln!(
+                "{}",
+                trf!(
+                    "visor se actualizó a la versión {}. Se usará al volver a abrirlo.",
+                    "visor was updated to version {}. It will be used when it is opened again.",
+                    version
+                )
+            );
         }
     });
 }
@@ -65,10 +78,10 @@ pub fn spawn() {
 /// `force` skips the once-a-day limit; the other refusals apply to both.
 pub fn run(force: bool) -> Outcome {
     let Ok(_running) = RUNNING.try_lock() else {
-        return Outcome::Skipped("Ya se está buscando una actualización.".into());
+        return Outcome::Skipped(tr("Ya se está buscando una actualización.", "An update check is already running.").into());
     };
     let Some(exe) = running_exe() else {
-        return Outcome::Failed("No se encuentra el archivo de visor.".into());
+        return Outcome::Failed(tr("No se encuentra el archivo de visor.", "The visor file was not found.").into());
     };
     let exe = exe.canonicalize().unwrap_or(exe);
     let no_update = std::env::var_os("VISOR_NO_UPDATE").is_some();
@@ -77,19 +90,19 @@ pub fn run(force: bool) -> Outcome {
     }
     let check = crate::paths::update_check();
     if !force && !due(&check) {
-        return Outcome::Skipped("Ya se buscó hoy.".into());
+        return Outcome::Skipped(tr("Ya se buscó hoy.", "Already checked today.").into());
     }
     // Written before the network call, so a failure also waits a day.
     let written = check.parent().is_some_and(|dir| fs::create_dir_all(dir).is_ok()) && fs::write(&check, b"").is_ok();
     if !written {
-        return Outcome::Failed("No se pudo guardar la fecha de la búsqueda.".into());
+        return Outcome::Failed(tr("No se pudo guardar la fecha de la búsqueda.", "Could not save the date of the check.").into());
     }
 
     let Some(json) = curl(&["-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json", RELEASES]) else {
-        return Outcome::Failed("No se pudo consultar GitHub. Revisa la conexión.".into());
+        return Outcome::Failed(tr("No se pudo consultar GitHub. Revisa la conexión.", "Could not reach GitHub. Check your connection.").into());
     };
     let Ok(release) = serde_json::from_slice::<Release>(&json) else {
-        return Outcome::Failed("La respuesta de GitHub no se entiende.".into());
+        return Outcome::Failed(tr("La respuesta de GitHub no se entiende.", "GitHub's response could not be understood.").into());
     };
     let installed = INSTALLED.lock().unwrap().clone();
     if let Some(known) = nothing_to_fetch(&release.tag_name, env!("CARGO_PKG_VERSION"), installed) {
@@ -97,15 +110,19 @@ pub fn run(force: bool) -> Outcome {
     }
     let version = release.tag_name.trim_start_matches('v').to_string();
     let Some(asset) = release.assets.into_iter().find(|a| a.name == ASSET) else {
-        return Outcome::Failed(format!("La versión {version} no trae el archivo {ASSET}."));
+        return Outcome::Failed(trf!("La versión {} no trae el archivo {}.", "Version {} does not include the file {}.", version, ASSET));
     };
     let Some(sha256) = asset.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")) else {
-        return Outcome::Failed(format!("La versión {version} no trae su SHA-256; no se instala sin comprobarlo."));
+        return Outcome::Failed(trf!(
+            "La versión {} no trae su SHA-256; no se instala sin comprobarlo.",
+            "Version {} does not include its SHA-256; it is not installed without checking it.",
+            version
+        ));
     };
 
     // Beside the binary, so the rename stays on one filesystem and is atomic.
     let Some(dir) = exe.parent() else {
-        return Outcome::Failed("No se encuentra la carpeta de visor.".into());
+        return Outcome::Failed(tr("No se encuentra la carpeta de visor.", "The visor folder was not found.").into());
     };
     let tmp = dir.join(format!(".visor-nuevo-{}", std::process::id()));
     match install(&asset.browser_download_url, sha256, &tmp, &exe) {
@@ -141,14 +158,14 @@ pub fn running_exe() -> Option<PathBuf> {
 /// Why the binary at `exe` must not be replaced, if it must not.
 fn refusal(no_update: bool, arch: &str, exe: &Path) -> Option<String> {
     if no_update {
-        return Some("Las actualizaciones están desactivadas con VISOR_NO_UPDATE.".into());
+        return Some(tr("Las actualizaciones están desactivadas con VISOR_NO_UPDATE.", "Updates are turned off with VISOR_NO_UPDATE.").into());
     }
     if arch != "x86_64" {
-        return Some("Las versiones publicadas son solo para Linux x86_64.".into());
+        return Some(tr("Las versiones publicadas son solo para Linux x86_64.", "Published versions are for Linux x86_64 only.").into());
     }
     // A cargo build must never be replaced by a release.
     if exe.components().any(|c| c.as_os_str() == "target") {
-        return Some("Esta copia está en target/ (compilación de desarrollo) y no se reemplaza.".into());
+        return Some(tr("Esta copia está en target/ (compilación de desarrollo) y no se reemplaza.", "This copy is in target/ (development build) and is not replaced.").into());
     }
     None
 }
@@ -168,9 +185,9 @@ fn install(url: &str, sha256: &str, tmp: &Path, exe: &Path) -> Result<(), String
         .stderr(Stdio::null())
         .status();
     if !downloaded.is_ok_and(|s| s.success()) {
-        return Err("No se pudo descargar la nueva versión.".into());
+        return Err(tr("No se pudo descargar la nueva versión.", "Could not download the new version.").into());
     }
-    let mismatch = "La descarga no coincide con su SHA-256. No se ha instalado nada.";
+    let mismatch = tr("La descarga no coincide con su SHA-256. No se ha instalado nada.", "The download does not match its SHA-256. Nothing was installed.");
     let out = Command::new("sha256sum").arg(tmp).stderr(Stdio::null()).output().map_err(|_| mismatch)?;
     let got = String::from_utf8(out.stdout).map_err(|_| mismatch)?;
     let same = got.split_whitespace().next().is_some_and(|h| h.eq_ignore_ascii_case(sha256));
@@ -179,7 +196,7 @@ fn install(url: &str, sha256: &str, tmp: &Path, exe: &Path) -> Result<(), String
     }
     fs::set_permissions(tmp, fs::Permissions::from_mode(0o755))
         .and_then(|()| fs::rename(tmp, exe))
-        .map_err(|e| format!("No se pudo reemplazar visor: {e}."))
+        .map_err(|e| trf!("No se pudo reemplazar visor: {}.", "Could not replace visor: {}.", e))
 }
 
 fn curl(args: &[&str]) -> Option<Vec<u8>> {

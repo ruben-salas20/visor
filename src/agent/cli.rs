@@ -1,4 +1,5 @@
 use crate::agent::command::{Command, Target};
+use crate::i18n::tr;
 use crate::paths;
 use crate::vault::{self, config};
 use serde_json::{Value, json};
@@ -22,11 +23,14 @@ pub(crate) fn call(command: &Command) -> Value {
         Some(r) => r,
         None if matches!(command, Command::Open { .. }) => match start(loose(command)).then(|| send(command)).flatten() {
             Some(r) => r,
-            None => json!({ "ok": false, "error": "No se pudo abrir visor." }),
+            None => json!({ "ok": false, "error": tr("No se pudo abrir visor.", "Could not open visor.") }),
         },
         None => json!({
             "ok": false,
-            "error": "visor no está abierto. Ábrelo con `visor` o con `visor open <ruta>`.",
+            "error": tr(
+                "visor no está abierto. Ábrelo con `visor` o con `visor open <ruta>`.",
+                "visor is not open. Open it with `visor` or `visor open <path>`.",
+            ),
         }),
     }
 }

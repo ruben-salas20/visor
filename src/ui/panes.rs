@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::bar::Bar;
 use crate::ui::icons::{draw_back, draw_close, draw_forward, draw_list, draw_plus, draw_reload, draw_target, drawn_icon, icon_button};
@@ -50,17 +51,17 @@ impl Pane {
             nav_tools.pack_start(&b, false, false, 0);
             b
         };
-        let back = nav(draw_back, "Atrás (Alt+←)", || Action::Back);
-        let forward = nav(draw_forward, "Adelante (Alt+→)", || Action::Forward);
-        nav(draw_reload, "Recargar (Ctrl+R)", || Action::Reload);
+        let back = nav(draw_back, tr("Atrás (Alt+←)", "Back (Alt+←)"), || Action::Back);
+        let forward = nav(draw_forward, tr("Adelante (Alt+→)", "Forward (Alt+→)"), || Action::Forward);
+        nav(draw_reload, tr("Recargar (Ctrl+R)", "Reload (Ctrl+R)"), || Action::Reload);
         strip.pack_start(&nav_tools, false, false, 0);
         let tab_list = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.pack_start(&tab_list, true, true, 0);
         let annot_tools = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.pack_end(&annot_tools, false, false, 0);
         for (draw, tip, action) in [
-            (draw_target as fn(&gtk::cairo::Context), "Anotar un elemento (Ctrl+Shift+A)", (|| Action::PickElement) as fn() -> Action),
-            (draw_list, "Anotaciones de la página (Ctrl+Shift+L)", || Action::ToggleAnnotations),
+            (draw_target as fn(&gtk::cairo::Context), tr("Anotar un elemento (Ctrl+Shift+A)", "Annotate an element (Ctrl+Shift+A)"), (|| Action::PickElement) as fn() -> Action),
+            (draw_list, tr("Anotaciones de la página (Ctrl+Shift+L)", "Page annotations (Ctrl+Shift+L)"), || Action::ToggleAnnotations),
         ]
         .into_iter()
         .rev()
@@ -155,7 +156,7 @@ impl Pane {
             select.add(&label);
             select.set_can_focus(false);
             select.style_context().add_class("visor-tab-name");
-            select.set_tooltip_text(Some(if tab.target().is_empty() { "Nueva pestaña" } else { tab.target() }));
+            select.set_tooltip_text(Some(if tab.target().is_empty() { tr("Nueva pestaña", "New tab") } else { tab.target() }));
             let (proxy, id) = (self.proxy.clone(), tab.id());
             select.connect_clicked(move |_| {
                 let _ = proxy.send_event(UserEvent::Action(Action::SelectTab(id)));
@@ -172,7 +173,7 @@ impl Pane {
             close.add(&drawn_icon(12, draw_close));
             close.set_can_focus(false);
             close.style_context().add_class("visor-tab-close");
-            close.set_tooltip_text(Some("Cerrar pestaña (Ctrl+W)"));
+            close.set_tooltip_text(Some(tr("Cerrar pestaña (Ctrl+W)", "Close tab (Ctrl+W)")));
             let proxy = self.proxy.clone();
             close.connect_clicked(move |_| {
                 let _ = proxy.send_event(UserEvent::Action(Action::CloseTab(Some(id))));
@@ -181,7 +182,7 @@ impl Pane {
             item.pack_start(&close, false, false, 0);
             self.tab_list.pack_start(&item, false, true, 0);
         }
-        let add = icon_button("Nueva pestaña (Ctrl+T)", draw_plus);
+        let add = icon_button(tr("Nueva pestaña (Ctrl+T)", "New tab (Ctrl+T)"), draw_plus);
         add.set_can_focus(false);
         add.set_valign(gtk::Align::Center);
         let (proxy, pane) = (self.proxy.clone(), self.id);

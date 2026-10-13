@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
@@ -18,7 +19,7 @@ impl Bar {
 
         let address = gtk::Entry::new();
         address.set_hexpand(true);
-        address.set_placeholder_text(Some("Ruta, dirección web o búsqueda (Ctrl+L)"));
+        address.set_placeholder_text(Some(tr("Ruta, dirección web o búsqueda (Ctrl+L)", "Path, web address or search (Ctrl+L)")));
         let p = proxy.clone();
         address.connect_activate(move |entry| {
             let _ = p.send_event(UserEvent::Action(Action::Go(entry.text().to_string())));

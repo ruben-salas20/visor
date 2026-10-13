@@ -1,3 +1,5 @@
+use crate::i18n::tr;
+use crate::trf;
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
@@ -73,7 +75,7 @@ pub fn launch() -> i32 {
     let (listener, claim) = match claim(&paths::socket()) {
         Ok(claimed) => claimed,
         Err(ClaimError::Running) => {
-            eprintln!("visor ya está abierto.");
+            eprintln!("{}", tr("visor ya está abierto.", "visor is already open."));
             return 0;
         }
         Err(ClaimError::Failed(e)) => {
@@ -93,7 +95,7 @@ pub fn launch() -> i32 {
 
     let mut config = Config::load();
     let Some(crate::http::Started { port, base, loose_base }) = crate::http::start(config.port, shared.clone()) else {
-        eprintln!("No se pudo iniciar el servidor local.");
+        eprintln!("{}", tr("No se pudo iniciar el servidor local.", "Could not start the local server."));
         return 1;
     };
     vault::set_base(base);
@@ -153,6 +155,7 @@ pub fn launch() -> i32 {
         config.auto_update != Some(false),
         config.show_other_files != Some(false),
         Engine::from_id(config.search_engine.as_deref()),
+        config.language.as_deref(),
     );
     // Started for a page outside every vault: that page alone, without the
     // last vault and its tabs. See cli::start.
@@ -287,26 +290,27 @@ fn readable(document: &Document) -> Result<(), String> {
     if vault::agent_may_read(&document.borrow()) {
         Ok(())
     } else {
-        Err("Solo se puede leer una página de la bóveda o un archivo suelto, no una web.".into())
+        Err(tr("Solo se puede leer una página de la bóveda o un archivo suelto, no una web.", "Only a page in the vault or a loose file can be read, not a website.").into())
     }
 }
 
 /// Encodes a snapshot as PNG and writes it. Returns how many bytes went to the file.
 fn save_png(surface: &gtk::cairo::Surface, path: &Path) -> Result<u64, String> {
     let mut bytes = Vec::new();
-    surface.write_to_png(&mut bytes).map_err(|e| format!("No se pudo codificar la captura: {e}"))?;
-    fs::write(path, &bytes).map_err(|e| format!("No se pudo escribir {}: {e}", path.display()))?;
+    surface.write_to_png(&mut bytes).map_err(|e| trf!("No se pudo codificar la captura: {e}", "Could not encode the snapshot: {e}"))?;
+    fs::write(path, &bytes).map_err(|e| trf!("No se pudo escribir {}: {e}", "Could not write {}: {e}", path.display()))?;
     Ok(bytes.len() as u64)
 }
 
 fn empty_page(message: &str, pick: bool) -> String {
+    let lang = crate::i18n::lang().code();
     let button = if pick {
-        r#"<button onclick="ipc.postMessage(JSON.stringify({type:'pick_vault'}))">Abrir carpeta…</button>"#
+        format!(r#"<button onclick="ipc.postMessage(JSON.stringify({{type:'pick_vault'}}))">{}</button>"#, tr("Abrir carpeta…", "Open folder…"))
     } else {
-        ""
+        String::new()
     };
     format!(
-        r#"<!doctype html><html lang="es"><meta charset="utf-8"><style>
+        r#"<!doctype html><html lang="{lang}"><meta charset="utf-8"><style>
 html {{ color-scheme: var(--visor-mode, light dark); }}
 body {{ margin: 0; height: 100vh; display: grid; place-content: center; justify-items: center; gap: 12px;
   font: 14px/1.4 system-ui, sans-serif; text-align: center; padding: 24px; box-sizing: border-box;
@@ -366,7 +370,7 @@ impl App {
     }
 
     fn open_vault(&self) -> Result<Arc<Vault>, String> {
-        self.vault().ok_or_else(|| "No hay ninguna bóveda abierta".into())
+        self.vault().ok_or_else(|| tr("No hay ninguna bóveda abierta", "No vault is open").into())
     }
 
     fn pane(&self) -> &Pane {
@@ -563,7 +567,7 @@ impl App {
                 v
             }
             Err(e) => {
-                eprintln!("No se pudo crear el webview: {e}");
+                eprintln!("{}", trf!("No se pudo crear el webview: {e}", "Could not create the webview: {e}"));
                 return false;
             }
         };
@@ -621,12 +625,15 @@ impl App {
 
     fn empty_message(&self) -> &'static str {
         match self.vault() {
-            None => "Abre una carpeta con archivos HTML para empezar.",
+            None => tr("Abre una carpeta con archivos HTML para empezar.", "Open a folder with HTML files to start."),
             Some(root) => {
                 if !root.has_pages() {
-                    "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen."
+                    tr(
+                        "Esta carpeta todavía no tiene archivos HTML. Aparecerán aquí en cuanto se creen.",
+                        "This folder has no HTML files yet. They will appear here as soon as they are created.",
+                    )
                 } else {
-                    "Elige un archivo de la lista."
+                    tr("Elige un archivo de la lista.", "Choose a file from the list.")
                 }
             }
         }
@@ -770,8 +777,8 @@ impl App {
             return;
         }
         let why = match reason {
-            LoadFailure::Network => "error de red".to_string(),
-            LoadFailure::Status(status) => format!("respondió {status}"),
+            LoadFailure::Network => tr("error de red", "network error").to_string(),
+            LoadFailure::Status(status) => trf!("respondió {status}", "responded {status}"),
         };
         let own = [vault::base(), vault::loose_base()].into_iter().find(|base| !base.is_empty() && uri.starts_with(base));
         // visor's own scripts ask for things that are often missing: annot.js for
@@ -783,9 +790,9 @@ impl App {
             return;
         }
         let text = if own.is_some() {
-            format!("No se pudo cargar {uri}: {why}")
+            trf!("No se pudo cargar {uri}: {why}", "Could not load {uri}: {why}")
         } else {
-            format!("No se pudo cargar un recurso de {} ({why})", host_of(uri))
+            trf!("No se pudo cargar un recurso de {} ({why})", "Could not load a resource from {} ({why})", host_of(uri))
         };
         push_console(&mut shared, view, "error", &text);
     }
@@ -920,8 +927,14 @@ impl App {
             UserEvent::UpdateDone { message, installed } => self.sidebar.update_done(&message, installed),
             UserEvent::RestartChecked(check) => match check {
                 RestartCheck::Clear => self.restart(),
-                RestartCheck::Unsaved => self.sidebar.update_done("Hay notas sin guardar. Guárdalas antes de reiniciar.", true),
-                RestartCheck::Unknown => self.sidebar.update_done("No se pudo comprobar si hay notas sin guardar. No se reinicia.", true),
+                RestartCheck::Unsaved => self.sidebar.update_done(
+                    tr("Hay notas sin guardar. Guárdalas antes de reiniciar.", "There are unsaved notes. Save them before restarting."),
+                    true,
+                ),
+                RestartCheck::Unknown => self.sidebar.update_done(
+                    tr("No se pudo comprobar si hay notas sin guardar. No se reinicia.", "Could not check for unsaved notes. Not restarting."),
+                    true,
+                ),
             },
         }
     }
@@ -996,10 +1009,10 @@ impl App {
         self.save_layout();
         self.flush_config();
         let Some(exe) = crate::update::running_exe() else {
-            return self.sidebar.update_done("No se pudo reiniciar: no se encuentra visor.", true);
+            return self.sidebar.update_done(tr("No se pudo reiniciar: no se encuentra visor.", "Could not restart: visor not found."), true);
         };
         let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec();
-        self.sidebar.update_done(&format!("No se pudo reiniciar: {error}."), true);
+        self.sidebar.update_done(&trf!("No se pudo reiniciar: {error}.", "Could not restart: {error}."), true);
     }
 
     fn act(&mut self, action: Action) {
@@ -1069,6 +1082,11 @@ impl App {
             Action::SetSearchEngine(engine) => {
                 self.config.search_engine = Some(engine).filter(|e| *e != Engine::ALL[0]).map(|e| e.id().to_string());
                 self.save_config_soon();
+            }
+            Action::SetLanguage(choice) => {
+                self.config.language = choice;
+                self.save_config_soon();
+                self.sidebar.notice(tr("Se aplicará al reiniciar visor", "Takes effect when visor restarts"), false);
             }
             Action::SetShowOtherFiles(on) => {
                 self.config.show_other_files = Some(on).filter(|on| !on);
@@ -1266,7 +1284,7 @@ impl App {
     fn pick_vault(&self) {
         let proxy = self.proxy.clone();
         std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new().set_title("Abrir carpeta como bóveda").pick_folder();
+            let picked = rfd::FileDialog::new().set_title(tr("Abrir carpeta como bóveda", "Open folder as vault")).pick_folder();
             let picked = picked.and_then(|p| p.canonicalize().ok());
             let _ = proxy.send_event(UserEvent::Picked(picked));
         });
@@ -1298,7 +1316,7 @@ impl App {
                 let result = self.open_vault().and_then(|v| files::trash(&v, &path));
                 match result {
                     Ok(()) => {
-                        self.sidebar.notice(&format!("«{path}» está en la papelera."), false);
+                        self.sidebar.notice(&trf!("«{path}» está en la papelera.", "«{path}» is in the trash."), false);
                         self.retarget(&path, None);
                     }
                     Err(e) => self.sidebar.notice(&e, true),
@@ -1308,9 +1326,9 @@ impl App {
                 // `resolve` also refuses a link that points out of the vault.
                 let file = self.open_vault().and_then(|v| {
                     if v.entry(&path)?.is_dir() {
-                        return Err(format!("«{path}» es una carpeta, no un archivo."));
+                        return Err(trf!("«{path}» es una carpeta, no un archivo.", "«{path}» is a folder, not a file."));
                     }
-                    v.resolve(&path).ok_or_else(|| format!("No existe: {path}"))
+                    v.resolve(&path).ok_or_else(|| trf!("No existe: {path}", "Does not exist: {path}"))
                 });
                 match file {
                     Ok(file) => {
@@ -1330,7 +1348,11 @@ impl App {
                         match links::relink(&root, &path, &new) {
                             Ok(changed) if !changed.is_empty() => {
                                 let n = changed.len();
-                                let text = if n == 1 { "Se actualizaron los enlaces de 1 nota.".to_string() } else { format!("Se actualizaron los enlaces de {n} notas.") };
+                                let text = if n == 1 {
+                                    tr("Se actualizaron los enlaces de 1 nota.", "Updated the links in 1 note.").to_string()
+                                } else {
+                                    trf!("Se actualizaron los enlaces de {n} notas.", "Updated the links in {n} notes.")
+                                };
                                 self.sidebar.notice(&text, false);
                             }
                             Ok(_) => {}
@@ -1430,14 +1452,14 @@ impl App {
                     }
                     Ok(false) => {}
                     Err(e) => {
-                        eprintln!("No se pudo guardar la anotación: {e}");
+                        eprintln!("{}", trf!("No se pudo guardar la anotación: {e}", "Could not save the annotation: {e}"));
                         reply(self, page_calls::annot_save_failed(annotation["id"].as_str().unwrap_or_default(), &e));
                     }
                 }
             }
             PageMsg::AnnotDelete { id } if trusted => {
                 if let Err(e) = self.with_page_annotations(url, |root, page| annot::delete(root, page, &id)) {
-                    eprintln!("No se pudo borrar la anotación: {e}");
+                    eprintln!("{}", trf!("No se pudo borrar la anotación: {e}", "Could not delete the annotation: {e}"));
                     reply(self, page_calls::annot_delete_failed(&id, &e));
                 }
             }
@@ -1456,7 +1478,7 @@ impl App {
             }
             PageMsg::CreateNote { dir, name } if trusted => {
                 if let Err(e) = self.create_note(&dir, files::wiki_note_name(&name)) {
-                    eprintln!("No se pudo crear la nota: {e}");
+                    eprintln!("{}", trf!("No se pudo crear la nota: {e}", "Could not create the note: {e}"));
                     reply(self, page_calls::note_create_failed(&e));
                 }
             }
@@ -1501,7 +1523,7 @@ impl App {
     fn save_drawing(&mut self, url: &str, text: &str) -> Result<(), String> {
         let (_, path) = self.open_vault()?.drawing(url)?;
         if !vault::drawing::accepts(&path, text) {
-            return Err("El texto no es un dibujo: no se guarda.".into());
+            return Err(tr("El texto no es un dibujo: no se guarda.", "The text is not a drawing: not saved.").into());
         }
         self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
@@ -1512,17 +1534,17 @@ impl App {
     fn save_image(&mut self, url: &str, file_id: &str, data: &str) -> Result<String, String> {
         let valid_id = (1..=64).contains(&file_id.len()) && file_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
         if !valid_id {
-            return Err("El identificador de la imagen no es válido.".into());
+            return Err(tr("El identificador de la imagen no es válido.", "The image id is not valid.").into());
         }
         let (_, path) = self.open_vault()?.drawing(url)?;
         // Base64 spends 4 characters on every 3 bytes: a longer text is over the limit already.
         if data.len() > vault::drawing::MAX_IMAGE / 3 * 4 + 4 {
-            return Err("La imagen pesa más de 10 MB.".into());
+            return Err(tr("La imagen pesa más de 10 MB.", "The image is over 10 MB.").into());
         }
         let bytes = gtk::glib::base64_decode(data);
         let stamp = gtk::glib::DateTime::now_local()
             .and_then(|now| now.format("%Y-%m-%d %H%M%S"))
-            .map_err(|_| "No se pudo leer la hora.".to_string())?;
+            .map_err(|_| tr("No se pudo leer la hora.", "Could not read the time.").to_string())?;
         vault::drawing::save_image(&path, &stamp, &bytes)
     }
 
@@ -1531,10 +1553,10 @@ impl App {
     fn toggle_task(&mut self, url: &str, offset: usize, checked: bool) -> Result<(), String> {
         let (_, path) = self.open_vault()?.page(url)?;
         if !vault::is_markdown(&path) {
-            return Err("Solo se pueden cambiar notas .md".into());
+            return Err(tr("Solo se pueden cambiar notas .md", "Only .md notes can be changed").into());
         }
         let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let text = crate::vault::markdown::toggle_task(&source, offset, checked).ok_or("La tarea ya no está en la nota")?;
+        let text = crate::vault::markdown::toggle_task(&source, offset, checked).ok_or(tr("La tarea ya no está en la nota", "The task is no longer in the note"))?;
         self.save_note(url, &text)
     }
 
@@ -1542,7 +1564,7 @@ impl App {
         let (folder, name) = self.open_vault()?.new_in(dir, name)?;
         let path = folder.join(name);
         if path.exists() {
-            return Err(format!("Ya existe {name}"));
+            return Err(trf!("Ya existe {name}", "{name} already exists"));
         }
         fs::create_dir(&path).map_err(|e| e.to_string())
     }
@@ -1554,7 +1576,7 @@ impl App {
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {
-            return Err(format!("Ya existe {file}"));
+            return Err(trf!("Ya existe {file}", "{file} already exists"));
         }
         let title = file.trim_end_matches(".md");
         let text = format!("# {title}\n\n");
@@ -1585,12 +1607,14 @@ impl App {
                 }
                 path.to_string_lossy().into_owned()
             }
-            None if !vault::is_page(&path) => return Err("visor abre carpetas, páginas .html y notas .md.".into()),
+            None if !vault::is_page(&path) => {
+                return Err(tr("visor abre carpetas, páginas .html y notas .md.", "visor opens folders, .html pages and .md notes.").into());
+            }
             known => {
                 let root = match known {
                     Some(root) => root,
                     None => {
-                        let dir = path.parent().ok_or_else(|| format!("Sin carpeta para {}", path.display()))?;
+                        let dir = path.parent().ok_or_else(|| trf!("Sin carpeta para {}", "No folder for {}", path.display()))?;
                         Config::check_folder_of_file(dir, dirs::home_dir().as_deref())?;
                         dir.to_path_buf()
                     }
@@ -1614,7 +1638,7 @@ impl App {
         let current = self.vault().map(|v| v.path().to_path_buf());
         path.canonicalize()
             .or_else(|_| current.as_ref().ok_or(()).and_then(|v| v.join(raw).canonicalize().map_err(|_| ())))
-            .map_err(|_| format!("No existe: {raw}"))
+            .map_err(|_| trf!("No existe: {raw}", "Does not exist: {raw}"))
     }
 
     /// Closes the focused side's active tab, or every tab showing the page
@@ -1641,15 +1665,15 @@ impl App {
                 return Ok(closed);
             }
         }
-        Err(format!("No hay ninguna pestaña abierta con {raw}."))
+        Err(trf!("No hay ninguna pestaña abierta con {raw}.", "No tab is open with {raw}."))
     }
 
     /// The focused view, if agents may read its page, and what it committed. The
     /// decision uses the address WebKit committed, never the webview's own address.
     fn readable_view(&self) -> Result<(&WebView, Document), String> {
-        let id = self.tabs.focused_view().ok_or("No hay nada abierto.")?;
+        let id = self.tabs.focused_view().ok_or(tr("No hay nada abierto.", "Nothing is open."))?;
         let (Some(view), Some(document)) = (self.view_of(id), self.documents.get(&id)) else {
-            return Err("No hay nada abierto.".into());
+            return Err(tr("No hay nada abierto.", "Nothing is open.").into());
         };
         readable(document)?;
         Ok((view, document.clone()))
@@ -1672,7 +1696,7 @@ impl App {
             // A website committed meanwhile would have answered: its words must not reach the agent.
             let answer = readable(&document)
                 .and_then(|()| result.map_err(|e| e.to_string()))
-                .and_then(|r| r.js_value().map(|v| v.to_string()).ok_or_else(|| "La página no devolvió nada.".to_string()))
+                .and_then(|r| r.js_value().map(|v| v.to_string()).ok_or_else(|| tr("La página no devolvió nada.", "The page returned nothing.").to_string()))
                 .and_then(|raw| page_calls::eval_answer(&raw));
             let _ = reply.send(answer);
         });

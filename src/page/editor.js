@@ -9,6 +9,8 @@
     parser, GFM, tags: t,
   } = window.CM;
   const config = window.__visorNoteConfig;
+  // Helper named tx: "tr" is already a local name in this file.
+  const tx = (es, en) => (config.lang === "en" ? en : es);
 
   // ---------- Markdown: GFM plus what pulldown-cmark reads in visor ----------
 
@@ -178,7 +180,7 @@
       const el = file.endsWith(".css")
         ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: url })
         : Object.assign(document.createElement("script"), { src: url, onload: poke });
-      el.onerror = () => console.error("No se pudo cargar " + file);
+      el.onerror = () => console.error(tx("No se pudo cargar ", "Could not load ") + file);
       document.head.append(el);
     }
     return null;
@@ -305,7 +307,7 @@
       box.type = "checkbox";
       box.className = "md-task";
       box.checked = this.on;
-      box.setAttribute("aria-label", this.on ? "Tarea hecha" : "Tarea pendiente");
+      box.setAttribute("aria-label", this.on ? tx("Tarea hecha", "Task done") : tx("Tarea pendiente", "Task pending"));
       box.addEventListener("mousedown", (e) => {
         e.preventDefault();
         const at = view.posAtDOM(box) + 1;
@@ -348,7 +350,7 @@
         el.innerHTML = svg;
         return el;
       }
-      el.textContent = "Dibujando el diagrama…";
+      el.textContent = tx("Dibujando el diagrama…", "Drawing the diagram…");
       if (!mermaidReady) {
         window.mermaid.initialize({ startOnLoad: false, theme: window.__visorNote.dark() ? "dark" : "default" });
         mermaidReady = true;
@@ -750,7 +752,7 @@
               const marks = node.getChildren("WikiMark");
               const name = state.sliceDoc(target.from, target.to).trim();
               const url = wikiUrl(name);
-              out.push(Decoration.mark({ class: url === null ? "md-wiki md-wiki-new" : "md-wiki", attributes: { title: url === null ? `Crear la nota «${name}» (Ctrl+clic)` : "Ctrl+clic para abrir" } }).range(ref.from, ref.to));
+              out.push(Decoration.mark({ class: url === null ? "md-wiki md-wiki-new" : "md-wiki", attributes: { title: url === null ? tx(`Crear la nota «${name}» (Ctrl+clic)`, `Create note «${name}» (Ctrl+click)`) : tx("Ctrl+clic para abrir", "Ctrl+click to open") } }).range(ref.from, ref.to));
               if (on(ref.from)) return false;
               conceal(marks[0].from, marks[0].to);
               if (marks.length === 3) conceal(target.from, marks[1].to);
@@ -908,7 +910,7 @@
             drawSelection(),
             EditorView.lineWrapping,
             EditorState.tabSize.of(4),
-            EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-label": "Texto de la nota" }),
+            EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-label": tx("Texto de la nota", "Note text") }),
             Prec.high(keymap.of([
               { key: "Mod-s", run: () => { hooks.save(); return true; } },
               { key: "Enter", run: continueList },
