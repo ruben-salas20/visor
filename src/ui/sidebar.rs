@@ -153,6 +153,7 @@ pub struct Sidebar {
     settings: gtk::Popover,
     theme_buttons: ChoiceButtons,
     language_buttons: ChoiceButtons,
+    language_restart: gtk::Box,
     zoom_label: gtk::Label,
     auto_update: gtk::CheckButton,
     show_other: gtk::CheckButton,
@@ -219,7 +220,8 @@ impl Sidebar {
         foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
         let update = UpdateBox::new(proxy);
-        let (settings, theme_buttons, language_buttons, zoom_label, auto_update, show_other, search_engine) = settings_popover(&gear, proxy, &syncing, &update);
+        let (settings, theme_buttons, language_buttons, language_restart, zoom_label, auto_update, show_other, search_engine) =
+            settings_popover(&gear, proxy, &syncing, &update);
         gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -333,6 +335,7 @@ impl Sidebar {
             settings,
             theme_buttons,
             language_buttons,
+            language_restart,
             zoom_label,
             auto_update,
             show_other,
@@ -417,6 +420,10 @@ impl Sidebar {
 
     fn send(&self, msg: SidebarMsg) {
         let _ = self.proxy.send_event(UserEvent::Sidebar(msg));
+    }
+
+    pub fn set_language_pending(&self, pending: bool) {
+        self.language_restart.set_visible(pending);
     }
 
     /// Fills in the settings without reporting them as changes. Theme names
@@ -1232,7 +1239,7 @@ fn settings_popover(
     proxy: &EventLoopProxy<UserEvent>,
     syncing: &Rc<Cell<bool>>,
     update: &UpdateBox,
-) -> (gtk::Popover, ChoiceButtons, ChoiceButtons, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
+) -> (gtk::Popover, ChoiceButtons, ChoiceButtons, gtk::Box, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
     let caption = |text: &str| {
         let label = gtk::Label::new(Some(text));
         label.set_xalign(0.0);
@@ -1252,6 +1259,23 @@ fn settings_popover(
         proxy,
         Action::SetLanguage,
     );
+    // The language only changes on restart, so this shows while the choice differs from the one in use.
+    let language_restart = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let pending = gtk::Label::new(Some(tr("Se aplicará al reiniciar visor.", "Takes effect when visor restarts.")));
+    pending.set_xalign(0.0);
+    pending.set_line_wrap(true);
+    pending.set_max_width_chars(20);
+    pending.style_context().add_class("visor-muted");
+    let restart = gtk::Button::with_label(tr("Reiniciar ahora", "Restart now"));
+    let p = proxy.clone();
+    restart.connect_clicked(move |_| {
+        let _ = p.send_event(UserEvent::Action(Action::Restart));
+    });
+    language_restart.pack_start(&pending, true, true, 0);
+    language_restart.pack_start(&restart, false, false, 0);
+    pending.show();
+    restart.show();
+    language_restart.set_no_show_all(true);
 
     let zoom_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     let smaller = gtk::Button::with_label("−");
@@ -1316,6 +1340,7 @@ fn settings_popover(
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
     column.pack_start(&caption(tr("Idioma", "Language")), false, false, 0);
     column.pack_start(&language_row, false, false, 0);
+    column.pack_start(&language_restart, false, false, 0);
     column.pack_start(&caption(tr("Tema", "Theme")), false, false, 0);
     column.pack_start(&theme_row, false, false, 0);
     column.pack_start(&caption(tr("Tamaño del texto", "Text size")), false, false, 0);
@@ -1332,7 +1357,7 @@ fn settings_popover(
     settings.style_context().add_class("visor-settings");
     settings.set_position(gtk::PositionType::Top);
     settings.add(&column);
-    (settings, themes, languages, zoom_label, auto_update, show_other, search_engine)
+    (settings, themes, languages, language_restart, zoom_label, auto_update, show_other, search_engine)
 }
 
 /// The open file and a drop target get the accent color and a background.

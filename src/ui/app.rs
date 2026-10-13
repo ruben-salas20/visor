@@ -1084,9 +1084,9 @@ impl App {
                 self.save_config_soon();
             }
             Action::SetLanguage(choice) => {
+                self.sidebar.set_language_pending(crate::i18n::would_use(choice.as_deref()) != crate::i18n::lang());
                 self.config.language = choice;
                 self.save_config_soon();
-                self.sidebar.notice(tr("Se aplicará al reiniciar visor", "Takes effect when visor restarts"), false);
             }
             Action::SetShowOtherFiles(on) => {
                 self.config.show_other_files = Some(on).filter(|on| !on);

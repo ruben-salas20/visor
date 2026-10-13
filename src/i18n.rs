@@ -40,6 +40,11 @@ pub fn init(choice: Option<&str>) {
     let _ = LANG.set(decide(choice, locale.as_deref()));
 }
 
+/// The language a saved choice would give at the next start.
+pub fn would_use(choice: Option<&str>) -> Lang {
+    decide(choice, std::env::var("LANG").ok().as_deref())
+}
+
 /// Without `init` (tests), Spanish: the texts the tests compare stay the same.
 pub fn lang() -> Lang {
     LANG.get().copied().unwrap_or(Lang::Es)

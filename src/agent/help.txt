@@ -132,6 +132,9 @@ MARKDOWN NOTES
     level keys with text, lists ([a, b] or lines starting with "- ") and
     multi-line text (> or |) are read; anything nested is shown as text.
     If a line is not "key: value", the block is shown as it is.
+  - A "lang" key (lang: en, lang: es-MX) sets the language of the note
+    for spell checking, hyphenation and screen readers. Without it, the
+    note takes the language of the interface.
   - Obsidian-style links: [[note]], [[folder/note]], [[note#Section]] and
     [[note|text]], looked up by name across the whole vault. With folders,
     the path from the vault root or its end is enough: [[phases/note]]

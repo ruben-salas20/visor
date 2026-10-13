@@ -45,6 +45,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
     let mut events: Vec<Event> = Vec::new();
     // The front matter's range and its text, between its start and end events.
     let mut front: Option<(std::ops::Range<usize>, String)> = None;
+    let mut note_lang = None;
     for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
         match event {
             Event::Start(Tag::MetadataBlock(_)) => front = Some((range, String::new())),
@@ -64,6 +65,7 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
                         String::new()
                     };
                     events.push(Event::Html(front_matter_html(&yaml, &attrs).into()));
+                    note_lang = declared_lang(&yaml);
                 }
             }
             Event::TaskListMarker(done) => {
@@ -209,8 +211,11 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
     let lang = crate::i18n::lang().code();
     let script = SCRIPT.replace("__VISOR_LANG__", lang);
     let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets, "lang": lang });
+    // The interface language is a guess for the text; the note's own `lang` is not.
+    // It drives spell checking, hyphenation and screen readers.
+    let doc_lang = note_lang.as_deref().unwrap_or(lang);
     format!(
-        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"{doc_lang}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
 <title>{title}</title><style>{STYLE}</style>{head}</head><body>\
 <main id=\"note\">{body}</main>\
@@ -219,6 +224,18 @@ pub fn page(source: &str, rel: &str, root: &Path) -> String {
 <script>window.__visorNoteConfig = {config};\n{script}</script></body></html>",
         title = escape(&title.unwrap_or(stem)),
     )
+}
+
+/// The `lang` key of the front matter (as in Pandoc), if it looks like a language
+/// tag. Only letters, digits and hyphens pass, so it goes into the attribute unescaped.
+fn declared_lang(yaml: &str) -> Option<String> {
+    front_matter::parse(yaml)?
+        .into_iter()
+        .find_map(|(key, value)| match value {
+            Value::Text(text) if key == "lang" => Some(text),
+            _ => None,
+        })
+        .filter(|tag| tag.len() <= 35 && tag.split('-').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric())))
 }
 
 /// Moves the attributes in each line mark into the tag that follows it. A mark
@@ -468,6 +485,21 @@ mod tests {
         let html = page("---\ntitle: <script>alert(1)</script>\n---\n", "a.md", Path::new("/nonexistent"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"), "{html}");
         assert!(!html.contains("<script>alert(1)"), "{html}");
+    }
+
+    #[test]
+    fn front_matter_lang_sets_the_document_language() {
+        let page_lang = |source: &str| {
+            let html = page(source, "a.md", Path::new("/nonexistent"));
+            html.split("<html lang=\"").nth(1).and_then(|r| r.split('"').next()).unwrap().to_string()
+        };
+        assert_eq!(page_lang("---\nlang: en-GB\n---\n\nText\n"), "en-GB");
+        assert_eq!(page_lang("---\nlang: \"fr\"\n---\n\nTexte\n"), "fr");
+        // Without a valid tag, the interface language (Spanish in tests).
+        assert_eq!(page_lang("Texto\n"), "es");
+        assert_eq!(page_lang("---\nlang: en\" onload=\"x\n---\n"), "es");
+        assert_eq!(page_lang("---\nlang: [en, es]\n---\n"), "es");
+        assert_eq!(page_lang("---\nlang:\n---\n"), "es");
     }
 
     #[test]
