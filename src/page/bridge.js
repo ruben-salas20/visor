@@ -78,4 +78,6 @@
       post({ type: "event", data: data ?? null });
     },
   });
+  // The study kit names no app: its review blocks dispatch this event instead of calling visor.send.
+  addEventListener("kit:review", (e) => window.visor.send(e.detail));
 })();

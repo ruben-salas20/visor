@@ -232,6 +232,9 @@ ESCRIBIR PÁGINAS PARA VISOR
     uno hasta 16 KB serializado. Lo que pase se descarta, y una línea
     de `visor console` dice cuántos eventos se omitieron o que uno era
     demasiado grande.
+  - El evento "kit:review" de window, que lanzan los bloques de repaso
+    del kit de estudio, se reenvía con visor.send(e.detail) y los
+    mismos límites.
 
   - Con Omarchy, cada página recibe los colores del tema como variables
     CSS, actualizadas al cambiar de tema:
