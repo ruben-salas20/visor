@@ -91,7 +91,7 @@ impl Tab {
             return title.clone();
         }
         if self.target.is_empty() {
-            return "Nueva pestaña".into();
+            return crate::i18n::tr("Nueva pestaña", "New tab").into();
         }
         if let Some(rest) = self.target.split_once("://").map(|(_, r)| r) {
             return rest.split('/').next().unwrap_or(rest).to_string();

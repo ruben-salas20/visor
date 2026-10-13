@@ -161,7 +161,7 @@ fn data_too_big(event: &Value) -> bool {
 /// A page's own event (the only kind with `data`) is dropped if its data is too big.
 pub fn push_event(shared: &mut Shared, mut event: Value) {
     if data_too_big(&event) {
-        eprintln!("Un evento de visor.send supera {} KB y se ha descartado.", MAX_EVENT_DATA / 1024);
+        eprintln!("{}", crate::trf!("Un evento de visor.send supera {} KB y se ha descartado.", "A visor.send event is over {} KB and was dropped.", MAX_EVENT_DATA / 1024));
         return;
     }
     event["id"] = json!(shared.next_id);

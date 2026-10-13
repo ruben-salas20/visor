@@ -1,4 +1,5 @@
 (() => {
+  const tr = (es, en) => ("__VISOR_LANG__" === "en" ? en : es);
   const config = window.__visorNoteConfig;
   const view = document.getElementById("note");
   const edit = document.getElementById("edit");
@@ -125,7 +126,7 @@
         script.src = config.assets + file;
         script.async = false; // in order: editor.js needs CodeMirror
         script.onload = () => --left || resolve();
-        script.onerror = () => reject(new Error("No se pudo cargar " + file));
+        script.onerror = () => reject(new Error(tr("No se pudo cargar ", "Could not load ") + file));
         document.head.append(script);
       }
     }));
@@ -147,8 +148,8 @@
     } catch (e) {
       opening = false;
       loading = null;
-      console.error("No se pudo abrir el editor: " + e.message);
-      notify("No se pudo abrir el editor. Prueba otra vez con Ctrl+E.");
+      console.error(tr("No se pudo abrir el editor: ", "Could not open the editor: ") + e.message);
+      notify(tr("No se pudo abrir el editor. Prueba otra vez con Ctrl+E.", "Could not open the editor. Try again with Ctrl+E."));
       return;
     }
     editing = true;
@@ -158,7 +159,7 @@
     edit.hidden = false;
     // Hides the annotation layer while the source is on screen.
     document.documentElement.dataset.visorEditing = "1";
-    say("Editando. Se guarda solo. Ctrl+E para volver a la vista.");
+    say(tr("Editando. Se guarda solo. Ctrl+E para volver a la vista.", "Editing. Saves automatically. Ctrl+E to return to the view."));
     editor.replaceChildren();
     ed = window.__visorEditor.create(editor, text, { input: onInput, save });
     ed.focus();
@@ -170,7 +171,7 @@
 
   function onInput() {
     dirty = typed = true;
-    say("Sin guardar");
+    say(tr("Sin guardar", "Unsaved"));
     clearTimeout(timer);
     timer = setTimeout(save, 800);
   }
@@ -178,7 +179,7 @@
   function save() {
     clearTimeout(timer);
     if (!dirty) return;
-    say("Guardando…");
+    say(tr("Guardando…", "Saving…"));
     const text = ed.text();
     sent.push(text);
     send({ type: "save_note", text });
@@ -232,7 +233,7 @@
     const message = document.createElement("span");
     message.textContent = text;
     const close = document.createElement("button");
-    close.textContent = "Cerrar";
+    close.textContent = tr("Cerrar", "Close");
     close.onclick = () => box.remove();
     box.append(message, close);
     document.body.append(box);
@@ -243,7 +244,7 @@
     // Text the user typed that is not saved yet, or a save still on its way.
     get unsaved() { return dirty || sent.length > 0; },
     createFailed(error) {
-      notify(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`);
+      notify(tr(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`, `Could not create the note. ${/[.!?]$/.test(error) ? error : error + "."}`));
     },
     dark,
     // Before visor hides the tab, which it may unload later: saves pending
@@ -259,25 +260,25 @@
     },
     saved(ok, error) {
       const confirmed = sent.shift();
-      if (!ok) return say("No se pudo guardar: " + error, true);
+      if (!ok) return say(tr("No se pudo guardar: ", "Could not save: ") + error, true);
       // The text may have changed since this save was sent; those changes are still pending.
       if (confirmed !== undefined && ed && ed.text() !== confirmed) {
-        say(sent.length ? "Guardando…" : "Sin guardar");
+        say(sent.length ? tr("Guardando…", "Saving…") : tr("Sin guardar", "Unsaved"));
         return;
       }
       dirty = false;
       if (leaving) return reload(back);
-      say("Guardado");
+      say(tr("Guardado", "Saved"));
     },
     // The file no longer matches the page: show what it really says.
     toggled(error) {
       if (!error) return;
-      console.error("No se pudo marcar la tarea: " + error);
+      console.error(tr("No se pudo marcar la tarea: ", "Could not toggle the task: ") + error);
       reload();
     },
     // The file changed on disk, written by someone else.
     changed() {
-      if (editing) say("El archivo cambió fuera de visor. Si sigues escribiendo, lo sobrescribes.", true);
+      if (editing) say(tr("El archivo cambió fuera de visor. Si sigues escribiendo, lo sobrescribes.", "The file changed outside visor. If you keep writing, you will overwrite it."), true);
       else reload();
     },
   };

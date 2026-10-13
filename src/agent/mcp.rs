@@ -2,6 +2,8 @@
 //! sent to the app through the same socket the CLI uses.
 use crate::agent::cli;
 use crate::agent::command::{Command, tools};
+use crate::i18n::tr;
+use crate::trf;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 
@@ -34,22 +36,22 @@ pub fn run() -> i32 {
 fn handle(line: &str) -> Option<Value> {
     let message: Value = match serde_json::from_str(line) {
         Ok(message) => message,
-        Err(_) => return Some(rpc_error(Value::Null, -32700, "JSON no válido.")),
+        Err(_) => return Some(rpc_error(Value::Null, -32700, tr("JSON no válido.", "Invalid JSON."))),
     };
     if !message.is_object() {
-        return Some(rpc_error(Value::Null, -32600, "Petición no válida: debe ser un objeto."));
+        return Some(rpc_error(Value::Null, -32600, tr("Petición no válida: debe ser un objeto.", "Invalid request: must be an object.")));
     }
     // Notifications carry no id and are never answered.
     let id = message.get("id")?.clone();
     let Some(method) = message["method"].as_str() else {
-        return Some(rpc_error(id, -32600, "Petición no válida: falta el método."));
+        return Some(rpc_error(id, -32600, tr("Petición no válida: falta el método.", "Invalid request: missing method.")));
     };
     let result = match method {
         "initialize" => Ok(initialize(&message["params"])),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools::list() })),
         "tools/call" => Ok(call_tool(&message["params"])),
-        _ => Err(format!("Método no encontrado: {method}.")),
+        _ => Err(trf!("Método no encontrado: {method}.", "Method not found: {method}.")),
     };
     Some(match result {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
@@ -68,7 +70,7 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": { "tools": {} },
         "serverInfo": { "name": "visor", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": "visor es una app de escritorio para estudiar con IA: muestra bóvedas (carpetas) de páginas HTML y notas Markdown, y guarda lo que la persona subraya, comenta y responde. Antes de escribir páginas o notas para visor, llama a la herramienta guide, que explica cómo hacerlo.",
+        "instructions": "visor is a desktop app for studying with AI. It shows vaults (folders) of HTML pages and Markdown notes, and keeps what the person highlights, comments on and replies to. Before you write pages or notes for visor, call the guide tool, which explains how.",
     })
 }
 

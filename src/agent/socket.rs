@@ -1,6 +1,8 @@
 //! Owning the agent socket: only one instance of the app gets it, and it only
 //! ever removes its own.
 
+use crate::i18n::tr;
+use crate::trf;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -39,7 +41,7 @@ pub fn claim(path: &Path) -> Result<(UnixListener, Claim), ClaimError> {
         .write(true)
         .truncate(false)
         .open(&lock_name)
-        .map_err(|e| ClaimError::Failed(format!("No se pudo crear {}: {e}", Path::new(&lock_name).display())))?;
+        .map_err(|e| ClaimError::Failed(trf!("No se pudo crear {}: {e}", "Could not create {}: {e}", Path::new(&lock_name).display())))?;
     let deadline = Instant::now() + STARTUP_WAIT;
     loop {
         match lock.try_lock() {
@@ -49,11 +51,14 @@ pub fn claim(path: &Path) -> Result<(UnixListener, Claim), ClaimError> {
                     return Err(ClaimError::Running);
                 }
                 if Instant::now() >= deadline {
-                    return Err(ClaimError::Failed("Otra instancia de visor está arrancando y no responde.".into()));
+                    return Err(ClaimError::Failed(tr(
+                        "Otra instancia de visor está arrancando y no responde.",
+                        "Another visor instance is starting and does not respond.",
+                    ).into()));
                 }
                 thread::sleep(Duration::from_millis(50));
             }
-            Err(TryLockError::Error(e)) => return Err(ClaimError::Failed(format!("No se pudo bloquear el socket: {e}"))),
+            Err(TryLockError::Error(e)) => return Err(ClaimError::Failed(trf!("No se pudo bloquear el socket: {e}", "Could not lock the socket: {e}"))),
         }
     }
     // Whoever held the lock is gone, so what is left at `path` is a dead socket,
@@ -62,7 +67,7 @@ pub fn claim(path: &Path) -> Result<(UnixListener, Claim), ClaimError> {
         return Err(ClaimError::Running);
     }
     let _ = fs::remove_file(path);
-    let failed = |e: std::io::Error| ClaimError::Failed(format!("No se pudo crear {}: {e}", path.display()));
+    let failed = |e: std::io::Error| ClaimError::Failed(trf!("No se pudo crear {}: {e}", "Could not create {}: {e}", path.display()));
     let listener = UnixListener::bind(path).map_err(failed)?;
     let meta = fs::metadata(path).map_err(failed)?;
     Ok((listener, Claim { path: path.to_path_buf(), id: (meta.dev(), meta.ino()), _lock: lock }))

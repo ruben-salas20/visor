@@ -6,6 +6,7 @@
   const config = window.__visorDrawingConfig;
   const fmt = window.__visorDrawingFormat;
   const { React, createRoot, Excalidraw, serializeAsJSON, LZString } = window.Excalidraw;
+  const tr = (es, en) => ("__VISOR_LANG__" === "en" ? en : es);
   const md = config.kind === "md";
   const status = document.getElementById("status");
   const mount = document.getElementById("dibujo");
@@ -33,7 +34,7 @@
   let exporting = false;
   let stashed = {}; // web images taken out of the files while exporting
   let beforeExport = null; // the status bar before the export notice
-  const EXPORT_NOTICE = "Las imágenes de internet no se exportan: quedan como huecos.";
+  const EXPORT_NOTICE = tr("Las imágenes de internet no se exportan: quedan como huecos.", "Internet images are not exported: they are left as gaps.");
 
   const say = (text, error = false) => {
     status.textContent = text;
@@ -63,8 +64,11 @@
     const list = unsaved(elements);
     if (!list.length) return null;
     const failure = list.find((e) => failed.has(e.fileId));
-    if (failure) return { text: "No se pudo guardar la imagen: " + failed.get(failure.fileId).replace(/\.$/, "") + ". Bórrala del dibujo para seguir.", error: true };
-    return { text: "Guardando la imagen…", error: false };
+    if (failure) {
+      const reason = failed.get(failure.fileId).replace(/\.$/, "");
+      return { text: tr("No se pudo guardar la imagen: " + reason + ". Bórrala del dibujo para seguir.", "Could not save the image: " + reason + ". Delete it from the drawing to continue."), error: true };
+    }
+    return { text: tr("Guardando la imagen…", "Saving the image…"), error: false };
   }
 
   // Each new image is sent once. A failed one is not sent again: deleting it lifts the wait.
@@ -83,7 +87,7 @@
         initialData: initial,
         viewModeEnabled: !editing,
         theme: dark() ? "dark" : "light",
-        langCode: "es-ES",
+        langCode: tr("es-ES", "en"),
         // The page is only the drawing: its keys go to Excalidraw without a click first.
         handleKeyboardGlobally: true,
         UIOptions: { tools: { image: true }, canvasActions: { loadScene: false } },
@@ -149,7 +153,7 @@
     if (sig === savedSig) return;
     const wait = waiting(elements);
     if (wait) return say(wait.text, wait.error);
-    say("Sin guardar");
+    say(tr("Sin guardar", "Unsaved"));
     timer = setTimeout(save, DELAY);
   }
 
@@ -178,10 +182,10 @@
     try {
       text = compose(elements, appState, files);
     } catch (e) {
-      return say("No se pudo guardar: " + e.message, true);
+      return say(tr("No se pudo guardar: ", "Could not save: ") + e.message, true);
     }
     sent.push({ sig, text });
-    say("Guardando…");
+    say(tr("Guardando…", "Saving…"));
     send({ type: "save_drawing", text });
   }
 
@@ -200,7 +204,7 @@
     if (!editing || !latest) return;
     const wait = waiting(latest.elements);
     if (wait) return say(wait.text, wait.error);
-    say("Sin guardar");
+    say(tr("Sin guardar", "Unsaved"));
     clearTimeout(timer);
     timer = setTimeout(save, DELAY);
   }
@@ -208,15 +212,15 @@
   // Rust's answer to a save, in the order they were sent.
   function saved(ok, error) {
     const entry = sent.shift();
-    if (!ok) return say("No se pudo guardar: " + error, true);
+    if (!ok) return say(tr("No se pudo guardar: ", "Could not save: ") + error, true);
     if (entry) {
       savedSig = entry.sig;
       if (md) current = entry.text;
     }
-    if (sent.length) return say("Guardando…");
+    if (sent.length) return say(tr("Guardando…", "Saving…"));
     const now = latest ? signature(latest.elements, latest.files) : savedSig;
-    if (now === savedSig) return say(editing ? "Guardado" : "");
-    say("Sin guardar");
+    if (now === savedSig) return say(editing ? tr("Guardado", "Saved") : "");
+    say(tr("Sin guardar", "Unsaved"));
     if (editing) timer = setTimeout(save, DELAY);
   }
 
@@ -231,15 +235,15 @@
       if (!sent.length) say("");
       return;
     }
-    if (!editable) return say("Este dibujo no se puede editar: " + loadError, true);
+    if (!editable) return say(tr("Este dibujo no se puede editar: ", "This drawing cannot be edited: ") + loadError, true);
     editing = true;
     render();
-    say("Editando. Se guarda solo. Ctrl+E para volver a la vista.");
+    say(tr("Editando. Se guarda solo. Ctrl+E para volver a la vista.", "Editing. Saves automatically. Ctrl+E to return to the view."));
   }
 
   async function image(id, name) {
     const r = await fetch(location.pathname + "?embed=" + encodeURIComponent(name), { cache: "no-store" });
-    if (!r.ok) throw new Error("No se encontró la imagen " + name);
+    if (!r.ok) throw new Error(tr("No se encontró la imagen ", "Image not found: ") + name);
     const blob = await r.blob();
     const dataURL = await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -280,14 +284,14 @@
     if (katexCss) return katexCss;
     katexCss = Promise.all([
       fetch(KATEX + "katex.min.css").then((r) => {
-        if (!r.ok) throw new Error("No se encontró KaTeX");
+        if (!r.ok) throw new Error(tr("No se encontró KaTeX", "KaTeX not found"));
         return r.text();
       }),
       new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = KATEX + "katex.min.js";
         script.onload = resolve;
-        script.onerror = () => reject(new Error("No se pudo cargar KaTeX"));
+        script.onerror = () => reject(new Error(tr("No se pudo cargar KaTeX", "Could not load KaTeX")));
         document.head.append(script);
       }),
     ]).then(([css]) => {
@@ -400,7 +404,7 @@
       }
     } catch (e) {
       loadError = e.message;
-      say("No se pudo abrir el dibujo: " + e.message, true);
+      say(tr("No se pudo abrir el dibujo: ", "Could not open the drawing: ") + e.message, true);
       return;
     }
     const { collaborators, ...appState } = scene.appState || {};
@@ -426,11 +430,11 @@
     const formulas = embeds.filter((e) => e.kind === "latex");
     if (formulas.length) {
       api.then((excalidraw) =>
-        drawFormulas(excalidraw, formulas).catch((e) => say("No se pudo dibujar una fórmula: " + e.message, true)),
+        drawFormulas(excalidraw, formulas).catch((e) => say(tr("No se pudo dibujar una fórmula: ", "Could not draw a formula: ") + e.message, true)),
       );
     }
     for (const f of loaded) if (f) files[f.id] = f;
-    if (missing.length) say("Faltan imágenes: " + missing.join(", "), true);
+    if (missing.length) say(tr("Faltan imágenes: ", "Missing images: ") + missing.join(", "), true);
 
     initial = { elements: scene.elements, appState: { ...appState, viewBackgroundColor: appState.viewBackgroundColor ?? "#ffffff" }, files, scrollToContent: true };
     latest = { elements: scene.elements, appState: initial.appState, files };
@@ -450,7 +454,7 @@
     imageSaved,
     // The file changed on disk, written by someone else.
     changed() {
-      if (editing) say("El archivo cambió fuera de visor. Si sigues editando, lo sobrescribes.", true);
+      if (editing) say(tr("El archivo cambió fuera de visor. Si sigues editando, lo sobrescribes.", "The file changed outside visor. If you keep editing, you will overwrite it."), true);
       else location.reload();
     },
     // Before visor hides the tab, which it may unload later: pending changes are saved.
@@ -461,5 +465,5 @@
   };
   addEventListener("beforeunload", () => save());
 
-  load().catch((e) => say("No se pudo abrir el dibujo: " + e.message, true));
+  load().catch((e) => say(tr("No se pudo abrir el dibujo: ", "Could not open the drawing: ") + e.message, true));
 })();

@@ -1,5 +1,7 @@
 //! The file panel, in native GTK. As a WebKit view it cost a web process of
 //! its own (~65–100 MB) to list files. See docs/adr/0003.
+use crate::i18n::tr;
+use crate::trf;
 use crate::ui::action::{Action, SidebarMsg, UserEvent};
 use crate::ui::address::Engine;
 use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_plus, drawn_icon, icon_button};
@@ -149,7 +151,9 @@ pub struct Sidebar {
     new_button: gtk::Button,
     folder_button: gtk::Button,
     settings: gtk::Popover,
-    theme_buttons: ThemeButtons,
+    theme_buttons: ChoiceButtons,
+    language_buttons: ChoiceButtons,
+    language_restart: gtk::Box,
     zoom_label: gtk::Label,
     auto_update: gtk::CheckButton,
     show_other: gtk::CheckButton,
@@ -182,7 +186,7 @@ impl Sidebar {
 
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         head.style_context().add_class("visor-side-head");
-        let vault_name = gtk::Label::new(Some("Sin bóveda"));
+        let vault_name = gtk::Label::new(Some(tr("Sin bóveda", "No vault")));
         vault_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         vault_name.set_xalign(0.0);
         let inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -190,21 +194,21 @@ impl Sidebar {
         inner.pack_start(&drawn_icon(10, draw_chevron_bold), false, false, 0);
         let vault_button = gtk::MenuButton::new();
         vault_button.add(&inner);
-        vault_button.set_tooltip_text(Some("Cambiar de bóveda"));
+        vault_button.set_tooltip_text(Some(tr("Cambiar de bóveda", "Change vault")));
         vault_button.style_context().add_class("visor-vault");
         let popover = gtk::Popover::new(Some(&vault_button));
         popover.style_context().add_class("visor-vaults");
         let vault_list = gtk::Box::new(gtk::Orientation::Vertical, 0);
         popover.add(&vault_list);
         vault_button.set_popover(Some(&popover));
-        let new_button = icon_button("Nueva nota (Ctrl+N)", draw_plus);
-        let folder_button = icon_button("Nueva carpeta", draw_new_folder);
+        let new_button = icon_button(tr("Nueva nota (Ctrl+N)", "New note (Ctrl+N)"), draw_plus);
+        let folder_button = icon_button(tr("Nueva carpeta", "New folder"), draw_new_folder);
         head.pack_start(&vault_button, true, true, 0);
         head.pack_start(&new_button, false, false, 0);
         head.pack_start(&folder_button, false, false, 0);
         let gear = gtk::MenuButton::new();
         gear.add(&drawn_icon(16, draw_gear));
-        gear.set_tooltip_text(Some("Ajustes (Ctrl+,)"));
+        gear.set_tooltip_text(Some(tr("Ajustes (Ctrl+,)", "Settings (Ctrl+,)")));
         let foot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         foot.style_context().add_class("visor-side-foot");
         foot.pack_start(&gear, false, false, 0);
@@ -212,11 +216,12 @@ impl Sidebar {
         version.style_context().add_class("visor-muted");
         // Smaller text sits high in a row sized by the button; center it on the gear.
         version.set_valign(gtk::Align::Center);
-        version.set_tooltip_text(Some("Versión de visor"));
+        version.set_tooltip_text(Some(tr("Versión de visor", "visor version")));
         foot.pack_end(&version, false, false, 0);
         let syncing = Rc::new(Cell::new(false));
         let update = UpdateBox::new(proxy);
-        let (settings, theme_buttons, zoom_label, auto_update, show_other, search_engine) = settings_popover(&gear, proxy, &syncing, &update);
+        let (settings, theme_buttons, language_buttons, language_restart, zoom_label, auto_update, show_other, search_engine) =
+            settings_popover(&gear, proxy, &syncing, &update);
         gear.set_popover(Some(&settings));
 
         let form = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -287,11 +292,11 @@ impl Sidebar {
             button.add(&row);
             button
         };
-        let note_here = menu_button("Nueva nota aquí", "");
-        let folder_here = menu_button("Nueva carpeta aquí", "");
-        let elsewhere = menu_button("Abrir con otra aplicación", "");
+        let note_here = menu_button(tr("Nueva nota aquí", "New note here"), "");
+        let folder_here = menu_button(tr("Nueva carpeta aquí", "New folder here"), "");
+        let elsewhere = menu_button(tr("Abrir con otra aplicación", "Open with another application"), "");
         let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
-        let trash = menu_button("Mover a la papelera", "Supr");
+        let trash = menu_button(tr("Mover a la papelera", "Move to trash"), tr("Supr", "Del"));
         let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         for item in [note_here.clone().upcast::<gtk::Widget>(), folder_here.clone().upcast(), elsewhere.clone().upcast(), separator.clone().upcast(), trash.clone().upcast()] {
             menu_box.pack_start(&item, false, false, 0);
@@ -304,7 +309,7 @@ impl Sidebar {
         notice_text.set_line_wrap(true);
         notice_text.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
         notice_text.show();
-        let notice_open = gtk::Button::with_label("Abrir con otra aplicación");
+        let notice_open = gtk::Button::with_label(tr("Abrir con otra aplicación", "Open with another application"));
         notice_open.set_halign(gtk::Align::Start);
         notice_open.hide();
         let notice = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -329,6 +334,8 @@ impl Sidebar {
             folder_button,
             settings,
             theme_buttons,
+            language_buttons,
+            language_restart,
             zoom_label,
             auto_update,
             show_other,
@@ -415,16 +422,28 @@ impl Sidebar {
         let _ = self.proxy.send_event(UserEvent::Sidebar(msg));
     }
 
+    pub fn set_language_pending(&self, pending: bool) {
+        self.language_restart.set_visible(pending);
+    }
+
     /// Fills in the settings without reporting them as changes. Theme names
     /// other than «claro» and «oscuro» show as «Sistema», as the app treats them.
-    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool, show_other: bool, search_engine: Engine) {
+    pub fn set_settings(&self, theme: Option<&str>, zoom: f64, auto_update: bool, show_other: bool, search_engine: Engine, language: Option<&str>) {
         let theme = match theme {
             Some(t @ ("claro" | "oscuro")) => Some(t),
             _ => None,
         };
         self.syncing.set(true);
+        // Only the languages the settings offer; anything else shows as the system's choice.
+        let language = match language {
+            Some(l @ ("es" | "en")) => Some(l),
+            _ => None,
+        };
         for (choice, button) in &self.theme_buttons {
             button.set_active(*choice == theme);
+        }
+        for (choice, button) in &self.language_buttons {
+            button.set_active(*choice == language);
         }
         self.auto_update.set_active(auto_update);
         self.show_other.set_active(show_other);
@@ -878,7 +897,7 @@ impl Sidebar {
 
     fn render_vaults(&self, vaults: &[PathBuf], current: Option<&Path>) {
         let name = |v: &Path| v.file_name().map_or_else(|| v.display().to_string(), |n| n.to_string_lossy().into_owned());
-        self.vault_name.set_text(&current.map_or_else(|| "Sin bóveda".to_string(), name));
+        self.vault_name.set_text(&current.map_or_else(|| tr("Sin bóveda", "No vault").to_string(), name));
         for child in self.vault_list.children() {
             self.vault_list.remove(&child);
         }
@@ -906,7 +925,7 @@ impl Sidebar {
                 s.send(SidebarMsg::SwitchVault { path: path.clone() });
             });
             let remove = gtk::Button::with_label("×");
-            remove.set_tooltip_text(Some("Quitar de la lista (no borra la carpeta)"));
+            remove.set_tooltip_text(Some(tr("Quitar de la lista (no borra la carpeta)", "Remove from the list (does not delete the folder)")));
             let (s, path) = (self.clone(), vault.clone());
             remove.connect_clicked(move |_| s.send(SidebarMsg::RemoveVault { path: path.clone() }));
             row.pack_start(&switch, true, true, 0);
@@ -918,7 +937,7 @@ impl Sidebar {
         }
         let pick = gtk::Button::new();
         let text = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        let label = gtk::Label::new(Some("Abrir carpeta…"));
+        let label = gtk::Label::new(Some(tr("Abrir carpeta…", "Open folder…")));
         label.set_xalign(0.0);
         let keys = gtk::Label::new(Some("Ctrl+O"));
         keys.style_context().add_class("visor-muted");
@@ -1010,9 +1029,10 @@ impl Sidebar {
             state.new_dir = dir.to_string();
             state.new_folder = folder;
         }
-        let place = if dir.is_empty() { "la raíz de la bóveda" } else { dir };
-        self.form_label.set_text(&format!("{} {place}", if folder { "Nueva carpeta en" } else { "Nueva nota en" }));
-        self.entry.set_placeholder_text(Some(if folder { "Nombre de la carpeta" } else { "Nombre de la nota" }));
+        let place = if dir.is_empty() { tr("la raíz de la bóveda", "the vault root") } else { dir };
+        let label = if folder { trf!("Nueva carpeta en {place}", "New folder in {place}") } else { trf!("Nueva nota en {place}", "New note in {place}") };
+        self.form_label.set_text(&label);
+        self.entry.set_placeholder_text(Some(if folder { tr("Nombre de la carpeta", "Folder name") } else { tr("Nombre de la nota", "Note name") }));
         self.entry.set_text("");
         self.form_error.hide();
         self.form.show();
@@ -1118,84 +1138,25 @@ impl Sidebar {
     }
 }
 
-/// Theme choices as the settings popover holds them: `None` is «Sistema».
-type ThemeButtons = Vec<(Option<&'static str>, gtk::ToggleButton)>;
+/// The buttons of one settings row: `None` is the system's choice.
+type ChoiceButtons = Vec<(Option<&'static str>, gtk::ToggleButton)>;
 
-/// The update part of the settings: a check now, the result of the last one,
-/// and a restart once a new version is on disk.
-#[derive(Clone)]
-struct UpdateBox {
-    area: gtk::Box,
-    check: gtk::Button,
-    result: gtk::Label,
-    restart: gtk::Button,
-}
-
-impl UpdateBox {
-    fn new(proxy: &EventLoopProxy<UserEvent>) -> UpdateBox {
-        let area = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        let check = gtk::Button::with_label("Buscar actualización ahora");
-        check.set_tooltip_text(Some("Las copias compiladas en target/ no se reemplazan."));
-        let result = gtk::Label::new(None);
-        result.set_xalign(0.0);
-        result.set_line_wrap(true);
-        result.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
-        result.set_no_show_all(true);
-        let restart = gtk::Button::with_label("Reiniciar ahora");
-        restart.set_no_show_all(true);
-        let p = proxy.clone();
-        check.connect_clicked(move |_| {
-            let _ = p.send_event(UserEvent::Action(Action::CheckUpdates));
-        });
-        let p = proxy.clone();
-        restart.connect_clicked(move |_| {
-            let _ = p.send_event(UserEvent::Action(Action::Restart));
-        });
-        area.pack_start(&check, false, false, 0);
-        area.pack_start(&result, false, false, 0);
-        area.pack_start(&restart, false, false, 0);
-        UpdateBox { area, check, result, restart }
-    }
-
-    fn busy(&self) {
-        self.check.set_sensitive(false);
-        self.restart.hide();
-        self.result.set_text("Buscando…");
-        self.result.show();
-    }
-
-    fn done(&self, message: &str, restart: bool) {
-        self.check.set_sensitive(true);
-        self.result.set_text(message);
-        self.result.show();
-        if restart { self.restart.show() } else { self.restart.hide() }
-    }
-}
-
-/// The gear's popover: a theme choice, the text size, the update switch and the
-/// update check. Its controls send actions; `Sidebar::set_settings` fills them in silently.
-fn settings_popover(
-    gear: &gtk::MenuButton,
-    proxy: &EventLoopProxy<UserEvent>,
+/// A row of toggle buttons where one choice is always on. Choosing one sends
+/// `action` with that choice; `Sidebar::set_settings` fills the row in without sending.
+fn choice_row(
+    choices: &[(Option<&'static str>, &'static str)],
     syncing: &Rc<Cell<bool>>,
-    update: &UpdateBox,
-) -> (gtk::Popover, ThemeButtons, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
-    let caption = |text: &str| {
-        let label = gtk::Label::new(Some(text));
-        label.set_xalign(0.0);
-        label.style_context().add_class("visor-muted");
-        label
-    };
-
-    let themes: ThemeButtons =
-        [(None, "Sistema"), (Some("claro"), "Claro"), (Some("oscuro"), "Oscuro")]
-            .into_iter()
-            .map(|(choice, label)| (choice, gtk::ToggleButton::with_label(label)))
-            .collect();
-    let all: Vec<gtk::ToggleButton> = themes.iter().map(|(_, b)| b.clone()).collect();
-    let theme_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    for (choice, button) in &themes {
-        theme_row.pack_start(button, true, true, 0);
+    proxy: &EventLoopProxy<UserEvent>,
+    action: fn(Option<String>) -> Action,
+) -> (gtk::Box, ChoiceButtons) {
+    let buttons: ChoiceButtons = choices
+        .iter()
+        .map(|&(choice, label)| (choice, gtk::ToggleButton::with_label(label)))
+        .collect();
+    let all: Vec<gtk::ToggleButton> = buttons.iter().map(|(_, b)| b.clone()).collect();
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    for (choice, button) in &buttons {
+        row.pack_start(button, true, true, 0);
         let (all, syncing, choice) = (all.clone(), syncing.clone(), *choice);
         let proxy = proxy.clone();
         button.connect_toggled(move |b| {
@@ -1214,21 +1175,119 @@ fn settings_popover(
                 other.set_active(false);
             }
             syncing.set(false);
-            let _ = proxy.send_event(UserEvent::Action(Action::SetTheme(choice.map(String::from))));
+            let _ = proxy.send_event(UserEvent::Action(action(choice.map(String::from))));
         });
     }
+    (row, buttons)
+}
+
+/// The update part of the settings: a check now, the result of the last one,
+/// and a restart once a new version is on disk.
+#[derive(Clone)]
+struct UpdateBox {
+    area: gtk::Box,
+    check: gtk::Button,
+    result: gtk::Label,
+    restart: gtk::Button,
+}
+
+impl UpdateBox {
+    fn new(proxy: &EventLoopProxy<UserEvent>) -> UpdateBox {
+        let area = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        let check = gtk::Button::with_label(tr("Buscar actualización ahora", "Check for update now"));
+        check.set_tooltip_text(Some(tr("Las copias compiladas en target/ no se reemplazan.", "Compiled copies in target/ are not replaced.")));
+        let result = gtk::Label::new(None);
+        result.set_xalign(0.0);
+        result.set_line_wrap(true);
+        result.set_line_wrap_mode(gtk::pango::WrapMode::WordChar);
+        result.set_no_show_all(true);
+        let restart = gtk::Button::with_label(tr("Reiniciar ahora", "Restart now"));
+        restart.set_no_show_all(true);
+        let p = proxy.clone();
+        check.connect_clicked(move |_| {
+            let _ = p.send_event(UserEvent::Action(Action::CheckUpdates));
+        });
+        let p = proxy.clone();
+        restart.connect_clicked(move |_| {
+            let _ = p.send_event(UserEvent::Action(Action::Restart));
+        });
+        area.pack_start(&check, false, false, 0);
+        area.pack_start(&result, false, false, 0);
+        area.pack_start(&restart, false, false, 0);
+        UpdateBox { area, check, result, restart }
+    }
+
+    fn busy(&self) {
+        self.check.set_sensitive(false);
+        self.restart.hide();
+        self.result.set_text(tr("Buscando…", "Checking…"));
+        self.result.show();
+    }
+
+    fn done(&self, message: &str, restart: bool) {
+        self.check.set_sensitive(true);
+        self.result.set_text(message);
+        self.result.show();
+        if restart { self.restart.show() } else { self.restart.hide() }
+    }
+}
+
+/// The gear's popover: a language and a theme choice, the text size, the update switch and the
+/// update check. Its controls send actions; `Sidebar::set_settings` fills them in silently.
+fn settings_popover(
+    gear: &gtk::MenuButton,
+    proxy: &EventLoopProxy<UserEvent>,
+    syncing: &Rc<Cell<bool>>,
+    update: &UpdateBox,
+) -> (gtk::Popover, ChoiceButtons, ChoiceButtons, gtk::Box, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
+    let caption = |text: &str| {
+        let label = gtk::Label::new(Some(text));
+        label.set_xalign(0.0);
+        label.style_context().add_class("visor-muted");
+        label
+    };
+
+    let (theme_row, themes) = choice_row(
+        &[(None, tr("Sistema", "System")), (Some("claro"), tr("Claro", "Light")), (Some("oscuro"), tr("Oscuro", "Dark"))],
+        syncing,
+        proxy,
+        Action::SetTheme,
+    );
+    let (language_row, languages) = choice_row(
+        &[(None, tr("Sistema", "System")), (Some("es"), "Español"), (Some("en"), "English")],
+        syncing,
+        proxy,
+        Action::SetLanguage,
+    );
+    // The language only changes on restart, so this shows while the choice differs from the one in use.
+    let language_restart = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let pending = gtk::Label::new(Some(tr("Se aplicará al reiniciar visor.", "Takes effect when visor restarts.")));
+    pending.set_xalign(0.0);
+    pending.set_line_wrap(true);
+    pending.set_max_width_chars(20);
+    pending.style_context().add_class("visor-muted");
+    let restart = gtk::Button::with_label(tr("Reiniciar ahora", "Restart now"));
+    let p = proxy.clone();
+    restart.connect_clicked(move |_| {
+        let _ = p.send_event(UserEvent::Action(Action::Restart));
+    });
+    language_restart.pack_start(&pending, true, true, 0);
+    language_restart.pack_start(&restart, false, false, 0);
+    pending.show();
+    restart.show();
+    language_restart.set_no_show_all(true);
 
     let zoom_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     let smaller = gtk::Button::with_label("−");
-    smaller.set_tooltip_text(Some("Reducir (Ctrl+-)"));
+    smaller.set_tooltip_text(Some(tr("Reducir (Ctrl+-)", "Zoom out (Ctrl+-)")));
     let zoom_label = gtk::Label::new(None);
     zoom_label.style_context().add_class("visor-zoom");
     let reset = gtk::Button::new();
     reset.set_relief(gtk::ReliefStyle::None);
     reset.add(&zoom_label);
-    reset.set_tooltip_text(Some("Restablecer (Ctrl+0)"));
+    reset.set_tooltip_text(Some(tr("Restablecer (Ctrl+0)", "Reset (Ctrl+0)")));
     let bigger = gtk::Button::with_label("+");
-    bigger.set_tooltip_text(Some("Aumentar (Ctrl++)"));
+    bigger.set_tooltip_text(Some(tr("Aumentar (Ctrl++)", "Zoom in (Ctrl++)")));
     zoom_row.pack_start(&smaller, false, false, 0);
     zoom_row.pack_start(&reset, true, true, 0);
     zoom_row.pack_start(&bigger, false, false, 0);
@@ -1245,7 +1304,7 @@ fn settings_popover(
         let _ = p.send_event(UserEvent::Action(Action::Zoom(1)));
     });
 
-    let auto_update = gtk::CheckButton::with_label("Buscar e instalar actualizaciones");
+    let auto_update = gtk::CheckButton::with_label(tr("Buscar e instalar actualizaciones", "Check for and install updates"));
     let (syncing_flag, p) = (syncing.clone(), proxy.clone());
     auto_update.connect_toggled(move |c| {
         if !syncing_flag.get() {
@@ -1253,7 +1312,7 @@ fn settings_popover(
         }
     });
 
-    let show_other = gtk::CheckButton::with_label("Mostrar archivos que visor no abre");
+    let show_other = gtk::CheckButton::with_label(tr("Mostrar archivos que visor no abre", "Show files visor does not open"));
     let (syncing_flag, p) = (syncing.clone(), proxy.clone());
     show_other.connect_toggled(move |c| {
         if !syncing_flag.get() {
@@ -1272,20 +1331,23 @@ fn settings_popover(
             let _ = p.send_event(UserEvent::Action(Action::SetSearchEngine(engine)));
         }
     });
-    let search_note = gtk::Label::new(Some("Lo escrito en la barra que no sea una dirección se envía al buscador."));
+    let search_note = gtk::Label::new(Some(tr("Lo escrito en la barra que no sea una dirección se envía al buscador.", "What you type in the bar that is not an address goes to the search engine.")));
     search_note.set_xalign(0.0);
     search_note.set_line_wrap(true);
     search_note.set_max_width_chars(32);
     search_note.style_context().add_class("visor-muted");
 
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    column.pack_start(&caption("Tema"), false, false, 0);
+    column.pack_start(&caption(tr("Idioma", "Language")), false, false, 0);
+    column.pack_start(&language_row, false, false, 0);
+    column.pack_start(&language_restart, false, false, 0);
+    column.pack_start(&caption(tr("Tema", "Theme")), false, false, 0);
     column.pack_start(&theme_row, false, false, 0);
-    column.pack_start(&caption("Tamaño del texto"), false, false, 0);
+    column.pack_start(&caption(tr("Tamaño del texto", "Text size")), false, false, 0);
     column.pack_start(&zoom_row, false, false, 0);
     column.pack_start(&show_other, false, false, 4);
     column.pack_start(&auto_update, false, false, 4);
-    column.pack_start(&caption("Buscador"), false, false, 0);
+    column.pack_start(&caption(tr("Buscador", "Search engine")), false, false, 0);
     column.pack_start(&search_engine, false, false, 0);
     column.pack_start(&search_note, false, false, 0);
     column.pack_start(&update.area, false, false, 4);
@@ -1295,7 +1357,7 @@ fn settings_popover(
     settings.style_context().add_class("visor-settings");
     settings.set_position(gtk::PositionType::Top);
     settings.add(&column);
-    (settings, themes, zoom_label, auto_update, show_other, search_engine)
+    (settings, themes, languages, language_restart, zoom_label, auto_update, show_other, search_engine)
 }
 
 /// The open file and a drop target get the accent color and a background.
@@ -1382,9 +1444,9 @@ fn placeholder(dir: &Dir, show_other: bool) -> Option<&'static str> {
     if !dir.dirs.is_empty() {
         None
     } else if dir.files.is_empty() {
-        Some("Carpeta vacía")
+        Some(tr("Carpeta vacía", "Empty folder"))
     } else if !show_other && dir.files.iter().all(|f| f.kind == vault::Kind::Other) {
-        Some("Sin archivos que visor abra")
+        Some(tr("Sin archivos que visor abra", "No files that visor opens"))
     } else {
         None
     }
@@ -1393,15 +1455,15 @@ fn placeholder(dir: &Dir, show_other: bool) -> Option<&'static str> {
 fn cannot_open(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => format!("visor no abre archivos .{}.", ext.to_lowercase()),
-        _ => "visor no abre este archivo.".into(),
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => trf!("visor no abre archivos .{}.", "visor does not open .{} files.", ext.to_lowercase()),
+        _ => tr("visor no abre este archivo.", "visor does not open this file.").into(),
     }
 }
 
 /// What the notice says when the system has no program for a file.
 pub fn no_application(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
-    format!("No hay ninguna aplicación para abrir «{name}».")
+    trf!("No hay ninguna aplicación para abrir «{name}».", "No application can open «{name}».")
 }
 
 /// Whether showing `next` should open its folders: only when the file on

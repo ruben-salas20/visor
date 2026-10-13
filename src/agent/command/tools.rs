@@ -14,18 +14,18 @@ pub fn list() -> Vec<Value> {
     vec![
         tool(
             "open",
-            "Abre una bóveda, un archivo o una web en visor. Espera a que la página cargue y devuelve los errores y avisos que generó. Abre la app si está cerrada. Una carpeta se abre como bóveda; un .html que no está en ninguna bóveda se abre suelto.",
+            "Opens a vault, a file or a web page in visor. Waits for the page to load and returns the errors and warnings it produced. Starts the app if it is closed. A folder opens as a vault; a .html that is not in any vault opens as a loose file.",
             object(
                 json!({
                     "target": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Ruta absoluta, ruta relativa a la bóveda abierta, o URL http o https.",
+                        "description": "Absolute path, path relative to the open vault, or http or https URL.",
                     },
                     "place": {
                         "type": "string",
                         "enum": ["here", "tab", "beside"],
-                        "description": "here: sustituye la pestaña activa (por defecto). tab: abre una pestaña nueva. beside: la abre en el otro lado y divide la ventana si hace falta.",
+                        "description": "here: replaces the active tab (default). tab: opens a new tab. beside: opens it on the other side and splits the window if needed.",
                     },
                 }),
                 &["target"],
@@ -33,13 +33,13 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "close",
-            "Cierra pestañas. Sin argumentos, cierra la pestaña activa del lado con el foco. Con target, cierra todas las pestañas (de cualquier lado) que muestran ese archivo. Devuelve cuántas cerró y lo mismo que status.",
+            "Closes tabs. Without arguments, closes the active tab of the focused side. With target, closes every tab (on either side) that shows that file. Returns how many it closed, plus the same as status.",
             object(
                 json!({
                     "target": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Ruta absoluta del archivo cuyas pestañas se cierran.",
+                        "description": "Absolute path of the file whose tabs are closed.",
                     },
                 }),
                 &[],
@@ -47,34 +47,34 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "status",
-            "Dice qué bóveda y qué archivo está viendo la persona. Si está en una web, file es null y url tiene la dirección. Incluye las pestañas de cada lado de la ventana y cuál tiene el foco.",
+            "Says which vault and which file the person is viewing. If they are on a web page, file is null and url holds the address. Includes the tabs on each side of the window and which one has focus.",
             object(json!({}), &[]),
         ),
         tool(
             "reload",
-            "Recarga la página actual y devuelve sus errores y avisos. Falla si no hay nada abierto.",
+            "Reloads the current page and returns its errors and warnings. Fails if nothing is open.",
             object(json!({}), &[]),
         ),
         tool(
             "console",
-            "Devuelve la consola de la página actual: console.log, errores de JavaScript, recursos que no cargaron y promesas rechazadas. Con errors_only, solo los errores. Con clear, vacía la consola después de leerla.",
+            "Returns the console of the current page: console.log, JavaScript errors, resources that did not load and rejected promises. With errors_only, only the errors. With clear, empties the console after reading it.",
             object(
                 json!({
-                    "errors_only": { "type": "boolean", "description": "Devuelve solo los errores." },
-                    "clear": { "type": "boolean", "description": "Vacía la consola después de leerla." },
+                    "errors_only": { "type": "boolean", "description": "Returns only the errors." },
+                    "clear": { "type": "boolean", "description": "Empties the console after reading it." },
                 }),
                 &[],
             ),
         ),
         tool(
             "screenshot",
-            "Guarda una captura PNG de lo que la persona ve en la pestaña activa, dibujada por el motor de visor (WebKit). Solo para páginas de la bóveda o sueltas; en una web externa falla. path debe ser absoluto y acabar en .png.",
+            "Saves a PNG capture of what the person sees in the active tab, drawn by visor's engine (WebKit). Only for vault or loose pages; fails on an external web page. path must be absolute and end in .png.",
             object(
                 json!({
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Ruta absoluta del archivo PNG que se escribe (se sustituye si existe).",
+                        "description": "Absolute path of the PNG file to write (replaces it if it exists).",
                     },
                 }),
                 &["path"],
@@ -82,13 +82,13 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "eval",
-            "Ejecuta JavaScript en la página activa y devuelve su valor como JSON (type dice el tipo de JavaScript). Sirve para pulsar un botón, leer el DOM o medir desbordes. Solo para páginas de la bóveda o sueltas; en una web externa falla. El código es el de una expresión o de varias instrucciones: vale el valor de la última. No espera promesas.",
+            "Runs JavaScript in the active page and returns its value as JSON (type says the JavaScript type). Useful for clicking a button, reading the DOM or measuring overflow. Only for vault or loose pages; fails on an external web page. The code can be one expression or several statements: the value of the last one is returned. It does not wait for promises.",
             object(
                 json!({
                     "code": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Código JavaScript a ejecutar en la página.",
+                        "description": "JavaScript code to run in the page.",
                     },
                 }),
                 &["code"],
@@ -96,24 +96,24 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "events",
-            "Devuelve los datos que las páginas enviaron con visor.send() y los mensajes que la persona escribe en sus anotaciones (con annotation en lugar de data; action dice si es un comentario o una respuesta). Sin argumentos, los 20 últimos. Con after, solo los posteriores a ese id. Con wait, espera a que llegue uno nuevo: úsalo cuando una página pida algo a la persona o para seguir sus anotaciones.",
+            "Returns the data pages sent with visor.send() and the messages the person writes in their annotations (annotation instead of data; action says whether it is a comment or a reply). Without arguments, the last 20. With after, only those after that id. With wait, waits for a new one to arrive: use it when a page asks the person for something, or to follow their annotations.",
             object(
                 json!({
                     "after": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Id del último evento que ya conoces; devuelve solo los posteriores.",
+                        "description": "Id of the last event you already know; returns only the later ones.",
                     },
                     "wait": {
                         "type": "number",
                         "minimum": 0,
                         "maximum": 600,
-                        "description": "Espera hasta estos segundos (máximo 600) a que llegue un evento nuevo. Sin after, solo cuentan los eventos que lleguen desde ahora.",
+                        "description": "Waits up to this many seconds (maximum 600) for a new event to arrive. Without after, only events that arrive from now on count.",
                     },
                     "limit": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Cuántos de los eventos más recientes devolver si no usas after (por defecto 20).",
+                        "description": "How many of the most recent events to return if you do not use after (default 20).",
                     },
                 }),
                 &[],
@@ -121,38 +121,38 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "notes",
-            "Devuelve las anotaciones de la persona: texto subrayado, comentarios o elementos marcados. Cada una es una conversación: comment es lo que escribió la persona y replies sus mensajes en orden, con author (\"persona\" o \"agente\"). pending indica que la persona espera tu respuesta. Sin argumentos, las de la página abierta. Con page, las de otra página. Con all, las de toda la bóveda. En la página abierta, anchored indica si cada anotación todavía encuentra su texto o elemento.",
+            "Returns the person's annotations: highlighted text, comments or marked elements. Each one is a conversation: comment is what the person wrote, and replies are the messages in order, with author (\"persona\" or \"agente\", the literal values). pending means the person is waiting for your reply. Without arguments, the annotations of the open page. With page, those of another page. With all, those of the whole vault. On the open page, anchored says whether each annotation still finds its text or element.",
             object(
                 json!({
                     "page": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Ruta de la página, absoluta o relativa a la bóveda.",
+                        "description": "Path of the page, absolute or relative to the vault.",
                     },
-                    "all": { "type": "boolean", "description": "Devuelve las anotaciones de toda la bóveda." },
+                    "all": { "type": "boolean", "description": "Returns the annotations of the whole vault." },
                 }),
                 &[],
             ),
         ),
         tool(
             "notes_reply",
-            "Responde a una anotación de la persona; la respuesta aparece al momento en su nota y se añade al final de la conversación. Tras un evento de events con annotation, responde así. No edites a mano los archivos de anotaciones.",
+            "Replies to one of the person's annotations; the reply appears at once in their note and is added to the end of the conversation. After an events entry with annotation, reply this way. Do not edit the annotation files by hand.",
             object(
                 json!({
-                    "id": { "type": "string", "minLength": 1, "description": "Id de la anotación, tal como lo devuelve notes." },
-                    "text": { "type": "string", "minLength": 1, "description": "Texto de la respuesta." },
+                    "id": { "type": "string", "minLength": 1, "description": "Id of the annotation, as notes returns it." },
+                    "text": { "type": "string", "minLength": 1, "description": "Text of the reply." },
                 }),
                 &["id", "text"],
             ),
         ),
         tool(
             "update",
-            "Comprueba si hay una versión nueva de visor y la instala. Devuelve el resultado en texto. No reinicia visor: la versión nueva se usa al volver a abrirlo. No reemplaza una copia de compilación (target/).",
+            "Checks whether a new version of visor is available and installs it. Returns the result as text. Does not restart visor: the new version is used when it is opened again. Does not replace a build copy (target/).",
             object(json!({}), &[]),
         ),
         tool(
             "guide",
-            "Devuelve la guía de visor: cómo escribir páginas HTML y notas para visor, qué datos envía la persona y qué órdenes hay. Léela antes de escribir páginas o notas para visor.",
+            "Returns the visor guide: how to write HTML pages and notes for visor, which data the person sends, and which commands exist. Read it before writing pages or notes for visor.",
             object(json!({}), &[]),
         ),
     ]

@@ -1,6 +1,8 @@
 //! Moving and deleting vault files from the sidebar. A page's annotations
 //! live apart from it, so they go wherever the page goes.
 
+use crate::i18n::tr;
+use crate::trf;
 use crate::vault::annot;
 use std::fs;
 use crate::vault::Vault;
@@ -19,14 +21,18 @@ pub fn move_to(vault: &Vault, rel: &str, dir: &str) -> Result<Option<String>, St
         return Ok(None);
     }
     if from.is_dir() && to_dir.starts_with(&from) {
-        return Err("No se puede mover una carpeta dentro de sí misma.".into());
+        return Err(tr("No se puede mover una carpeta dentro de sí misma.", "A folder cannot be moved into itself.").into());
     }
-    let name = from.file_name().ok_or("Ruta no válida")?;
+    let name = from.file_name().ok_or(tr("Ruta no válida", "Invalid path"))?;
     let to = to_dir.join(name);
     if fs::symlink_metadata(&to).is_ok() {
-        return Err(format!("Ya hay algo llamado «{}» en esa carpeta.", name.to_string_lossy()));
+        return Err(trf!(
+            "Ya hay algo llamado «{}» en esa carpeta.",
+            "Something named «{}» already exists in that folder.",
+            name.to_string_lossy()
+        ));
     }
-    fs::rename(&from, &to).map_err(|e| format!("No se pudo mover: {e}"))?;
+    fs::rename(&from, &to).map_err(|e| trf!("No se pudo mover: {e}", "Could not move: {e}"))?;
     let new_rel = vault.rel(&to);
 
     let is_dir = to.is_dir();
@@ -35,7 +41,11 @@ pub fn move_to(vault: &Vault, rel: &str, dir: &str) -> Result<Option<String>, St
         let new_notes = annotations(vault.root(), &new_rel, is_dir);
         let moved = new_notes.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::rename(&old_notes, &new_notes));
         if let Err(e) = moved {
-            return Err(format!("Se movió, pero sus anotaciones se quedaron en {}: {e}", old_notes.display()));
+            return Err(trf!(
+                "Se movió, pero sus anotaciones se quedaron en {}: {e}",
+                "It was moved, but its annotations stayed in {}: {e}",
+                old_notes.display()
+            ));
         }
     }
     Ok(Some(new_rel))
@@ -46,7 +56,7 @@ pub fn trash(vault: &Vault, rel: &str) -> Result<(), String> {
     use gtk::gio::{Cancellable, File, prelude::FileExt};
     let path = vault.entry(rel)?;
     let notes = annotations(vault.root(), rel, path.is_dir());
-    File::for_path(&path).trash(Cancellable::NONE).map_err(|e| format!("No se pudo mover a la papelera: {e}"))?;
+    File::for_path(&path).trash(Cancellable::NONE).map_err(|e| trf!("No se pudo mover a la papelera: {e}", "Could not move to the trash: {e}"))?;
     if notes.exists() {
         let _ = File::for_path(&notes).trash(Cancellable::NONE);
     }
@@ -65,7 +75,7 @@ pub fn note_target(vault: &Vault, dir: &str, name: &str) -> Result<(PathBuf, Str
     if !name.contains('/') {
         return vault.new_in(dir, name).map(|(folder, name)| (folder, name.to_string()));
     }
-    let bad = || "La ruta no puede tener partes vacías, empezar por punto ni usar «\\».".to_string();
+    let bad = || tr("La ruta no puede tener partes vacías, empezar por punto ni usar «\\».", "The path cannot have empty parts, start a part with a dot or use «\\».").to_string();
     let parts: Vec<&str> = name.split('/').map(str::trim).collect();
     if parts.iter().any(|p| p.is_empty() || p.starts_with('.') || p.contains('\\')) {
         return Err(bad());
@@ -81,12 +91,12 @@ pub fn note_target(vault: &Vault, dir: &str, name: &str) -> Result<(PathBuf, Str
         }
         match fs::symlink_metadata(&folder) {
             Ok(_) => {
-                let real = folder.canonicalize().map_err(|_| format!("No existe la carpeta {part}"))?;
+                let real = folder.canonicalize().map_err(|_| trf!("No existe la carpeta {part}", "The folder {part} does not exist"))?;
                 if !real.is_dir() {
-                    return Err(format!("«{part}» no es una carpeta."));
+                    return Err(trf!("«{part}» no es una carpeta.", "«{part}» is not a folder."));
                 }
                 if !real.starts_with(vault.root()) {
-                    return Err("La carpeta está fuera de la bóveda.".into());
+                    return Err(tr("La carpeta está fuera de la bóveda.", "The folder is outside the vault.").into());
                 }
                 folder = real;
             }
@@ -94,7 +104,7 @@ pub fn note_target(vault: &Vault, dir: &str, name: &str) -> Result<(PathBuf, Str
         }
     }
     if missing {
-        fs::create_dir_all(&folder).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
+        fs::create_dir_all(&folder).map_err(|e| trf!("No se pudo crear la carpeta: {e}", "Could not create the folder: {e}"))?;
     }
     Ok((folder, (*file).to_string()))
 }

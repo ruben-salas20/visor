@@ -3,6 +3,7 @@
 //! so that a rename there shows up in one place here. Values go through
 //! serde_json, so a page's text cannot break out of its string.
 
+use crate::i18n::tr;
 use serde_json::{Value, json};
 
 /// Tells the editor whether its save worked.
@@ -132,15 +133,17 @@ pub fn frost(zone: Option<u8>, accent: &str) -> String {
 pub fn eval(code: &str, bases: [&str; 2]) -> String {
     let bases = json!(bases);
     let code = json!(code);
+    let gone = json!(tr("La página ya no es de la bóveda ni un archivo suelto.", "The page is no longer in the vault or a loose file."));
+    let promise = json!(tr("El resultado es una promesa; visor eval no espera promesas.", "The result is a promise; visor eval does not wait for promises."));
     format!(
         r#"(() => {{
   const fail = (error) => JSON.stringify({{ ok: false, error }});
   if (!{bases}.some((base) => base && location.href.startsWith(base)))
-    return fail("La página ya no es de la bóveda ni un archivo suelto.");
+    return fail({gone});
   try {{
     const value = (0, eval)({code});
     if (value && typeof value.then === "function")
-      return fail("El resultado es una promesa; visor eval no espera promesas.");
+      return fail({promise});
     return JSON.stringify({{ ok: true, type: typeof value, value }});
   }} catch (e) {{
     return fail(e instanceof Error ? e.message : String(e));
@@ -151,12 +154,12 @@ pub fn eval(code: &str, bases: [&str; 2]) -> String {
 
 /// Reads what `eval` returned: the value, or the reason the code did not run.
 pub fn eval_answer(raw: &str) -> Result<Value, String> {
-    let answer: Value = serde_json::from_str(raw).map_err(|_| "La página devolvió algo que visor no entiende.".to_string())?;
+    let answer: Value = serde_json::from_str(raw).map_err(|_| tr("La página devolvió algo que visor no entiende.", "The page returned something visor does not understand.").to_string())?;
     if answer["ok"] == true {
         // A value with no JSON form (undefined, a function) leaves its key out.
         Ok(json!({ "ok": true, "type": answer["type"], "value": answer.get("value").cloned().unwrap_or(Value::Null) }))
     } else {
-        Err(answer["error"].as_str().unwrap_or("El código falló.").to_string())
+        Err(answer["error"].as_str().unwrap_or(tr("El código falló.", "The code failed.")).to_string())
     }
 }
 

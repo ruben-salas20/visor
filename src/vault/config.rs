@@ -1,3 +1,5 @@
+use crate::i18n::tr;
+use crate::trf;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -29,6 +31,9 @@ pub struct Config {
     pub show_other_files: Option<bool>,
     /// Engine for text in the address field that is not an address (`address::Engine::id`). `None` is the default.
     pub search_engine: Option<String>,
+    /// `"es"` or `"en"`; `None` follows the system's `LANG`. Read at startup, so a change applies on restart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -75,8 +80,23 @@ impl Config {
         serde_json::from_slice(&bytes).unwrap_or_else(|e| {
             let copy = backup_name(path);
             match fs::write(&copy, &bytes) {
-                Ok(()) => eprintln!("La configuración {} no se puede leer ({e}). Se guardó una copia en {}.", path.display(), copy.display()),
-                Err(w) => eprintln!("La configuración {} no se puede leer ({e}) y no se pudo guardar una copia ({w}).", path.display()),
+                Ok(()) => eprintln!(
+                    "{}",
+                    trf!(
+                        "La configuración {} no se puede leer ({e}). Se guardó una copia en {}.",
+                        "The settings file {} cannot be read ({e}). A copy was saved to {}.",
+                        path.display(),
+                        copy.display()
+                    )
+                ),
+                Err(w) => eprintln!(
+                    "{}",
+                    trf!(
+                        "La configuración {} no se puede leer ({e}) y no se pudo guardar una copia ({w}).",
+                        "The settings file {} cannot be read ({e}), and a copy could not be saved ({w}).",
+                        path.display()
+                    )
+                ),
             }
             Self::default()
         })
@@ -93,7 +113,7 @@ impl Config {
             Ok(json) => {
                 let _ = crate::vault::write_atomic(path, json);
             }
-            Err(e) => eprintln!("No se pudo guardar la configuración: {e}"),
+            Err(e) => eprintln!("{}", trf!("No se pudo guardar la configuración: {e}", "Could not save the settings: {e}")),
         }
     }
 
@@ -101,7 +121,11 @@ impl Config {
     pub fn check_vault(path: &Path) -> Result<(), String> {
         match path.to_str() {
             Some(_) => Ok(()),
-            None => Err(format!("El nombre de la carpeta no es UTF-8 y no se puede abrir como bóveda: {}", path.to_string_lossy())),
+            None => Err(trf!(
+                "El nombre de la carpeta no es UTF-8 y no se puede abrir como bóveda: {}",
+                "The folder name is not UTF-8 and cannot be opened as a vault: {}",
+                path.to_string_lossy()
+            )),
         }
     }
 
@@ -111,10 +135,18 @@ impl Config {
     pub fn check_folder_of_file(dir: &Path, home: Option<&Path>) -> Result<(), String> {
         let home = home.and_then(|h| h.canonicalize().ok());
         if home.as_deref() == Some(dir) {
-            return Err("Abrir este archivo convertiría tu carpeta personal en bóveda. Ábrela a propósito con `visor open ~` o mueve el archivo a una carpeta.".into());
+            return Err(tr(
+                "Abrir este archivo convertiría tu carpeta personal en bóveda. Ábrela a propósito con `visor open ~` o mueve el archivo a una carpeta.",
+                "Opening this file would make your home folder a vault. Open the folder on purpose with `visor open ~`, or move the file to a folder.",
+            )
+            .into());
         }
         if dir.parent().is_none() {
-            return Err("Abrir este archivo convertiría la raíz del disco (/) en bóveda. Mueve el archivo a una carpeta.".into());
+            return Err(tr(
+                "Abrir este archivo convertiría la raíz del disco (/) en bóveda. Mueve el archivo a una carpeta.",
+                "Opening this file would make the root of the disk (/) a vault. Move the file to a folder.",
+            )
+            .into());
         }
         Ok(())
     }
@@ -150,6 +182,7 @@ mod tests {
         config.port = Some(4242);
         config.bar_shown = true;
         config.search_engine = Some("google".into());
+        config.language = Some("en".into());
         config.workspaces.insert(
             "/a/b".into(),
             Workspace { panes: vec![PaneState { tabs: vec!["x.md".into()], active: 0 }], focused: 0 },
@@ -161,6 +194,7 @@ mod tests {
         assert_eq!(loaded.port, Some(4242));
         assert!(loaded.bar_shown);
         assert_eq!(loaded.search_engine.as_deref(), Some("google"));
+        assert_eq!(loaded.language.as_deref(), Some("en"));
         assert_eq!(loaded.workspaces[Path::new("/a/b")].panes[0].tabs, ["x.md"]);
         assert!(!dir.join("nueva/.config.json.visor-tmp").exists());
         assert!(Config::load_from(&dir.join("no-existe.json")).vaults.is_empty());

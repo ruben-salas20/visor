@@ -1,4 +1,6 @@
+use crate::i18n::tr;
 use crate::session::{LOADED, Place, AgentRequest, SharedRef};
+use crate::trf;
 use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Page, Target};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -31,7 +33,7 @@ fn handle(stream: UnixStream, shared: &SharedRef, send: &dyn Fn(AgentRequest)) {
             Ok(command) => respond(command, shared, send),
             Err(e) => fail(e),
         },
-        Err(e) => fail(format!("Petición no válida: {e}")),
+        Err(e) => fail(trf!("Petición no válida: {e}", "Invalid request: {e}")),
     };
     let _ = writeln!(&stream, "{response}");
 }
@@ -68,7 +70,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                 }
                 Ok(Ok(None)) => shared.lock().unwrap().status(),
                 Ok(Err(e)) => fail(e),
-                Err(_) => fail("La app no respondió.".into()),
+                Err(_) => fail(tr("La app no respondió.", "The app did not respond.").into()),
             }
         }
         Command::Close { target } => {
@@ -82,7 +84,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                     out
                 }
                 Ok(Err(e)) => fail(e),
-                Err(_) => fail("La app no respondió.".into()),
+                Err(_) => fail(tr("La app no respondió.", "The app did not respond.").into()),
             }
         }
         Command::Reload => {
@@ -92,7 +94,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
                 (s.focused, page.load_seq, page.file.is_some() || page.url.is_some())
             };
             if !showing {
-                return fail("No hay nada abierto.".into());
+                return fail(tr("No hay nada abierto.", "Nothing is open.").into());
             }
             send(AgentRequest::Reload);
             wait_for_load(shared, view, before)
@@ -119,7 +121,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
         Command::Notes { scope } => notes(&scope, shared),
         Command::NotesReply { id, text } => {
             let Some(vault) = shared.lock().unwrap().vault.clone() else {
-                return fail("No hay ninguna bóveda abierta.".into());
+                return fail(tr("No hay ninguna bóveda abierta.", "No vault is open.").into());
             };
             match crate::vault::annot::reply(vault.path(), &id, &text) {
                 Ok(page) => json!({ "ok": true, "page": page }),
@@ -134,7 +136,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
             outcome => fail(outcome.message()),
         },
         // `visor mcp` answers the guide itself.
-        Command::Guide => fail("Comando desconocido: guide".into()),
+        Command::Guide => fail(tr("Comando desconocido: guide", "Unknown command: guide").into()),
     }
 }
 
@@ -142,17 +144,17 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
 /// drawn it; the path is checked here, since it is used exactly as given.
 fn screenshot(target: Page, send: &dyn Fn(AgentRequest)) -> Value {
     let Some(path) = target.path else {
-        return fail("Indica una ruta absoluta para la captura.".into());
+        return fail(tr("Indica una ruta absoluta para la captura.", "Give an absolute path for the screenshot.").into());
     };
     if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) {
-        return fail("La captura debe guardarse en un archivo .png.".into());
+        return fail(tr("La captura debe guardarse en un archivo .png.", "The screenshot must be saved as a .png file.").into());
     }
     let (reply, answer) = mpsc::channel();
     send(AgentRequest::Screenshot { path: path.clone(), reply });
     match answer.recv_timeout(Duration::from_secs(15)) {
         Ok(Ok(bytes)) => json!({ "ok": true, "path": path.to_string_lossy(), "bytes": bytes }),
         Ok(Err(e)) => fail(e),
-        Err(_) => fail("La app no respondió.".into()),
+        Err(_) => fail(tr("La app no respondió.", "The app did not respond.").into()),
     }
 }
 
@@ -164,7 +166,7 @@ fn run_script(code: String, send: &dyn Fn(AgentRequest)) -> Value {
     match answer.recv_timeout(Duration::from_secs(15)) {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => fail(e),
-        Err(_) => fail("La app no respondió.".into()),
+        Err(_) => fail(tr("La app no respondió.", "The app did not respond.").into()),
     }
 }
 
@@ -186,7 +188,7 @@ fn wait_for_load(shared: &SharedRef, view: u64, before: u64) -> Value {
                 .collect();
             out["problems"] = json!(problems);
             if !loaded {
-                out["warning"] = json!("La página no terminó de cargar en 10 s.");
+                out["warning"] = json!(tr("La página no terminó de cargar en 10 s.", "The page did not finish loading in 10 s."));
             }
             return out;
         }
@@ -201,7 +203,7 @@ fn notes(scope: &NotesScope, shared: &SharedRef) -> Value {
         let s = shared.lock().unwrap();
         (s.vault.clone(), s.page().file.clone(), s.page().orphans.clone())
     };
-    let Some(vault) = vault else { return fail("No hay ninguna bóveda abierta.".into()) };
+    let Some(vault) = vault else { return fail(tr("No hay ninguna bóveda abierta.", "No vault is open.").into()) };
     let page = match scope {
         NotesScope::All => None,
         NotesScope::Page(page) => {
@@ -210,10 +212,16 @@ fn notes(scope: &NotesScope, shared: &SharedRef) -> Value {
         }
         NotesScope::Current => match &current {
             Some(file) if crate::vault::is_loose(file) => {
-                return fail("Las páginas abiertas fuera de una bóveda no tienen anotaciones.".into());
+                return fail(tr(
+                    "Las páginas abiertas fuera de una bóveda no tienen anotaciones.",
+                    "Pages open outside a vault have no annotations.",
+                ).into());
             }
             Some(file) => Some(file.clone()),
-            None => return fail("No hay ninguna página abierta; indica una ruta o usa --all.".into()),
+            None => return fail(tr(
+                "No hay ninguna página abierta; indica una ruta o usa --all.",
+                "No page is open; give a path or use --all.",
+            ).into()),
         },
     };
     let mut list = crate::vault::annot::list(vault.path(), page.as_deref());
