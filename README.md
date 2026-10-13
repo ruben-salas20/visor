@@ -137,7 +137,7 @@ Then ask your agent to use the `guide` tool. That tool returns the same text as 
 
 ## More documentation
 
-The rest of the documentation is in Spanish.
+To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md). The rest of the documentation is in Spanish.
 
 - [README.es.md](README.es.md): this README in Spanish.
 - [CONTEXT.md](CONTEXT.md): glossary.

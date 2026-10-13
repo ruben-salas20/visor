@@ -139,6 +139,7 @@ Después pide a tu agente que use la herramienta `guide`. Esa herramienta devuel
 
 El resto de la documentación está en español.
 
+- [CONTRIBUTING.md](CONTRIBUTING.md): cómo contribuir, en inglés. Se aceptan aportes en español.
 - [README.md](README.md): este README en inglés.
 - [CONTEXT.md](CONTEXT.md): glosario de términos.
 - [AGENTS.md](AGENTS.md): guía para agentes que programan en este repositorio.
