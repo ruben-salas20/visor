@@ -26,6 +26,12 @@ pub fn file(root: &Path, page: &str) -> PathBuf {
     root.join(DIR).join(format!("{page}.json"))
 }
 
+/// The page whose annotations the layer asks for at `<DIR>/<page>.json`, if
+/// `rel` is such a request. `.visor` is hidden, so the server serves only these.
+pub fn requested(rel: &str) -> Option<&str> {
+    rel.strip_prefix(DIR)?.strip_prefix('/')?.strip_suffix(".json")
+}
+
 /// The page an annotation file belongs to, if `path` is one.
 pub fn page_of(root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(root.join(DIR)).ok()?;
@@ -36,7 +42,7 @@ pub fn page_of(root: &Path, path: &Path) -> Option<String> {
 /// The annotations of `page`; none if it has no file yet. A file that exists
 /// but cannot be read is an error, never "empty": the next change would
 /// overwrite what the person wrote.
-fn load(root: &Path, page: &str) -> Result<Value, String> {
+pub fn load(root: &Path, page: &str) -> Result<Value, String> {
     let path = file(root, page);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -277,6 +283,14 @@ mod tests {
         delete(&root, "física/ondas.html", "a1").unwrap();
         assert!(!file(&root, "física/ondas.html").exists());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn requested_page() {
+        assert_eq!(requested(".visor/anotaciones/física/ondas.html.json"), Some("física/ondas.html"));
+        assert_eq!(requested(".visor/anotaciones.json"), None);
+        assert_eq!(requested(".visor/anotaciones/física/ondas.html"), None);
+        assert_eq!(requested(".visor/config.json"), None);
     }
 
     #[test]

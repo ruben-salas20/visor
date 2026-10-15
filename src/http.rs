@@ -152,6 +152,15 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         let _ = request.respond(text(404, tr("No hay ninguna bóveda abierta", "No vault is open")));
         return;
     };
+    if let Some(page) = vault::annot::requested(&rel) {
+        let response = match vault.page_at(page).map(|(page, _)| vault::annot::load(vault.root(), &page)) {
+            Ok(Ok(doc)) => Response::from_string(doc.to_string()).with_header(header("Content-Type", "application/json")),
+            Ok(Err(e)) => text(500, &e),
+            Err(e) => text(404, &e),
+        };
+        let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
+        return;
+    }
     let Some(path) = vault.resolve(&rel) else {
         let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
         return;

@@ -429,11 +429,16 @@ impl Vault {
     pub fn page(&self, url: &str) -> Result<(String, PathBuf), String> {
         // The name keys the page's annotations, so it must be the one the file
         // is listed under: `a/../b` would resolve, but store them elsewhere.
-        let rel = rel_from_url(url)
-            .filter(|r| !is_loose(r) && !r.split('/').any(|seg| seg == "." || seg == ".."))
-            .ok_or(tr("La página no es de la bóveda", "The page is not in the vault"))?;
-        let (rel, path) = self.locate(&rel).ok_or(tr("La página no existe en la bóveda", "The page does not exist in the vault"))?;
-        Ok((rel, path))
+        let rel = rel_from_url(url).ok_or(tr("La página no es de la bóveda", "The page is not in the vault"))?;
+        self.page_at(&rel)
+    }
+
+    /// Like [`Vault::page`], from the vault path instead of the URL.
+    pub fn page_at(&self, rel: &str) -> Result<(String, PathBuf), String> {
+        if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
+            return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
+        }
+        self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
     }
 
     /// Like [`Vault::page`], but only Markdown notes.
@@ -814,6 +819,10 @@ mod tests {
         assert!(vault.page(&format!("{BASE}a/%2e%2e/a/nota.md")).is_err(), "dot segments");
         assert!(vault.page(&format!("{BASE}a/./nota.md")).is_err(), "dot segments");
         assert!(vault.note(&url(".oculta/x.md")).is_err(), "hidden folder");
+        assert_eq!(vault.page_at("a/pagina.html").unwrap().0, "a/pagina.html");
+        assert!(vault.page_at("a/../a/pagina.html").is_err(), "dot segments");
+        assert!(vault.page_at(".oculta/x.md").is_err(), "hidden folder");
+        assert!(vault.page_at(loose.to_str().unwrap()).is_err(), "loose page");
         fs::remove_dir_all(dir).unwrap();
     }
 
