@@ -1,0 +1,79 @@
+name: W2 webviews (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "spikes/w2-webviews/**"
+      - ".github/workflows/windows-webviews.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  medir:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: spikes/w2-webviews
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar WebView2 Runtime
+        id: runtime
+        run: |
+          $clave = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          if (-not $pv) {
+            Write-Host 'WebView2 Runtime no encontrado; instalando el bootstrapper.'
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe"
+            Start-Process -Wait -FilePath "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent','/install'
+            $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          }
+          Write-Host "WebView2 Runtime pv: $pv"
+          "pv=$pv" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/w2-webviews
+
+      - name: Compilar (release)
+        run: cargo build --release
+
+      - name: Medir N = 1, 5 y 10
+        run: |
+          New-Item -ItemType Directory -Force -Path resultados | Out-Null
+          foreach ($n in 1, 5, 10) {
+            $salida = "resultados\w2-$n.json"
+            # El binario sale con código 0 si midió; cualquier otro código hace fallar el paso.
+            & .\target\release\w2-webviews.exe $n $salida
+            if ($LASTEXITCODE -ne 0) { throw "w2-webviews $n terminó con código $LASTEXITCODE" }
+          }
+
+      - name: Resumen
+        run: |
+          $filas = @()
+          $filas += '| N | procesos hijos | procesos msedgewebview2 | working set total (MB) | private bytes total (MB) | carga máx. (ms) | redimensionado |'
+          $filas += '|---|---|---|---|---|---|---|'
+          foreach ($n in 1, 5, 10) {
+            $d = Get-Content "resultados\w2-$n.json" -Raw | ConvertFrom-Json
+            $m = $d.medida
+            $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
+            $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
+            $carga = if ($d.tiempo_carga_ms) { [math]::Round($d.tiempo_carga_ms) } else { 'n/d' }
+            $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' }
+            $filas += "| $n | $($m.procesos_hijos) | $($m.procesos_msedgewebview2) | $ws | $pb | $carga | $redim |"
+          }
+          $cabecera = "WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}"
+          ($cabecera, '', $filas) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w2-resultados
+          path: spikes/w2-webviews/resultados/*.json
+          if-no-files-found: warn
