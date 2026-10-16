@@ -18,8 +18,7 @@ const SCRIPT: &str = include_str!("../page/note.js");
 pub const ASSETS: &str = "__visor__/";
 
 /// Where a note's links may lead. A loose note reaches only its own folder, on
-/// the loose origin, and cannot write: its checkboxes are disabled and links to
-/// missing notes are not offered for creation.
+/// the loose origin; links to missing notes are not offered for creation there.
 #[derive(Clone, Copy)]
 enum Scope<'a> {
     Vault,
@@ -101,8 +100,7 @@ fn render(source: &str, rel: &str, root: &Path, scope: Scope) -> String {
             }
             Event::TaskListMarker(done) => {
                 let checked = if done { " checked" } else { "" };
-                let disabled = if matches!(scope, Scope::Loose(_)) { " disabled" } else { "" };
-                let html = format!("<input type=\"checkbox\" data-task=\"{}\"{disabled}{checked}>", range.start);
+                let html = format!("<input type=\"checkbox\" data-task=\"{}\"{checked}>", range.start);
                 events.push(Event::InlineHtml(html.into()));
             }
             Event::Start(
@@ -268,8 +266,7 @@ fn render(source: &str, rel: &str, root: &Path, scope: Scope) -> String {
     let dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
     let lang = crate::i18n::lang().code();
     let script = SCRIPT.replace("__VISOR_LANG__", lang);
-    let readonly = matches!(scope, Scope::Loose(_));
-    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets, "lang": lang, "readonly": readonly });
+    let config = serde_json::json!({ "math": math, "code": code, "mermaid": mermaid, "dir": dir, "assets": assets, "lang": lang });
     // The interface language is a guess for the text; the note's own `lang` is not.
     // It drives spell checking, hyphenation and screen readers.
     let doc_lang = note_lang.as_deref().unwrap_or(lang);
@@ -416,6 +413,18 @@ fn embed_in(name: &str, rel: &str, index: &Index, scope: Scope) -> Option<String
 /// sees links as they are typed. `None` if no page matches.
 pub fn wiki_url(target: &str, rel: &str, root: &Path) -> Option<String> {
     wiki_target(target, rel, Index::new(root).links(), Scope::Vault)
+}
+
+/// [`wiki_url`] for a loose note: `rel` is its path inside `folder`, the only folder searched.
+pub fn loose_wiki_url(target: &str, rel: &str, folder: &Path) -> Option<String> {
+    let base = folder.to_string_lossy();
+    wiki_target(target, rel, Index::new(folder).links(), Scope::Loose(&base))
+}
+
+/// [`embed_url`] for a loose note, searching only `folder`.
+pub fn loose_embed_url(name: &str, rel: &str, folder: &Path) -> Option<String> {
+    let base = folder.to_string_lossy();
+    embed_in(name, rel, &Index::new(folder), Scope::Loose(&base))
 }
 
 /// Resolves `[[name]]`, `[[folder/name]]` or `[[name#Section]]` like Obsidian:
@@ -690,8 +699,10 @@ mod tests {
         assert!(!html.contains("href=\"#visor-new:"), "no creation link from a loose note: {html}");
         assert!(html.contains("href=\"#\""), "a missing note goes nowhere: {html}");
         assert!(!html.contains("127.0.0.1"), "never on the vault origin: {html}");
-        assert!(html.contains("data-task=\"") && html.contains(" disabled"), "checkboxes are read-only: {html}");
-        assert!(html.contains("\"readonly\":true"), "the editor stays closed");
+        assert!(html.contains("data-task=\"") && !html.contains(" disabled"), "checkboxes can be ticked: {html}");
+        assert_eq!(loose_wiki_url("otra", "x.md", &folder), Some(vault::url(&format!("{folder_text}/sub/otra.md"))));
+        assert_eq!(loose_wiki_url("afuera", "x.md", &folder), None, "the editor's links stay in the folder too");
+        assert_eq!(loose_embed_url("foto.png", "x.md", &folder), Some(vault::url(&format!("{folder_text}/img/foto.png"))));
         fs::remove_dir_all(dir).unwrap();
     }
 }

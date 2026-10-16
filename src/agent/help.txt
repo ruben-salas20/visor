@@ -24,7 +24,8 @@ USE
                              the root (/): there it is an error.
                              --loose opens a .md outside every vault as a
                              loose file: its folder is not listed or added
-                             to visor, and it cannot be annotated. Its
+                             to visor, and it cannot be annotated, but
+                             Ctrl+E edits it and saves to the file. Its
                              [[links]] and images are found by name only
                              in its folder and subfolders (not hidden ones).
                              A .md inside a vault opens in that vault.

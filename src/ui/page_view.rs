@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
 use tao::event_loop::EventLoopProxy;
-use webkit2gtk::{LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType, NetworkError, PolicyDecisionExt, PolicyDecisionType, PolicyError, URIRequestExt, URIResponseExt, WebResource, WebResourceExt, WebViewExt};
+use webkit2gtk::{LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType, NetworkError, PolicyDecisionExt, PolicyDecisionType, PolicyError, URIRequestExt, URIResponseExt, WebContextExt, WebResource, WebResourceExt, WebViewExt};
 use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
@@ -109,6 +109,16 @@ pub fn build_page(
         .with_devtools(true)
         .build_gtk(container)?;
     let view = page.webview();
+    // WebKit's PDF viewer takes its language from the context and knows es-ES but
+    // not every region (es-CO falls back to English): visor's language, with a region
+    // it knows. Set before the view loads anything; the context is shared, so this repeats a no-op.
+    if let Some(context) = view.context() {
+        let language = match crate::i18n::lang() {
+            crate::i18n::Lang::Es => "es-ES",
+            crate::i18n::Lang::En => "en-US",
+        };
+        context.set_preferred_languages(&[language]);
+    }
 
     // Runs before WebKit's own handler and may change the event it gets.
     view.connect_scroll_event(|widget, event| {

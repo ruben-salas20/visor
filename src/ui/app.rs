@@ -1416,6 +1416,8 @@ impl App {
         let access = vault::access(url);
         let local = access != Access::None;
         let trusted = access == Access::Trusted;
+        // A loose note may write its own file, and nothing else: `note_path` checks which.
+        let note = trusted || access == Access::Local;
         let reply = |app: &App, code: String| {
             if let Some(v) = app.view_of(view) {
                 let _ = v.evaluate_script(&code);
@@ -1423,7 +1425,7 @@ impl App {
         };
         match msg {
             PageMsg::PickVault if trusted || url.starts_with("about:") => self.pick_vault(),
-            PageMsg::SaveNote { text } if trusted => {
+            PageMsg::SaveNote { text } if note => {
                 let result = self.save_note(url, &text);
                 let (ok, error) = match result {
                     Ok(()) => (true, String::new()),
@@ -1446,7 +1448,7 @@ impl App {
                 };
                 reply(self, page_calls::image_saved(&file_id, ok, &name, &error));
             }
-            PageMsg::ToggleTask { offset, checked } if trusted => {
+            PageMsg::ToggleTask { offset, checked } if note => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
                 reply(self, page_calls::note_toggled(&error));
             }
@@ -1519,8 +1521,16 @@ impl App {
 
     /// Writes a note's text. Only the note itself may save, and only Markdown:
     /// an HTML page in the vault cannot overwrite files through this.
+    /// The note a page loaded from `url` may write: one of the vault, or a loose note's own file.
+    fn note_path(&mut self, url: &str) -> Result<PathBuf, String> {
+        if vault::access(url) == Access::Local {
+            return vault::loose_note(url, &self.shared.lock().unwrap().loose);
+        }
+        Ok(self.open_vault()?.note(url)?.1)
+    }
+
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
-        let (_, path) = self.open_vault()?.note(url)?;
+        let path = self.note_path(url)?;
         self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }
@@ -1558,10 +1568,7 @@ impl App {
     /// Ticks or unticks one task of the note at `url`. Rust re-reads the file and
     /// checks that a task really starts at `offset`, so the page cannot write anything else.
     fn toggle_task(&mut self, url: &str, offset: usize, checked: bool) -> Result<(), String> {
-        let (_, path) = self.open_vault()?.page(url)?;
-        if !vault::is_markdown(&path) {
-            return Err(tr("Solo se pueden cambiar notas .md", "Only .md notes can be changed").into());
-        }
+        let path = self.note_path(url)?;
         let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let text = crate::vault::markdown::toggle_task(&source, offset, checked).ok_or(tr("La tarea ya no está en la nota", "The task is no longer in the note"))?;
         self.save_note(url, &text)
