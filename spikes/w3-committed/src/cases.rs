@@ -1,4 +1,5 @@
 //! Casos del experimento W3 y su evaluación. No usa nada de Windows: se prueba en cualquier sistema.
+//! Los casos comparten una sola sesión de WebView2: cada uno empieza navegando a su punto de partida.
 
 use serde_json::{json, Value};
 
@@ -18,78 +19,143 @@ pub struct Url {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub enum Action {
+    Navigate(Url),
+    Back,
+    Forward,
+    Reload,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Step {
-    pub url: Url,
+    pub action: Action,
     /// Milliseconds after the case starts.
     pub after_ms: u64,
+}
+
+/// Intermediate check: the committed URL at `at_ms` must be `expect`.
+#[derive(Clone, Copy, Debug)]
+pub struct Sample {
+    pub at_ms: u64,
+    pub expect: Url,
 }
 
 #[derive(Clone, Debug)]
 pub struct Case {
     pub name: &'static str,
     pub steps: Vec<Step>,
+    pub samples: Vec<Sample>,
     /// URL that must be committed when the case ends.
     pub expect: Url,
     pub expect_error: bool,
     /// URLs that must never appear as committed during the case.
     pub must_not_commit: &'static [Url],
+    /// Source() at the end must show this URL. Otherwise the case does not hit the risk it names.
+    pub source_risk: Option<Url>,
+    /// Minimum number of ContentLoading commits during the case.
+    pub min_loads: usize,
     /// The case does not end before this time, so late events have a chance to arrive.
     pub min_ms: u64,
 }
 
-pub fn all() -> Vec<Case> {
-    const fn at(path: &'static str, after_ms: u64) -> Step {
-        Step { url: Url { port: Port::Main, path }, after_ms }
+fn base(name: &'static str, steps: Vec<Step>, expect: Url, min_ms: u64) -> Case {
+    Case {
+        name,
+        steps,
+        samples: Vec::new(),
+        expect,
+        expect_error: false,
+        must_not_commit: &[],
+        source_risk: None,
+        min_loads: 0,
+        min_ms,
     }
+}
+
+fn nav(path: &'static str, after_ms: u64) -> Step {
+    Step { action: Action::Navigate(principal(path)), after_ms }
+}
+
+fn act(action: Action, after_ms: u64) -> Step {
+    Step { action, after_ms }
+}
+
+fn principal(path: &'static str) -> Url {
+    Url { port: Port::Main, path }
+}
+
+fn sample(at_ms: u64, path: &'static str) -> Sample {
+    Sample { at_ms, expect: principal(path) }
+}
+
+pub fn all() -> Vec<Case> {
     vec![
+        base("redireccion", vec![nav("/redir", 0)], principal("/b"), 1500),
         Case {
-            name: "redireccion",
-            steps: vec![at("/redir", 0)],
-            expect: Url { port: Port::Main, path: "/b" },
-            expect_error: false,
-            must_not_commit: &[],
-            min_ms: 1500,
-        },
-        Case {
-            name: "pushstate",
-            steps: vec![at("/push", 0)],
-            expect: Url { port: Port::Main, path: "/push" },
-            expect_error: false,
             must_not_commit: &[Url { port: Port::Main, path: "/falsa" }],
-            min_ms: 1500,
+            source_risk: Some(Url { port: Port::Main, path: "/falsa" }),
+            ..base("pushstate", vec![nav("/push", 0)], principal("/push"), 1500)
+        },
+        base("fragmento", vec![nav("/frag", 0)], principal("/frag"), 1500),
+        Case {
+            must_not_commit: &[
+                Url { port: Port::Other, path: "/hijo" },
+                Url { port: Port::Other, path: "/hijo2" },
+            ],
+            ..base("iframe", vec![nav("/iframe", 0)], principal("/iframe"), 1500)
         },
         Case {
-            name: "fragmento",
-            steps: vec![at("/frag", 0)],
-            expect: Url { port: Port::Main, path: "/frag" },
-            expect_error: false,
-            must_not_commit: &[],
-            min_ms: 1500,
-        },
-        Case {
-            name: "iframe",
-            steps: vec![at("/iframe", 0)],
-            expect: Url { port: Port::Main, path: "/iframe" },
-            expect_error: false,
-            must_not_commit: &[Url { port: Port::Other, path: "/hijo" }, Url { port: Port::Other, path: "/hijo2" }],
-            min_ms: 1500,
-        },
-        Case {
-            name: "solapada",
-            steps: vec![at("/lenta", 0), at("/a", 300)],
-            expect: Url { port: Port::Main, path: "/a" },
-            expect_error: false,
             must_not_commit: &[Url { port: Port::Main, path: "/lenta" }],
             // /lenta answers after 5 s; wait past that so a late commit would show up.
-            min_ms: 6000,
+            ..base("solapada", vec![nav("/lenta", 0), nav("/a", 300)], principal("/a"), 6000)
         },
         Case {
-            name: "error_red",
-            steps: vec![Step { url: Url { port: Port::Closed, path: "/" }, after_ms: 0 }],
-            expect: Url { port: Port::Closed, path: "/" },
             expect_error: true,
-            must_not_commit: &[],
-            min_ms: 1500,
+            ..base(
+                "error_red",
+                vec![Step { action: Action::Navigate(Url { port: Port::Closed, path: "/" }), after_ms: 0 }],
+                Url { port: Port::Closed, path: "/" },
+                1500,
+            )
+        },
+        Case {
+            samples: vec![sample(1200, "/b")],
+            ..base(
+                "atras_entre_documentos",
+                vec![nav("/a", 0), nav("/b", 800), act(Action::Back, 1600)],
+                principal("/a"),
+                2500,
+            )
+        },
+        Case {
+            samples: vec![sample(2000, "/a")],
+            ..base(
+                "adelante",
+                vec![nav("/a", 0), nav("/b", 800), act(Action::Back, 1600), act(Action::Forward, 2400)],
+                principal("/b"),
+                3000,
+            )
+        },
+        // Back inside the same document: pushState entry /falsa -> /push, no ContentLoading.
+        Case {
+            must_not_commit: &[Url { port: Port::Main, path: "/falsa" }],
+            ..base(
+                "atras_a_pushstate",
+                vec![nav("/push", 0), act(Action::Back, 1500)],
+                principal("/push"),
+                2500,
+            )
+        },
+        base("script_navega", vec![nav("/script", 0)], principal("/b"), 2000),
+        Case {
+            min_loads: 2,
+            ..base("recarga", vec![nav("/a", 0), act(Action::Reload, 1000)], principal("/a"), 2500)
+        },
+        base("sin_contenido", vec![nav("/a", 0), nav("/vacio", 1000)], principal("/a"), 2500),
+        base("descarga", vec![nav("/a", 0), nav("/descarga", 1000)], principal("/a"), 2500),
+        Case {
+            samples: vec![sample(2000, "/a")],
+            ..base("pendiente", vec![nav("/a", 0), nav("/lenta", 1000)], principal("/lenta"), 8000)
         },
     ]
 }
@@ -103,14 +169,18 @@ pub fn url_of(url: Url, ports: &Ports) -> String {
     format!("http://127.0.0.1:{port}{}", url.path)
 }
 
-/// What the runner saw during one case. Only `committed` decides the verdict;
-/// `source` is recorded to show where `Source()` would have been wrong.
+/// What the runner saw during one case. Only `committed` (and `samples`) decide the verdict;
+/// the Source() fields are recorded to show where `Source()` would have been wrong.
 pub struct Seen {
     pub committed: Option<String>,
     pub committed_error: bool,
     pub history: Vec<String>,
     pub events: Vec<String>,
-    pub source: String,
+    /// Committed URL at each `Case::samples` entry, in order.
+    pub samples: Vec<Option<String>>,
+    pub completed: usize,
+    pub source_al_cargar: String,
+    pub source_al_final: String,
 }
 
 pub struct CaseResult {
@@ -119,16 +189,17 @@ pub struct CaseResult {
     pub committed: Option<String>,
     pub committed_error: bool,
     pub history: Vec<String>,
-    pub source: String,
+    pub source_al_cargar: String,
+    pub source_al_final: String,
     pub events: Vec<String>,
     pub ok: bool,
     pub reason: String,
 }
 
-pub fn evaluate(case: &Case, ports: &Ports, seen: Seen, timed_out: bool) -> CaseResult {
+pub fn evaluate(case: &Case, ports: &Ports, seen: Seen) -> CaseResult {
     let expected = url_of(case.expect, ports);
     let mut problems = Vec::new();
-    if timed_out {
+    if seen.completed == 0 {
         problems.push("tiempo agotado sin NavigationCompleted".to_string());
     }
     if seen.committed.as_deref() != Some(expected.as_str()) {
@@ -149,6 +220,32 @@ pub fn evaluate(case: &Case, ports: &Ports, seen: Seen, timed_out: bool) -> Case
             problems.push(format!("llegó a comprometerse {forbidden}"));
         }
     }
+    for (sample, observed) in case.samples.iter().zip(seen.samples.iter()) {
+        let esperada = url_of(sample.expect, ports);
+        if observed.as_deref() != Some(esperada.as_str()) {
+            problems.push(format!(
+                "a los {} ms: comprometida {} (esperada {esperada})",
+                sample.at_ms,
+                observed.as_deref().unwrap_or("ninguna")
+            ));
+        }
+    }
+    if seen.history.len() < case.min_loads {
+        problems.push(format!(
+            "ContentLoading comprometidos: {} (mínimo {})",
+            seen.history.len(),
+            case.min_loads
+        ));
+    }
+    if let Some(risk) = case.source_risk {
+        let riesgo = url_of(risk, ports);
+        if seen.source_al_final != riesgo {
+            problems.push(format!(
+                "el caso no ejercita el riesgo: Source() final es {} y no {riesgo}",
+                seen.source_al_final
+            ));
+        }
+    }
     CaseResult {
         name: case.name,
         expected,
@@ -157,7 +254,8 @@ pub fn evaluate(case: &Case, ports: &Ports, seen: Seen, timed_out: bool) -> Case
         committed: seen.committed,
         committed_error: seen.committed_error,
         history: seen.history,
-        source: seen.source,
+        source_al_cargar: seen.source_al_cargar,
+        source_al_final: seen.source_al_final,
         events: seen.events,
     }
 }
@@ -170,14 +268,15 @@ pub fn not_run(case: &Case, ports: &Ports, reason: &str) -> CaseResult {
         committed: None,
         committed_error: false,
         history: Vec::new(),
-        source: String::new(),
+        source_al_cargar: String::new(),
+        source_al_final: String::new(),
         events: Vec::new(),
         ok: false,
         reason: reason.to_string(),
     }
 }
 
-pub fn to_json(results: &[CaseResult], ok: bool) -> Value {
+pub fn to_json(results: &[CaseResult], ok: bool, limite_s: u64) -> Value {
     let casos: Vec<Value> = results
         .iter()
         .map(|r| {
@@ -187,8 +286,8 @@ pub fn to_json(results: &[CaseResult], ok: bool) -> Value {
                 "comprometida": r.committed,
                 "error_comprometida": r.committed_error,
                 "historial_comprometidas": r.history,
-                "source": r.source,
-                "source_igual_a_esperada": r.source == r.expected,
+                "source_al_cargar": r.source_al_cargar,
+                "source_al_final": r.source_al_final,
                 "resultado": if r.ok { "ok" } else { "fallo" },
                 "motivo": r.reason,
                 "eventos": r.events,
@@ -198,25 +297,26 @@ pub fn to_json(results: &[CaseResult], ok: bool) -> Value {
     json!({
         "experimento": "W3: URL comprometida en WebView2 por NavigationId",
         "ok": ok,
-        "limite_global_s": 90,
+        "limite_global_s": limite_s,
         "casos": casos,
     })
 }
 
 pub fn to_markdown(results: &[CaseResult]) -> String {
     let mut out = String::from(
-        "| Caso | Esperada | Comprometida | Error | Source() | Resultado | Motivo |\n\
-         |---|---|---|---|---|---|---|\n",
+        "| Caso | Esperada | Comprometida | Error | Source al cargar | Source al final | Resultado | Motivo |\n\
+         |---|---|---|---|---|---|---|---|\n",
     );
     for r in results {
         let cell = |s: &str| s.replace('|', "\\|");
         out.push_str(&format!(
-            "| {} | `{}` | `{}` | {} | `{}` | {} | {} |\n",
+            "| {} | `{}` | `{}` | {} | `{}` | `{}` | {} | {} |\n",
             r.name,
             r.expected,
             r.committed.as_deref().unwrap_or("ninguna"),
             if r.committed_error { "sí" } else { "no" },
-            cell(&r.source),
+            cell(&r.source_al_cargar),
+            cell(&r.source_al_final),
             if r.ok { "OK" } else { "**FALLO**" },
             cell(&r.reason),
         ));

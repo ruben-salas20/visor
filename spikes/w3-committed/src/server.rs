@@ -77,6 +77,10 @@ fn route(path: &str, ports: Ports) -> String {
         // The child frame navigates itself to another path on the other origin.
         "/hijo" => html("<script>setTimeout(() => { location.href = '/hijo2'; }, 300);</script>"),
         "/hijo2" => html("<p>Hijo 2</p>"),
+        "/script" => html("<script>addEventListener('load', () => { location.href = '/b'; });</script>"),
+        // 204 keeps the current document: nothing is committed.
+        "/vacio" => "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".into(),
+        "/descarga" => "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=prueba.bin\r\nContent-Length: 4\r\nConnection: close\r\n\r\nabcd".into(),
         "/lenta" => {
             thread::sleep(Duration::from_secs(5));
             html("<p>Lenta</p>")
