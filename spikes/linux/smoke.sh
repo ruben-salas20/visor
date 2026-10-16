@@ -80,6 +80,7 @@ finish() {
 
 # glibc del sistema; vacío si la distro usa musl (Alpine).
 glibc_sys=$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')
+[ -n "$glibc_sys" ] || glibc_sys=$(ldd --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+$')
 webkit="no instalado"
 
 inst=$("$here/install-runtime.sh" "$distro" 2>"$tmp/install.err")

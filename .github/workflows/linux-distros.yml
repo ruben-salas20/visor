@@ -109,7 +109,7 @@ jobs:
             -v "$RUNNER_TEMP/artifact:/artifact:ro" \
             -v "$RUNNER_TEMP/out:/out" \
             "${{ matrix.image }}" \
-            sh -c 'command -v bash >/dev/null 2>&1 || { command -v apk >/dev/null && apk add --no-cache bash >/dev/null; }; exec bash /spikes/smoke.sh "${{ matrix.id }}" /artifact/visor /out/result.json'
+            sh -c 'command -v bash >/dev/null 2>&1 || { command -v apk >/dev/null && apk add --no-cache bash >/dev/null; }; exec bash /spikes/smoke.sh "${{ matrix.id }}" /artifact/target/release/visor /out/result.json'
 
       - name: Subir resultado
         if: always()
