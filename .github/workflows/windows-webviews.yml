@@ -13,7 +13,7 @@ permissions:
 jobs:
   medir:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
@@ -44,58 +44,68 @@ jobs:
       - name: Compilar (release)
         run: cargo build --release
 
-      - name: Medir (modos entorno y contexto, N = 1, 5 y 10)
+      # Combinaciones: contexto x 3 variantes de --crear x N; entorno solo con secuencial.
+      - name: Medir (barrido de N y variantes)
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          foreach ($modo in 'entorno', 'contexto') {
-            foreach ($n in 1, 5, 10) {
-              $base = "resultados\w2-$modo-$n"
-              # Límite externo: si vence, se mata el árbol y el paso sigue con el resto.
-              $p = Start-Process -FilePath .\target\release\w2-webviews.exe `
-                -ArgumentList @("$n", "$base.json", '--modo', $modo) -PassThru -NoNewWindow `
-                -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
-              Wait-Process -Id $p.Id -Timeout 90 -ErrorAction SilentlyContinue
-              if (-not $p.HasExited) {
-                Write-Host "w2 $modo N=$n colgado; matando el árbol de procesos"
-                taskkill /T /F /PID $p.Id | Out-Null
-                Set-Content -Path "$base.estado.txt" -Value 'colgado' -Encoding utf8
-                continue
-              }
-              if ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
-              Set-Content -Path "$base.estado.txt" -Value $estado -Encoding utf8
+          $combos = @()
+          foreach ($crear in 'secuencial', 'sin_url', 'espera_carga') {
+            foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('contexto', $crear, $n) }
+          }
+          foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('entorno', 'secuencial', $n) }
+          foreach ($c in $combos) {
+            $modo = $c[0]; $crear = $c[1]; $n = $c[2]
+            $base = "resultados\w2-$modo-$crear-$n"
+            # Límite externo de 90 s: si vence, se mata el árbol y el paso sigue con el resto.
+            $p = Start-Process -FilePath .\target\release\w2-webviews.exe `
+              -ArgumentList @("$n", "$base.json", '--modo', $modo, '--crear', $crear) -PassThru -NoNewWindow `
+              -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+            Wait-Process -Id $p.Id -Timeout 90 -ErrorAction SilentlyContinue
+            if (-not $p.HasExited) {
+              Write-Host "w2 $modo $crear N=$n colgado; matando el árbol de procesos"
+              taskkill /T /F /PID $p.Id | Out-Null
+              Set-Content -Path "$base.estado.txt" -Value 'colgado' -Encoding utf8
+              continue
             }
+            if ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
+            Set-Content -Path "$base.estado.txt" -Value $estado -Encoding utf8
           }
 
       - name: Resumen
         run: |
           $filas = @(
-            '| Modo | N | estado | procesos hijos | procesos msedgewebview2 | working set total (MB) | private bytes total (MB) | MB por webview adicional (private) | carga máx. (ms) | redimensionado |',
-            '|---|---|---|---|---|---|---|---|---|---|'
+            '| Modo | Crear | N | estado | procesos hijos | procesos msedgewebview2 | working set total (MB) | private bytes total (MB) | MB por webview adicional (private) | carga máx. (ms) | redimensionado |',
+            '|---|---|---|---|---|---|---|---|---|---|---|'
           )
           $errores = @()
-          foreach ($modo in 'entorno', 'contexto') {
-            $total1 = $null
-            foreach ($n in 1, 5, 10) {
-              $base = "resultados\w2-$modo-$n"
-              $estado = 'sin estado'
-              if (Test-Path "$base.estado.txt") { $estado = (Get-Content "$base.estado.txt" -Raw).Trim() }
-              $d = $null
-              if (Test-Path "$base.json") { $d = Get-Content "$base.json" -Raw | ConvertFrom-Json }
-              $m = if ($d) { $d.medida } else { $null }
-              $ws = 'n/d'; $pb = 'n/d'; $extra = 'n/d'; $hijos = 'n/d'; $wv2 = 'n/d'; $carga = 'n/d'; $redim = 'n/d'
-              if ($m -and -not $m.error) {
-                $hijos = $m.procesos_hijos
-                $wv2 = $m.procesos_msedgewebview2
-                $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
-                $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
-                if ($n -eq 1) { $total1 = $m.private_bytes_total }
-                elseif ($null -ne $total1) { $extra = [math]::Round(($m.private_bytes_total - $total1) / ($n - 1) / 1MB, 1) }
-              }
-              if ($d -and $d.tiempo_carga_ms) { $carga = [math]::Round($d.tiempo_carga_ms) }
-              if ($d) { $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' } }
-              if ($d -and $d.error) { $errores += "- ${modo} N=${n}: $($d.error)" }
-              $filas += "| $modo | $n | $estado | $hijos | $wv2 | $ws | $pb | $extra | $carga | $redim |"
+          $combos = @()
+          foreach ($crear in 'secuencial', 'sin_url', 'espera_carga') {
+            foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('contexto', $crear, $n) }
+          }
+          foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('entorno', 'secuencial', $n) }
+          $total1 = @{}
+          foreach ($c in $combos) {
+            $modo = $c[0]; $crear = $c[1]; $n = $c[2]
+            $clave = "$modo/$crear"
+            $base = "resultados\w2-$modo-$crear-$n"
+            $estado = 'sin estado'
+            if (Test-Path "$base.estado.txt") { $estado = (Get-Content "$base.estado.txt" -Raw).Trim() }
+            $d = $null
+            if (Test-Path "$base.json") { $d = Get-Content "$base.json" -Raw | ConvertFrom-Json }
+            $m = if ($d) { $d.medida } else { $null }
+            $ws = 'n/d'; $pb = 'n/d'; $extra = 'n/d'; $hijos = 'n/d'; $wv2 = 'n/d'; $carga = 'n/d'; $redim = 'n/d'
+            if ($m -and -not $m.error) {
+              $hijos = $m.procesos_hijos
+              $wv2 = $m.procesos_msedgewebview2
+              $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
+              $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
+              if ($n -eq 1) { $total1[$clave] = $m.private_bytes_total }
+              elseif ($total1.ContainsKey($clave)) { $extra = [math]::Round(($m.private_bytes_total - $total1[$clave]) / ($n - 1) / 1MB, 1) }
             }
+            if ($d -and $d.tiempo_carga_ms) { $carga = [math]::Round($d.tiempo_carga_ms) }
+            if ($d) { $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' } }
+            if ($d -and $d.error) { $errores += "- ${modo} ${crear} N=${n}: $($d.error)" }
+            $filas += "| $modo | $crear | $n | $estado | $hijos | $wv2 | $ws | $pb | $extra | $carga | $redim |"
           }
           $cabecera = "WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}"
           $bloque = @($cabecera, '', $filas)
