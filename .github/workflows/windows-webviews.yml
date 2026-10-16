@@ -44,36 +44,67 @@ jobs:
       - name: Compilar (release)
         run: cargo build --release
 
-      - name: Medir N = 1, 5 y 10
+      - name: Medir (modos entorno y contexto, N = 1, 5 y 10)
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          foreach ($n in 1, 5, 10) {
-            $salida = "resultados\w2-$n.json"
-            # El binario sale con código 0 si midió; cualquier otro código hace fallar el paso.
-            & .\target\release\w2-webviews.exe $n $salida
-            if ($LASTEXITCODE -ne 0) { throw "w2-webviews $n terminó con código $LASTEXITCODE" }
+          foreach ($modo in 'entorno', 'contexto') {
+            foreach ($n in 1, 5, 10) {
+              $base = "resultados\w2-$modo-$n"
+              # Límite externo: si vence, se mata el árbol y el paso sigue con el resto.
+              $p = Start-Process -FilePath .\target\release\w2-webviews.exe `
+                -ArgumentList @("$n", "$base.json", '--modo', $modo) -PassThru -NoNewWindow `
+                -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+              Wait-Process -Id $p.Id -Timeout 90 -ErrorAction SilentlyContinue
+              if (-not $p.HasExited) {
+                Write-Host "w2 $modo N=$n colgado; matando el árbol de procesos"
+                taskkill /T /F /PID $p.Id | Out-Null
+                Set-Content -Path "$base.estado.txt" -Value 'colgado' -Encoding utf8
+                continue
+              }
+              if ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
+              Set-Content -Path "$base.estado.txt" -Value $estado -Encoding utf8
+            }
           }
 
       - name: Resumen
         run: |
-          $filas = @()
-          $filas += '| N | procesos hijos | procesos msedgewebview2 | working set total (MB) | private bytes total (MB) | carga máx. (ms) | redimensionado |'
-          $filas += '|---|---|---|---|---|---|---|'
-          foreach ($n in 1, 5, 10) {
-            $d = Get-Content "resultados\w2-$n.json" -Raw | ConvertFrom-Json
-            $m = $d.medida
-            $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
-            $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
-            $carga = if ($d.tiempo_carga_ms) { [math]::Round($d.tiempo_carga_ms) } else { 'n/d' }
-            $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' }
-            $filas += "| $n | $($m.procesos_hijos) | $($m.procesos_msedgewebview2) | $ws | $pb | $carga | $redim |"
+          $filas = @(
+            '| Modo | N | estado | procesos hijos | procesos msedgewebview2 | working set total (MB) | private bytes total (MB) | MB por webview adicional (private) | carga máx. (ms) | redimensionado |',
+            '|---|---|---|---|---|---|---|---|---|---|'
+          )
+          $errores = @()
+          foreach ($modo in 'entorno', 'contexto') {
+            $total1 = $null
+            foreach ($n in 1, 5, 10) {
+              $base = "resultados\w2-$modo-$n"
+              $estado = 'sin estado'
+              if (Test-Path "$base.estado.txt") { $estado = (Get-Content "$base.estado.txt" -Raw).Trim() }
+              $d = $null
+              if (Test-Path "$base.json") { $d = Get-Content "$base.json" -Raw | ConvertFrom-Json }
+              $m = if ($d) { $d.medida } else { $null }
+              $ws = 'n/d'; $pb = 'n/d'; $extra = 'n/d'; $hijos = 'n/d'; $wv2 = 'n/d'; $carga = 'n/d'; $redim = 'n/d'
+              if ($m -and -not $m.error) {
+                $hijos = $m.procesos_hijos
+                $wv2 = $m.procesos_msedgewebview2
+                $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
+                $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
+                if ($n -eq 1) { $total1 = $m.private_bytes_total }
+                elseif ($null -ne $total1) { $extra = [math]::Round(($m.private_bytes_total - $total1) / ($n - 1) / 1MB, 1) }
+              }
+              if ($d -and $d.tiempo_carga_ms) { $carga = [math]::Round($d.tiempo_carga_ms) }
+              if ($d) { $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' } }
+              if ($d -and $d.error) { $errores += "- ${modo} N=${n}: $($d.error)" }
+              $filas += "| $modo | $n | $estado | $hijos | $wv2 | $ws | $pb | $extra | $carga | $redim |"
+            }
           }
           $cabecera = "WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}"
-          ($cabecera, '', $filas) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $bloque = @($cabecera, '', $filas)
+          if ($errores.Count -gt 0) { $bloque += '', 'Errores:', $errores }
+          ($bloque -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: w2-resultados
-          path: spikes/w2-webviews/resultados/*.json
+          path: spikes/w2-webviews/resultados/
           if-no-files-found: warn
