@@ -1357,8 +1357,7 @@ impl App {
                 });
                 match file {
                     Ok(file) => {
-                        let uri = gtk::gio::File::for_path(&file).uri();
-                        if gtk::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk::gio::AppLaunchContext>).is_err() {
+                        if !open_elsewhere(&file) {
                             self.sidebar.notice(&no_application(&path), true);
                         }
                     }
@@ -1515,8 +1514,7 @@ impl App {
                 let file = self.open_vault().and_then(|v| vault::pdf::file_for(&v, url));
                 match file {
                     Ok(file) => {
-                        let uri = gtk::gio::File::for_path(&file).uri();
-                        if gtk::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk::gio::AppLaunchContext>).is_err() {
+                        if !open_elsewhere(&file) {
                             self.sidebar.notice(&no_application(&name), true);
                         }
                     }
@@ -1829,4 +1827,17 @@ impl App {
             }
         }
     }
+}
+
+/// Opens `file` in another application. Visor itself may be the system's
+/// default for the file's type, and would only open it again, so it is skipped.
+fn open_elsewhere(file: &Path) -> bool {
+    use gtk::gio;
+    let (kind, _) = gio::content_type_guess(Some(file), &[]);
+    let target = gio::File::for_path(file);
+    gio::AppInfo::default_for_type(&kind, false)
+        .into_iter()
+        .chain(gio::AppInfo::recommended_for_type(&kind))
+        .filter(|app| app.id().as_deref() != Some("visor.desktop"))
+        .any(|app| app.launch(std::slice::from_ref(&target), None::<&gio::AppLaunchContext>).is_ok())
 }
