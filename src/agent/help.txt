@@ -142,6 +142,11 @@ MARKDOWN NOTES
     creates it when clicked; if it has folders ([[folder/note]]), it is
     created from the vault root, and any missing folders are created too.
     ![[photo.png]] shows an image looked up by name.
+  - PDF files: [[report.pdf]] and [text](report.pdf) open the PDF in visor,
+    looked up by name like a note, with WebKit's own viewer. ![[report.pdf]]
+    does not embed it. A link to a PDF that does not exist is not created:
+    it is shown as a dead link. PDFs have no annotations and cannot be
+    edited. In the tree, a PDF opens like a page (Ctrl: new tab).
   - The person ticks tasks (- [ ] / - [x]) with a click and visor saves it
     to the .md. It reads the file again before changing it.
   - It warns the person before you edit a note that is open in the editor:

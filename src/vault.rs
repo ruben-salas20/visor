@@ -48,12 +48,18 @@ pub struct File {
 pub enum Kind {
     Page,
     Image,
+    Pdf,
     Other,
 }
 
 /// Files the viewer lists and shows: HTML pages, Markdown notes and drawings.
 pub fn is_page(path: &Path) -> bool {
     is_html(path) || is_markdown(path) || is_drawing(path)
+}
+
+/// A PDF: opened in WebKitGTK's own viewer, never annotated or edited by visor.
+pub fn is_pdf(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 /// An image the viewer can show: the formats browsers display.
@@ -122,6 +128,8 @@ fn scan(walk: &mut Walk, root: &Path, dir: &Path) -> Option<Dir> {
                 Kind::Page
             } else if is_image(&path) {
                 Kind::Image
+            } else if is_pdf(&path) {
+                Kind::Pdf
             } else {
                 Kind::Other
             };
@@ -437,6 +445,10 @@ impl Vault {
     pub fn page_at(&self, rel: &str) -> Result<(String, PathBuf), String> {
         if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
             return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
+        }
+        // A PDF is shown by WebKit's viewer and takes no annotations: visor has no page to attach them to.
+        if is_pdf(Path::new(rel)) {
+            return Err(tr("Un PDF no tiene anotaciones", "A PDF has no annotations").into());
         }
         self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
     }
@@ -823,6 +835,20 @@ mod tests {
         assert!(vault.page_at("a/../a/pagina.html").is_err(), "dot segments");
         assert!(vault.page_at(".oculta/x.md").is_err(), "hidden folder");
         assert!(vault.page_at(loose.to_str().unwrap()).is_err(), "loose page");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pdf_is_not_an_annotable_or_editable_page() {
+        bases();
+        let (vault, dir) = make("pdf");
+        let pdf = vault.root().join("a/libro.pdf");
+        fs::write(&pdf, "%PDF-1.4").unwrap();
+        assert!(!is_page(&pdf) && is_pdf(&pdf));
+        assert!(vault.page(&url("a/libro.pdf")).is_err(), "annotations by URL");
+        assert!(vault.page_at("a/libro.pdf").is_err(), "annotations by path");
+        assert!(vault.note(&url("a/libro.pdf")).is_err(), "editing");
+        assert!(vault.drawing(&url("a/libro.pdf")).is_err(), "editing a drawing");
         fs::remove_dir_all(dir).unwrap();
     }
 

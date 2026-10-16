@@ -136,6 +136,23 @@ pub fn draw_target(cr: &gtk::cairo::Context) {
     cr.arc(8.0, 8.0, 0.6, 0.0, 2.0 * PI);
 }
 
+/// A page with a folded corner and two lines of text: the PDF files in the tree.
+pub fn draw_pdf(cr: &gtk::cairo::Context) {
+    cr.set_line_width(1.5);
+    cr.move_to(3.5, 1.75);
+    for (x, y) in [(9.5, 1.75), (12.5, 4.75), (12.5, 14.25), (3.5, 14.25)] {
+        cr.line_to(x, y);
+    }
+    cr.close_path();
+    cr.move_to(9.5, 1.75);
+    cr.line_to(9.5, 4.75);
+    cr.line_to(12.5, 4.75);
+    cr.move_to(6.0, 8.5);
+    cr.line_to(10.0, 8.5);
+    cr.move_to(6.0, 11.0);
+    cr.line_to(10.0, 11.0);
+}
+
 /// Three lines with a dot before each one.
 pub fn draw_list(cr: &gtk::cairo::Context) {
     cr.set_line_width(1.5);
