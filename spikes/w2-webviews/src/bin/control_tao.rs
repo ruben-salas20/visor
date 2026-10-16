@@ -1,9 +1,11 @@
 //! Control del experimento W2: el ejemplo `multiwebview` de wry 0.57 portado a tao 0.37.
-//! Solo la variante `base`: cuatro webviews hijos creados antes de `run`, sin cambios respecto al ejemplo.
-//! El bucle usa `tao` (como `main.rs`) en vez de `winit`: si este control va bien y `main.rs` no,
-//! la diferencia está en la forma de crear o alimentar el bucle, no en la librería de ventanas.
+//! Cuatro webviews hijos creados antes de `run`, como en el ejemplo de wry.
+//! `--variante` cambia solo la forma de esperar del bucle:
+//! - `base`: `ControlFlow::WaitUntil` de 50 ms.
+//! - `poll`: `ControlFlow::Poll` (el bucle no duerme nunca).
+//! - `espera`: `ControlFlow::Wait`, y un hilo despierta el bucle con `EventLoopProxy` cada 50 ms.
 //!
-//! Latido en cada vuelta del bucle (despierta cada 50 ms, traza cada 1 s). Sale con 0 a los 15 s.
+//! Latido en cada vuelta del bucle (traza cada 1 s). Sale con 0 a los 15 s.
 //! Un vigilante en otro hilo sale con 4 si el latido para más de 5 s.
 
 use std::sync::Arc;
@@ -45,7 +47,35 @@ fn rect_de(i: usize, w: u32, h: u32) -> Rect {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Variante {
+    Base,
+    Poll,
+    Espera,
+}
+
+fn variante_de_args() -> Variante {
+    let mut args = std::env::args().skip(1);
+    let mut variante = Variante::Base;
+    while let Some(a) = args.next() {
+        if a == "--variante" {
+            variante = match args.next().as_deref() {
+                Some("base") => Variante::Base,
+                Some("poll") => Variante::Poll,
+                Some("espera") => Variante::Espera,
+                otro => {
+                    eprintln!("--variante acepta base, poll o espera, no {otro:?}");
+                    std::process::exit(64);
+                }
+            };
+        }
+    }
+    variante
+}
+
 fn main() -> wry::Result<()> {
+    let variante = variante_de_args();
+    eprintln!("variante: {variante:?}");
     let t0 = Instant::now();
 
     // Vigilante: si el latido para 5 s, el bucle está bloqueado.
@@ -65,6 +95,15 @@ fn main() -> wry::Result<()> {
     });
 
     let event_loop = EventLoop::new();
+    if let Variante::Espera = variante {
+        let proxy = event_loop.create_proxy();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(50));
+            if proxy.send_event(()).is_err() {
+                break;
+            }
+        });
+    }
     let ventana = WindowBuilder::new()
         .with_inner_size(LogicalSize::new(800.0, 800.0))
         .build(&event_loop)
@@ -90,7 +129,11 @@ fn main() -> wry::Result<()> {
 
     let mut ultima_traza = Instant::now();
     event_loop.run(move |evento, _, flujo| {
-        *flujo = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50));
+        *flujo = match variante {
+            Variante::Base => ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50)),
+            Variante::Poll => ControlFlow::Poll,
+            Variante::Espera => ControlFlow::Wait,
+        };
         latido.store(ms(t0.elapsed()), Ordering::Relaxed);
         if ultima_traza.elapsed() >= Duration::from_secs(1) {
             eprintln!("[{:>6} ms] latido", ms(t0.elapsed()));

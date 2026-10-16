@@ -1,17 +1,19 @@
 //! Experimento W2 (issue 35): cuánto cuestan N webviews hijos de WebView2 en una ventana.
-//! Uso: `w2-webviews <1-10> [salida.json] [--modo entorno|contexto] [--crear variante]`.
+//! Uso: `w2-webviews <1-10> [salida.json] [--modo entorno|contexto]`.
 //! - modo entorno: el primer webview crea el entorno y el resto lo recibe con `with_environment`.
 //! - modo contexto: solo el `WebContext` compartido, sin `with_environment`.
-//! - crear secuencial: un webview por evento del bucle, cada uno con su URL.
-//! - crear sin_url: todos sin URL; cuando están creados, `load_url` en cada uno.
-//! - crear espera_carga: el siguiente solo cuando el anterior ha mandado «loaded».
 //!
-//! Un hilo vigilante termina el proceso (código 4) si el hilo principal no late en 15 s.
+//! Los N webviews se crean dentro de `resumed`, como en el ejemplo multiwebview de wry 0.57.
+//! Después, `about_to_wait` avanza las fases: carga (IPC «loaded»), asentado de 5 s, medida
+//! de procesos, redimensionado y comprobación de `bounds()`.
+//!
+//! Un hilo vigilante termina el proceso (código 4) si el bucle no late en 15 s. Solo vigila
+//! una vez que el bucle ha latido por primera vez; si `resumed` no vuelve en 60 s, sale con 2.
 //! Las trazas de tiempo y los mensajes IPC van a stderr.
 //!
 //! Códigos de salida: 0 medido (el resultado de redimensionar va en el JSON),
-//! 1 error al crear la ventana o un webview, 2 no se crearon o cargaron en 60 s,
-//! 3 la ventana se cerró antes, 4 hilo principal bloqueado, 64 argumentos inválidos.
+//! 1 error al crear la ventana o un webview, 2 no se cargaron en 60 s,
+//! 3 la ventana se cerró antes, 4 bucle bloqueado, 64 argumentos inválidos.
 
 #[cfg(not(windows))]
 compile_error!("w2-webviews solo compila para Windows (WebView2).");
@@ -26,11 +28,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tao::dpi::LogicalSize;
-use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop};
-use tao::window::{Window, WindowBuilder};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment;
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::{Window, WindowId};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::{Rect, WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
@@ -56,34 +59,15 @@ impl Modo {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Crear {
-    Secuencial,
-    SinUrl,
-    EsperaCarga,
-}
-
-impl Crear {
-    fn nombre(self) -> &'static str {
-        match self {
-            Crear::Secuencial => "secuencial",
-            Crear::SinUrl => "sin_url",
-            Crear::EsperaCarga => "espera_carga",
-        }
-    }
-}
-
 struct Args {
     n: usize,
     salida: PathBuf,
     modo: Modo,
-    crear: Crear,
 }
 
 fn leer_args() -> Result<Args, String> {
     let mut posicionales = Vec::new();
     let mut modo = Modo::Entorno;
-    let mut crear = Crear::Secuencial;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         if a == "--modo" {
@@ -91,17 +75,6 @@ fn leer_args() -> Result<Args, String> {
                 Some("entorno") => Modo::Entorno,
                 Some("contexto") => Modo::Contexto,
                 otro => return Err(format!("--modo acepta entorno o contexto, no {otro:?}")),
-            };
-        } else if a == "--crear" {
-            crear = match it.next().as_deref() {
-                Some("secuencial") => Crear::Secuencial,
-                Some("sin_url") => Crear::SinUrl,
-                Some("espera_carga") => Crear::EsperaCarga,
-                otro => {
-                    return Err(format!(
-                        "--crear acepta secuencial, sin_url o espera_carga, no {otro:?}"
-                    ));
-                }
             };
         } else if a.starts_with("--") {
             return Err(format!("opción desconocida: {a}"));
@@ -114,24 +87,20 @@ fn leer_args() -> Result<Args, String> {
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|n| (1..=10).contains(n))
         .ok_or_else(|| "falta N (1-10)".to_string())?;
-    let salida = posicionales.get(1).map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(format!("w2-{n}-{}-{}.json", modo.nombre(), crear.nombre()))
-    });
-    Ok(Args {
-        n,
-        salida,
-        modo,
-        crear,
-    })
+    let salida = posicionales
+        .get(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(format!("w2-{n}-{}.json", modo.nombre())));
+    Ok(Args { n, salida, modo })
 }
 
-/// Estado que lee el hilo vigilante; el hilo principal lo actualiza.
+/// Estado que lee el hilo vigilante; el bucle lo actualiza.
 struct Diag {
     t0: Instant,
     n: usize,
     modo: Modo,
-    crear: Crear,
     salida: PathBuf,
+    /// 0 hasta que el bucle late por primera vez; después, ms desde `t0` (nunca 0).
     ultimo_latido_ms: AtomicU64,
     creados: AtomicUsize,
     cargados: AtomicUsize,
@@ -143,26 +112,18 @@ fn ms(d: Duration) -> f64 {
 }
 
 fn main() {
-    let Args {
-        n,
-        salida,
-        modo,
-        crear,
-    } = match leer_args() {
+    let Args { n, salida, modo } = match leer_args() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!(
-                "uso: w2-webviews <1-10> [salida.json] [--modo entorno|contexto] [--crear secuencial|sin_url|espera_carga]\n{e}"
-            );
+            eprintln!("uso: w2-webviews <1-10> [salida.json] [--modo entorno|contexto]\n{e}");
             std::process::exit(64);
         }
     };
 
     // Perfil de datos nuevo en cada ejecución: el entorno se crea desde cero.
     let datos = std::env::temp_dir().join(format!(
-        "w2-webviews-{n}-{}-{}-{}",
+        "w2-webviews-{n}-{}-{}",
         modo.nombre(),
-        crear.nombre(),
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&datos);
@@ -173,25 +134,10 @@ fn main() {
         Err(e) => fallo(1, &salida, n, format!("servidor HTTP: {e}")),
     };
 
-    let event_loop = EventLoop::new();
-    let ventana = match WindowBuilder::new()
-        .with_title(format!(
-            "W2 · {n} webviews · {} · {}",
-            modo.nombre(),
-            crear.nombre()
-        ))
-        .with_inner_size(LogicalSize::new(TAMANOS[0].0, TAMANOS[0].1))
-        .build(&event_loop)
-    {
-        Ok(v) => v,
-        Err(e) => fallo(1, &salida, n, format!("ventana: {e}")),
-    };
-
     let diag = Arc::new(Diag {
         t0,
         n,
         modo,
-        crear,
         salida,
         ultimo_latido_ms: AtomicU64::new(0),
         creados: AtomicUsize::new(0),
@@ -201,10 +147,11 @@ fn main() {
     vigilar(Arc::clone(&diag));
 
     let (tx, rx) = mpsc::channel::<(usize, String)>();
-    let mut estado = Estado {
+    let event_loop = EventLoop::new().unwrap();
+    let mut app = App {
         diag,
-        ventana,
         contexto: WebContext::new(Some(datos)),
+        ventana: None,
         vistas: Vec::with_capacity(n),
         entorno: None,
         puerto,
@@ -218,58 +165,38 @@ fn main() {
         eventos: 0,
         ultimo_latido_traza: t0,
     };
-    estado.traza(&format!(
-        "ventana creada; N={n}, modo {}, crear {}",
-        modo.nombre(),
-        crear.nombre()
-    ));
-
-    event_loop.run(move |evento, _, flujo| {
-        *flujo = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50));
-        estado.eventos += 1;
-        estado
-            .diag
-            .ultimo_latido_ms
-            .store(ms(estado.diag.t0.elapsed()) as u64, Ordering::Relaxed);
-        match evento {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                let codigo =
-                    estado.terminar(3, Some("la ventana se cerró antes de terminar".into()));
-                std::process::exit(codigo);
-            }
-            Event::WindowEvent {
-                event: WindowEvent::Resized(_),
-                ..
-            } => estado.colocar(),
-            _ => {}
-        }
-        if let Some(codigo) = estado.avanzar() {
-            std::process::exit(codigo);
-        }
-    });
+    event_loop.run_app(&mut app).unwrap();
 }
 
-/// Hilo aparte: si el hilo principal no late en 15 s, deja un JSON mínimo y termina con 4.
+/// Hilo aparte: si el bucle no late en 15 s (una vez armado), deja un JSON mínimo y termina con 4.
+/// Antes de armarse, si `resumed` no vuelve en 60 s, termina con 2.
 fn vigilar(diag: Arc<Diag>) {
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let ahora = ms(diag.t0.elapsed()) as u64;
             let ultimo = diag.ultimo_latido_ms.load(Ordering::Relaxed);
-            if ahora.saturating_sub(ultimo) <= SIN_LATIDO {
-                continue;
-            }
+            let (codigo, msg) = if ultimo == 0 {
+                if ahora <= LIMITE.as_millis() as u64 {
+                    continue;
+                }
+                (
+                    2,
+                    "el bucle no empezó en 60 s (resumed no volvió)".to_string(),
+                )
+            } else {
+                if ahora.saturating_sub(ultimo) <= SIN_LATIDO {
+                    continue;
+                }
+                (4, format!("hilo principal bloqueado desde {ultimo} ms"))
+            };
             // try_lock: si el hilo bloqueado retiene el mutex, no nos quedamos esperando.
             let fase = diag.fase.try_lock().map(|f| *f).unwrap_or("desconocida");
-            let msg = format!("hilo principal bloqueado desde {ultimo} ms (fase {fase})");
+            let msg = format!("{msg} (fase {fase})");
             eprintln!("[{ahora:>9} ms] {msg}");
             let informe = json!({
                 "n": diag.n,
                 "modo": diag.modo.nombre(),
-                "crear": diag.crear.nombre(),
                 "exito": false,
                 "error": msg,
                 "fase": fase,
@@ -281,13 +208,13 @@ fn vigilar(diag: Arc<Diag>) {
             let texto = informe.to_string();
             println!("{texto}");
             let _ = std::fs::write(&diag.salida, &texto);
-            std::process::exit(4);
+            std::process::exit(codigo);
         }
     });
 }
 
 enum Fase {
-    /// Crea webviews dentro del bucle de eventos, según la variante de `--crear`.
+    /// `resumed` todavía no ha creado todos los webviews.
     Creando,
     Cargando,
     Asentando {
@@ -311,11 +238,11 @@ impl Fase {
     }
 }
 
-struct Estado {
+struct App {
     diag: Arc<Diag>,
-    ventana: Window,
     /// Se conserva viva: los webviews dependen de él.
     contexto: WebContext,
+    ventana: Option<Window>,
     vistas: Vec<WebView>,
     /// Entorno del primer webview; solo se usa en modo `entorno`.
     entorno: Option<ICoreWebView2Environment>,
@@ -327,12 +254,12 @@ struct Estado {
     fase: Fase,
     medida: Option<Value>,
     redimensiones: Vec<Value>,
-    /// Eventos del bucle desde el último latido trazado.
+    /// Vueltas del bucle desde el último latido trazado.
     eventos: u64,
     ultimo_latido_traza: Instant,
 }
 
-impl Estado {
+impl App {
     fn traza(&self, msg: &str) {
         eprintln!("[{:>9.1} ms] {msg}", ms(self.diag.t0.elapsed()));
     }
@@ -343,6 +270,18 @@ impl Estado {
         self.traza(msg);
     }
 
+    fn ventana(&self) -> &Window {
+        self.ventana
+            .as_ref()
+            .expect("la ventana existe desde resumed")
+    }
+
+    /// Termina el proceso con un JSON de error.
+    fn salir_con(&self, codigo: i32, msg: String) -> ! {
+        let c = self.terminar(codigo, Some(msg));
+        std::process::exit(c);
+    }
+
     /// Latido de una vez por segundo como mucho.
     fn latido(&mut self) {
         if self.ultimo_latido_traza.elapsed() < Duration::from_secs(1) {
@@ -350,7 +289,7 @@ impl Estado {
         }
         let cargados = self.cargas_ms.iter().filter(|c| c.is_some()).count();
         self.traza(&format!(
-            "latido: fase {}, eventos {} desde el último, creados {}, cargados {cargados}",
+            "latido: fase {}, vueltas {} desde el último, creados {}, cargados {cargados}",
             self.fase.nombre(),
             self.eventos,
             self.vistas.len()
@@ -370,40 +309,63 @@ impl Estado {
         }
     }
 
+    /// Crea el webview `i` y lo añade a la lista.
+    fn crear(&mut self, i: usize) -> Result<(), String> {
+        let ventana = self.ventana.as_ref().ok_or("sin ventana")?;
+        let tam = ventana.inner_size();
+        let rect = rejilla(self.diag.n, tam.width, tam.height).swap_remove(i);
+        self.traza(&format!("webview {i}: creación inicio"));
+        let inicio = Instant::now();
+        let tx = self.tx.clone();
+        let t0 = self.diag.t0;
+        let url = format!("http://127.0.0.1:{}/?n={i}", self.puerto);
+        let con_entorno = if self.diag.modo == Modo::Entorno {
+            self.entorno.clone()
+        } else {
+            None
+        };
+        let mut builder = WebViewBuilder::new_with_web_context(&mut self.contexto)
+            .with_bounds(rect)
+            .with_url(url)
+            .with_ipc_handler(move |req: wry::http::Request<String>| {
+                let cuerpo = req.body().clone();
+                eprintln!("[{:>9.1} ms] ipc webview {i}: {cuerpo}", ms(t0.elapsed()));
+                let _ = tx.send((i, cuerpo));
+            });
+        if let Some(env) = con_entorno {
+            builder = builder.with_environment(env);
+        }
+        let vista = builder
+            .build_as_child(ventana)
+            .map_err(|e| format!("webview {i}: {e}"))?;
+        if self.diag.modo == Modo::Entorno && self.entorno.is_none() {
+            self.entorno = Some(vista.environment());
+        }
+        let creado = ms(inicio.elapsed());
+        self.creacion_ms.push(creado);
+        self.vistas.push(vista);
+        self.diag
+            .creados
+            .store(self.vistas.len(), Ordering::Relaxed);
+        self.traza(&format!("webview {i}: creación fin ({creado:.1} ms)"));
+        Ok(())
+    }
+
     /// Devuelve el código de salida cuando el experimento ha terminado.
     fn avanzar(&mut self) -> Option<i32> {
         let ahora = Instant::now();
         self.drenar();
         self.latido();
-        if matches!(self.fase, Fase::Creando | Fase::Cargando) && self.diag.t0.elapsed() > LIMITE {
+        if matches!(self.fase, Fase::Cargando) && self.diag.t0.elapsed() > LIMITE {
             let cargados = self.cargas_ms.iter().filter(|c| c.is_some()).count();
             let msg = format!(
-                "no se crearon o cargaron en 60 s: {} creados, {cargados}/{} cargados",
+                "no se cargaron en 60 s: {} creados, {cargados}/{} cargados",
                 self.vistas.len(),
                 self.diag.n
             );
             return Some(self.terminar(2, Some(msg)));
         }
         match self.fase {
-            Fase::Creando => {
-                if self.puede_crear_siguiente() {
-                    if let Err(e) = self.crear_siguiente() {
-                        return Some(self.terminar(1, Some(e)));
-                    }
-                }
-                if self.vistas.len() == self.diag.n {
-                    if self.diag.crear == Crear::SinUrl {
-                        if let Err(e) = self.cargar_urls() {
-                            return Some(self.terminar(1, Some(e)));
-                        }
-                        self.traza("load_url enviado a todos los webviews");
-                    }
-                    self.cambiar(
-                        Fase::Cargando,
-                        "todos los webviews creados; esperando carga",
-                    );
-                }
-            }
             Fase::Cargando => {
                 if self.cargas_ms.iter().all(Option::is_some) {
                     self.cambiar(
@@ -445,85 +407,16 @@ impl Estado {
         None
     }
 
-    /// En `espera_carga` el siguiente webview espera al «loaded» del anterior.
-    fn puede_crear_siguiente(&self) -> bool {
-        if self.vistas.len() >= self.diag.n {
-            return false;
-        }
-        match self.diag.crear {
-            Crear::EsperaCarga => {
-                self.vistas.is_empty() || self.cargas_ms[self.vistas.len() - 1].is_some()
-            }
-            _ => true,
-        }
-    }
-
-    fn url_de(&self, i: usize) -> String {
-        format!("http://127.0.0.1:{}/?n={i}", self.puerto)
-    }
-
-    fn cargar_urls(&self) -> Result<(), String> {
-        for (i, vista) in self.vistas.iter().enumerate() {
-            vista
-                .load_url(&self.url_de(i))
-                .map_err(|e| format!("load_url webview {i}: {e}"))?;
-        }
-        Ok(())
-    }
-
-    /// Crea el webview siguiente y lo añade a la lista. Una llamada por evento del bucle.
-    fn crear_siguiente(&mut self) -> Result<(), String> {
-        let i = self.vistas.len();
-        let tam = self.ventana.inner_size();
-        let rect = rejilla(self.diag.n, tam.width, tam.height).swap_remove(i);
-        self.traza(&format!("webview {i}: creación inicio"));
-        let inicio = Instant::now();
-        let tx = self.tx.clone();
-        let t0 = self.diag.t0;
-        let url = self.url_de(i);
-        let sin_url = self.diag.crear == Crear::SinUrl;
-        let con_entorno = if self.diag.modo == Modo::Entorno {
-            self.entorno.clone()
-        } else {
-            None
-        };
-        let mut builder = WebViewBuilder::new_with_web_context(&mut self.contexto)
-            .with_bounds(rect)
-            .with_ipc_handler(move |req: wry::http::Request<String>| {
-                let cuerpo = req.body().clone();
-                eprintln!("[{:>9.1} ms] ipc webview {i}: {cuerpo}", ms(t0.elapsed()));
-                let _ = tx.send((i, cuerpo));
-            });
-        if !sin_url {
-            builder = builder.with_url(url);
-        }
-        if let Some(env) = con_entorno {
-            builder = builder.with_environment(env);
-        }
-        let vista = builder
-            .build_as_child(&self.ventana)
-            .map_err(|e| format!("webview {i}: {e}"))?;
-        if self.diag.modo == Modo::Entorno && self.entorno.is_none() {
-            self.entorno = Some(vista.environment());
-        }
-        let creado = ms(inicio.elapsed());
-        self.creacion_ms.push(creado);
-        self.vistas.push(vista);
-        self.diag
-            .creados
-            .store(self.vistas.len(), Ordering::Relaxed);
-        self.traza(&format!("webview {i}: creación fin ({creado:.1} ms)"));
-        Ok(())
-    }
-
     fn pedir_tamano(&self, paso: usize) {
         let (ancho, alto) = TAMANOS[paso];
-        self.ventana.set_inner_size(LogicalSize::new(ancho, alto));
+        let _ = self
+            .ventana()
+            .request_inner_size(LogicalSize::new(ancho, alto));
     }
 
     /// Recoloca los webviews en la rejilla del tamaño actual de la ventana.
     fn colocar(&self) {
-        let tam = self.ventana.inner_size();
+        let tam = self.ventana().inner_size();
         for (vista, rect) in self
             .vistas
             .iter()
@@ -534,8 +427,8 @@ impl Estado {
     }
 
     fn comprobar(&mut self, paso: usize) {
-        let tam = self.ventana.inner_size();
-        let escala = self.ventana.scale_factor();
+        let tam = self.ventana().inner_size();
+        let escala = self.ventana().scale_factor();
         let (ancho_pedido, alto_pedido) = TAMANOS[paso];
         let ventana_ok = (f64::from(tam.width) - ancho_pedido * escala).abs() <= 1.0
             && (f64::from(tam.height) - alto_pedido * escala).abs() <= 1.0;
@@ -619,7 +512,6 @@ impl Estado {
         let informe = json!({
             "n": n,
             "modo": self.diag.modo.nombre(),
-            "crear": self.diag.crear.nombre(),
             "exito": codigo == 0,
             "error": error,
             "creados": self.vistas.len(),
@@ -636,7 +528,7 @@ impl Estado {
                 Modo::Contexto => "solo WebContext compartido; sin with_environment",
             },
             "wry": "0.57.0",
-            "tao": "0.37.1",
+            "winit": "0.30",
         });
         let texto = serde_json::to_string_pretty(&informe)
             .unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"));
@@ -648,6 +540,64 @@ impl Estado {
             eprintln!("error: {msg}");
         }
         codigo
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.ventana.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes()
+            .with_title(format!(
+                "W2 · {} webviews · {}",
+                self.diag.n,
+                self.diag.modo.nombre()
+            ))
+            .with_inner_size(LogicalSize::new(TAMANOS[0].0, TAMANOS[0].1));
+        match event_loop.create_window(attrs) {
+            Ok(v) => self.ventana = Some(v),
+            Err(e) => self.salir_con(1, format!("ventana: {e}")),
+        }
+        self.traza(&format!(
+            "ventana creada; N={}, modo {}",
+            self.diag.n,
+            self.diag.modo.nombre()
+        ));
+        for i in 0..self.diag.n {
+            if let Err(e) = self.crear(i) {
+                self.salir_con(1, e);
+            }
+        }
+        self.cambiar(
+            Fase::Cargando,
+            "todos los webviews creados; esperando carga",
+        );
+    }
+
+    fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                let codigo = self.terminar(3, Some("la ventana se cerró antes de terminar".into()));
+                std::process::exit(codigo);
+            }
+            WindowEvent::Resized(_) => self.colocar(),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::WaitUntil(
+            Instant::now() + Duration::from_millis(50),
+        ));
+        self.eventos += 1;
+        self.diag.ultimo_latido_ms.store(
+            (ms(self.diag.t0.elapsed()) as u64).max(1),
+            Ordering::Relaxed,
+        );
+        if let Some(codigo) = self.avanzar() {
+            std::process::exit(codigo);
+        }
     }
 }
 

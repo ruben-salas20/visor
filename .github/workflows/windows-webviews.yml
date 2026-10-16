@@ -44,23 +44,14 @@ jobs:
       - name: Compilar (release)
         run: cargo build --release
 
-      # Bisección: cada variante de control_wry cambia una sola cosa respecto al ejemplo de wry 0.57.
-      # control_tao es el mismo ejemplo portado a tao 0.37. Límite externo de 60 s por ejecución.
-      - name: Controles (bisección, 60 s cada uno)
+      # Control: el ejemplo multiwebview de wry 0.57 portado a tao 0.37, con tres formas de esperar del bucle.
+      # Límite externo de 60 s por ejecución.
+      - name: Controles tao (base, poll, espera; 60 s cada uno)
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          $ejecuciones = @(
-            @{ binario = 'control_wry'; variante = 'base' },
-            @{ binario = 'control_wry'; variante = 'ipc' },
-            @{ binario = 'control_wry'; variante = 'contexto' },
-            @{ binario = 'control_wry'; variante = 'bounds_rejilla' },
-            @{ binario = 'control_tao'; variante = 'base' }
-          )
-          foreach ($e in $ejecuciones) {
-            $base = "resultados\$($e.binario)-$($e.variante)"
-            $argumentos = @()
-            if ($e.binario -eq 'control_wry') { $argumentos = @('--variante', $e.variante) }
-            $p = Start-Process -FilePath ".\target\release\$($e.binario).exe" -ArgumentList $argumentos -PassThru -NoNewWindow `
+          foreach ($variante in 'base', 'poll', 'espera') {
+            $base = "resultados\control_tao-$variante"
+            $p = Start-Process -FilePath .\target\release\control_tao.exe -ArgumentList @('--variante', $variante) -PassThru -NoNewWindow `
               -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
             Wait-Process -Id $p.Id -Timeout 60 -ErrorAction SilentlyContinue
             if (-not $p.HasExited) {
@@ -72,35 +63,79 @@ jobs:
             }
           }
 
+      # Medición con winit: modos contexto y entorno, N = 1, 5 y 10. Límite externo de 90 s por ejecución.
+      - name: Medir (winit, contexto y entorno, N = 1, 5 y 10)
+        run: |
+          New-Item -ItemType Directory -Force -Path resultados | Out-Null
+          foreach ($modo in 'contexto', 'entorno') {
+            foreach ($n in 1, 5, 10) {
+              $base = "resultados\w2-$modo-$n"
+              $p = Start-Process -FilePath .\target\release\w2-webviews.exe `
+                -ArgumentList @("$n", "$base.json", '--modo', $modo) -PassThru -NoNewWindow `
+                -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+              Wait-Process -Id $p.Id -Timeout 90 -ErrorAction SilentlyContinue
+              if (-not $p.HasExited) {
+                Write-Host "w2 $modo N=$n colgado; matando el árbol de procesos"
+                taskkill /T /F /PID $p.Id | Out-Null
+                Set-Content -Path "$base.estado.txt" -Value 'colgado' -Encoding utf8
+                continue
+              }
+              if ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
+              Set-Content -Path "$base.estado.txt" -Value $estado -Encoding utf8
+            }
+          }
+
       - name: Resumen
         run: |
-          $filas = @(
-            '| binario | variante | estado |',
-            '|---|---|---|'
-          )
+          $salida = @("WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}", '')
           $fallos = @()
-          $ejecuciones = @(
-            @{ binario = 'control_wry'; variante = 'base' },
-            @{ binario = 'control_wry'; variante = 'ipc' },
-            @{ binario = 'control_wry'; variante = 'contexto' },
-            @{ binario = 'control_wry'; variante = 'bounds_rejilla' },
-            @{ binario = 'control_tao'; variante = 'base' }
-          )
-          foreach ($e in $ejecuciones) {
-            $base = "resultados\$($e.binario)-$($e.variante)"
+
+          $salida += '### Controles tao', '', '| binario | variante | estado |', '|---|---|---|'
+          foreach ($variante in 'base', 'poll', 'espera') {
+            $base = "resultados\control_tao-$variante"
             $estado = 'sin estado'
             if (Test-Path "$base.estado.txt") { $estado = (Get-Content "$base.estado.txt" -Raw).Trim() }
-            $filas += "| $($e.binario) | $($e.variante) | $estado |"
+            $salida += "| control_tao | $variante | $estado |"
             if ($estado -ne 'ok') {
-              $fallos += ''
-              $fallos += "Últimas líneas de stderr de $($e.binario) $($e.variante) ($estado):"
-              $fallos += '```'
+              $fallos += '', "Últimas líneas de stderr de control_tao $variante ($estado):", '```'
               if (Test-Path "$base.stderr.txt") { $fallos += (Get-Content "$base.stderr.txt" -Tail 15) }
               $fallos += '```'
             }
           }
-          $bloque = @("WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}", '') + $filas + $fallos
-          ($bloque -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          $salida += '', '### Medición winit', ''
+          $salida += '| modo | N | estado | procesos | WS total (MB) | privada total (MB) | MB por webview adicional | carga máx. (ms) | redimensionado |'
+          $salida += '|---|---|---|---|---|---|---|---|---|'
+          foreach ($modo in 'contexto', 'entorno') {
+            $privada1 = $null
+            foreach ($n in 1, 5, 10) {
+              $base = "resultados\w2-$modo-$n"
+              $estado = 'sin estado'
+              if (Test-Path "$base.estado.txt") { $estado = (Get-Content "$base.estado.txt" -Raw).Trim() }
+              $d = $null
+              if (Test-Path "$base.json") { $d = Get-Content "$base.json" -Raw | ConvertFrom-Json }
+              $m = if ($d) { $d.medida } else { $null }
+              $hijos = 'n/d'; $ws = 'n/d'; $pb = 'n/d'; $extra = 'n/d'; $carga = 'n/d'; $redim = 'n/d'
+              if ($m -and -not $m.error) {
+                $hijos = $m.procesos_hijos
+                $ws = [math]::Round($m.working_set_total_bytes / 1MB, 1)
+                $pb = [math]::Round($m.private_bytes_total / 1MB, 1)
+                if ($n -eq 1) { $privada1 = $m.private_bytes_total }
+                elseif ($null -ne $privada1) { $extra = [math]::Round(($m.private_bytes_total - $privada1) / ($n - 1) / 1MB, 1) }
+              }
+              if ($d -and $d.tiempo_carga_ms) { $carga = [math]::Round($d.tiempo_carga_ms) }
+              if ($d) { $redim = if ($d.redimensionado_ok) { 'ok' } else { 'FALLO' } }
+              $salida += "| $modo | $n | $estado | $hijos | $ws | $pb | $extra | $carga | $redim |"
+              if ($estado -ne 'ok') {
+                $fallos += '', "Últimas líneas de stderr de w2 $modo N=$n ($estado):", '```'
+                if (Test-Path "$base.stderr.txt") { $fallos += (Get-Content "$base.stderr.txt" -Tail 15) }
+                $fallos += '```'
+              }
+            }
+          }
+
+          $salida += $fallos
+          ($salida -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - uses: actions/upload-artifact@v4
         if: always()
