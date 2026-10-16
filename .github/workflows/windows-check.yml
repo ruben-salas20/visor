@@ -1,0 +1,64 @@
+# Experimento W1 (docs/plan-multiplataforma.md): cuánto de visor compila en Windows sin la interfaz.
+# Los errores de compilación son el resultado, no un fallo del trabajo: solo falla si fallan los scripts.
+name: Windows check (W1)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [worktree-port-multiplataforma]
+    paths:
+      - "spikes/w1-check/**"
+      - ".github/workflows/windows-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  w1:
+    name: cargo check sin interfaz (tres pasadas)
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ejecutar las pasadas y escribir el resumen
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/w1"
+          mkdir -p "$out"
+          rustc -V
+          cargo -V
+
+          # Cada pasada es una copia distinta; cargo puede fallar (son los resultados),
+          # pero prepare.py y classify.py deben funcionar, o el paso falla.
+          pasada() {
+            local nombre="$1" titulo="$2"
+            shift 2
+            local dir="$RUNNER_TEMP/w1-$nombre"
+            python spikes/w1-check/prepare.py "$dir" "$@"
+            (cd "$dir" && cargo check --message-format=json > "$out/$nombre-cargo.json" 2> "$out/$nombre-cargo.err") \
+              || echo "cargo de la pasada $nombre sale con código $? (se clasifica abajo)"
+            python spikes/w1-check/classify.py --stderr "$out/$nombre-cargo.err" < "$out/$nombre-cargo.json" > "$out/$nombre-informe.md"
+            { echo "## Pasada $nombre: $titulo"; echo; cat "$out/$nombre-informe.md"; } >> "$out/resumen.md"
+          }
+
+          pasada 1-base "sin interfaz, sin relleno"
+          pasada 2-costuras "costuras de interfaz rellenas" --stub-seams
+          pasada 3-sin-imports-unix "costuras rellenas y sin imports std::os::unix" --stub-seams --drop-unix-imports
+
+          cat "$out/resumen.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Subir el informe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: w1-windows-check
+          if-no-files-found: error
+          path: ${{ runner.temp }}/w1
