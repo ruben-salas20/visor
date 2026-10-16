@@ -9,6 +9,16 @@
 
   let pdfViewer = null;
   let total = 0;
+  let zoom = 1;
+  let fitted = false;
+
+  // Fit to the width of the box, times visor's zoom: Rust keeps WebKit's own
+  // zoom at 1 here, so PDF.js draws the canvases sharp at the size shown.
+  const fit = () => {
+    if (!fitted) return;
+    pdfViewer.currentScaleValue = "page-width";
+    if (zoom !== 1) pdfViewer.currentScale *= zoom;
+  };
 
   // Set before anything loads, so a script that waits on it can start at once.
   // A rejected `ready` must not raise an unhandled error when nobody waits.
@@ -30,6 +40,11 @@
       if (!pdfViewer) return;
       const page = logic.parsePage(n, total);
       if (page !== null) pdfViewer.currentPageNumber = page;
+    },
+    zoom(z) {
+      zoom = z;
+      document.documentElement.style.setProperty("--visor-zoom", String(z));
+      fit();
     },
   };
 
@@ -57,11 +72,17 @@
     pdfViewer.setDocument(doc);
     linkService.setDocument(doc, null);
 
-    // Fit to the width of the window. Visor's zoom changes the window's CSS
-    // width, so the page keeps fitting it (see docs/adr/0037).
     eventBus.on("pagesinit", () => {
-      pdfViewer.currentScaleValue = "page-width";
+      fitted = true;
+      fit();
     });
+    // Only a change of width refits: the height changes when the find bar opens.
+    let width = 0;
+    new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      fit();
+    }).observe($("contenedor"));
 
     setupPages(eventBus);
     setupText(eventBus);

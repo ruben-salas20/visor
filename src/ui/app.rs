@@ -732,6 +732,20 @@ impl App {
         }
     }
 
+    /// A PDF scales in PDF.js, which draws its canvases for the size it is told;
+    /// WebKit's zoom would stretch them blurry. Every other page uses WebKit's.
+    fn apply_zoom(&self, id: u64) {
+        let Some(view) = self.view_of(id) else { return };
+        let zoom = self.config.zoom.unwrap_or(1.0);
+        let pdf = self.shared.lock().unwrap().page_of(id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)));
+        if pdf {
+            view.webview().set_zoom_level(1.0);
+            let _ = view.evaluate_script(&page_calls::pdf_zoom(zoom));
+        } else {
+            view.webview().set_zoom_level(zoom);
+        }
+    }
+
     fn live_views(&self) -> impl Iterator<Item = &WebView> {
         self.views.iter().map(|(_, v)| v)
     }
@@ -875,6 +889,7 @@ impl App {
                     page.load_seq += 1;
                     crate::session::LOADED.notify_all();
                 }
+                self.apply_zoom(view);
                 let Some(loaded) = self.tabs.loaded(view) else { return };
                 if let Some(position) = &loaded.restore
                     && let Some(v) = self.view_of(view)
@@ -1065,16 +1080,16 @@ impl App {
                 }
             }
             Action::Zoom(step) => {
-                let Some(now) = self.view().map(|v| v.webview().zoom_level()) else { return };
+                let now = self.config.zoom.unwrap_or(1.0);
                 let zoom = match step {
                     0 => 1.0,
                     1 => ZOOM_STEPS.into_iter().find(|z| *z > now + 0.01).unwrap_or(now),
                     _ => ZOOM_STEPS.into_iter().rev().find(|z| *z < now - 0.01).unwrap_or(now),
                 };
-                for view in self.live_views() {
-                    view.webview().set_zoom_level(zoom);
-                }
                 self.config.zoom = Some(zoom).filter(|z| *z != 1.0);
+                for (id, _) in &self.views {
+                    self.apply_zoom(*id);
+                }
                 self.sidebar.set_zoom(zoom);
                 self.save_config_soon();
             }
@@ -1280,6 +1295,7 @@ impl App {
                 page.orphans = None;
             }
         }
+        self.apply_zoom(view);
         if nav.active {
             self.panes[nav.side].bar().set_text(self.tabs.side(nav.side).tab().target());
             self.update_nav(nav.side);

@@ -1,5 +1,5 @@
 //! The calls Rust makes into pages, as the JavaScript to run. Each one
-//! names a function of `note.js`, `editor.js` or `annot.js` (or `bridge.js`),
+//! names a function of `note.js`, `editor.js`, `annot.js` or `pdf.js` (or `bridge.js`),
 //! so that a rename there shows up in one place here. Values go through
 //! serde_json, so a page's text cannot break out of its string.
 
@@ -29,6 +29,11 @@ pub fn image_saved(file_id: &str, ok: bool, name: &str, error: &str) -> String {
         json!(name),
         json!(error)
     )
+}
+
+/// The zoom of visor, for the PDF viewer to scale its pages by (see `App::apply_zoom`).
+pub fn pdf_zoom(zoom: f64) -> String {
+    format!("window.__visorPdf && window.__visorPdf.zoom({zoom})")
 }
 
 /// Ctrl+E: opens or closes the editor of a note or a drawing.

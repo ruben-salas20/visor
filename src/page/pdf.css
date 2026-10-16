@@ -6,7 +6,8 @@ html, body {
   background: var(--visor-bg, Canvas);
   color: var(--visor-fg, CanvasText);
   color-scheme: var(--visor-mode, light dark);
-  font: 14px system-ui, sans-serif;
+  /* visor's zoom, set by the page: WebKit's own stays at 1 here. */
+  font: calc(14px * var(--visor-zoom, 1)) system-ui, sans-serif;
 }
 body { display: flex; flex-direction: column; overflow: hidden; }
 [hidden] { display: none !important; }
@@ -46,7 +47,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 #cuerpo { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
 
 #esquema {
-  flex: 0 0 240px;
+  flex: 0 0 17em;
+  box-sizing: border-box;
   overflow: auto;
   padding: 0.5em;
   border-right: 1px solid color-mix(in srgb, currentColor 20%, transparent);
@@ -58,7 +60,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 
 /* PDF.js refuses a container that is not absolutely positioned. */
 #contenedor { position: absolute; inset: 0; overflow: auto; }
-#esquema:not([hidden]) + #contenedor { left: 240px; }
+#esquema:not([hidden]) + #contenedor { left: 17em; }
 
 #status { padding: 1em; opacity: 0.8; }
 #status:empty { display: none; }
