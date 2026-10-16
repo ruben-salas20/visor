@@ -1,26 +1,46 @@
 # Plan de investigación: visor para cualquier persona, en Linux y Windows
 
-Fecha: 2026-10-16. Sale del [informe](informe-multiplataforma.md) y de seis investigaciones en paralelo.
+Fecha: 2026-10-16. Sale del [informe](informe-multiplataforma.md) y de seis investigaciones en paralelo. Este documento está escrito para que una sesión nueva pueda retomarlo sin el historial de la conversación.
 
 ## Cómo se usa este plan
 
 **No es un plan de construcción.** Es una lista de experimentos pequeños, cada uno con una hipótesis, un criterio de éxito y un criterio de fracaso. Hasta que un experimento no pasa, no se escribe código de producción. Cada resultado se anota en el registro de descartes (apartado final), y lo descartado no se vuelve a discutir sin datos nuevos.
 
-Lo investigado hasta ahora fue leyendo código, documentación y páginas de paquetes. **Nada se ha probado en Windows ni en otras distros.** Marcas: [V] verificado leyendo; [S] supuesto, a probar.
+**Lo investigado hasta ahora salió de leer código, documentación y páginas de paquetes. Nada se ha probado en Windows ni en otras distros.** Marcas: [V] verificado leyendo; [S] supuesto, a probar. Los informes de los agentes no se han contrastado uno a uno: trata sus cifras como pistas, sobre todo las versiones de glibc por distro (de memoria) y la política de Homebrew (resúmenes de buscador).
 
 Reglas del proyecto que se mantienen:
 
-- Mac queda fuera por ahora (sin cuenta de Apple de pago).
-- Se acepta perder rendimiento y peso. Aun así, cada experimento mide lo que pueda con `docs/pruebas.md`.
+- Objetivo del usuario: que cualquier persona pueda instalar visor en varios sistemas. Acepta perder rendimiento y peso si hace falta, pero cada experimento mide lo que pueda con `docs/pruebas.md`.
+- Mac queda fuera por ahora (el usuario no pagará la cuenta de Apple).
+- **Sin firma de código en Windows por ahora:** el usuario no pagará y se acepta el aviso de SmartScreen. No se tramita ninguna firma.
 - La frontera de confianza de `AGENTS.md` no se relaja en ninguna plataforma. Si un experimento muestra que no se puede mantener, esa vía se descarta.
 - Los prototipos viven en `spikes/` dentro del worktree, son desechables y no se mezclan con `src/`.
+- El usuario quiere que **Windows no dependa de él**: los experimentos se ejecutan en CI siempre que se pueda.
 
-## Lo que ya sabemos [V salvo indicación]
+## Para la sesión nueva (empieza aquí)
 
-- **Linux.** El binario exige glibc ≥ 2.39 solo por dos símbolos opcionales de Rust. Deja fuera Ubuntu 22.04, Debian 12, Mint 21, RHEL 9 y Leap 15.6. Arranca bajo X11 (XWayland); no se ha probado entero. Según el agente, RHEL 9 no trae WebKitGTK 4.1 y Alpine usa musl [páginas de paquetes; glibc de memoria].
-- **Windows.** wry da el webview, pero no `Committed`, captura, fallos de recursos ni pantalla completa. WebView2 los tiene por su API COM. La implementación de wry de `Started` lee `Source()` y no sirve para la frontera de confianza.
-- **Interfaz.** Sin GTK en Windows hay que rehacer panel, pestañas, barra y divisores (~4.000 líneas). Candidatas vivas: A (interfaz en HTML) y B (toolkit de Rust).
-- **Código.** Hay ataduras que el primer informe no vio (`/dev/urandom` en el secreto de las URL, `is_loose` con `'/'`, `canonicalize` con `\\?\`, nombres reservados de Windows, `LANG`). `std::os::unix` está en 6 archivos de producción, no en 8.
+- **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`. Se actualizó con `main` (`e82420d`) el 2026-10-16. Si `main` ha avanzado, `git rebase main` antes de empezar.
+- **Qué leer:** `AGENTS.md`, `CONTEXT.md`, `docs/informe-multiplataforma.md`, este plan y `docs/pruebas.md`. El ADR 0001 (por qué wry y no GPUI) y los 0002, 0003, 0033 y 0035 son los que más se tocan.
+- **Estado:** solo hay documentos. No hay código nuevo, ni `spikes/`, ni `.github/`.
+- **Siguiente paso:** crear `spikes/` y `.github/workflows/` (primero L1 y W1; ver abajo), y pedir permiso al usuario antes de subir la rama.
+- **No hacer sin permiso explícito del usuario:** subir ramas a GitHub (el repositorio es público), tocar `main`, instalar nada con `sudo`, cambiar ADR. Los commits en la rama del worktree sí se hacen al aprobar algo.
+- **Probar en esta máquina:** el usuario suele tener visor abierto. Aislar siempre con `VISOR_SOCKET` y `XDG_*` propios (ver `docs/pruebas.md`) y cerrar por PID.
+- **Idioma:** textos de interfaz en español; commits y títulos de PR en inglés; comentarios del código en inglés y solo para el porqué (`AGENTS.md`, `CONTRIBUTING.md`).
+
+## Cómo funciona el CI (coste y límites)
+
+- `ruben-salas20/visor` es **público y MIT**, así que los ejecutores estándar de GitHub Actions son **gratis** y sin límite de minutos [V, documentación de facturación de GitHub, consultada 2026-10-16].
+- Si el repositorio pasara a privado: el plan Free da 2.000 minutos al mes; Windows cuesta 0,010 USD por minuto (Linux 0,006; macOS 0,062). Los ejecutores grandes son de pago aparte y no hacen falta.
+- **Ejecutor de Windows:** imagen Windows Server 2025 con Rust 1.99, MSVC (Visual Studio 2022) y Edge instalados [V, `runner-images`]. **El runtime de WebView2 no figura en su lista de software**: el primer trabajo debe comprobar la clave del registro (`pv` de EdgeUpdate) y, si falta, instalar el bootstrapper.
+- **Límites:** son máquinas virtuales de 2 núcleos, con mucho ruido para medir rendimiento. El ejecutor es Windows Server, no Windows 10/11 de escritorio. Los contenedores Linux (Docker) sí funcionan en los ejecutores de Ubuntu, así que L1 y L2 no necesitan Docker en esta máquina.
+- Los flujos de trabajo van en `.github/workflows/` de la rama del worktree y se lanzan con `workflow_dispatch` o al subir la rama. Los resultados se leen con `gh run view` y `gh run download`.
+
+## Lo que ya sabemos
+
+- **Linux.** El binario exige glibc ≥ 2.39 solo por dos símbolos opcionales de Rust (`pidfd_spawnp`, `pidfd_getpid`) que el enlazador registró como obligatorios [V, `readelf -V`]. Deja fuera, según las páginas de paquetes, Ubuntu 22.04, Debian 12, Mint 21, RHEL 9 y Leap 15.6 [glibc de memoria]. Arranca bajo X11 vía XWayland (`GDK_BACKEND=x11`, `status` responde) [V]; el dibujo, el arrastre y los menús no se probaron. RHEL 9 no trae WebKitGTK 4.1 y Alpine usa musl [páginas de paquetes].
+- **Windows.** wry da el webview, pero no `Committed`, captura, fallos de recursos ni pantalla completa [V, código de wry 0.57]. WebView2 los tiene por su API COM, accesible con `WebViewExtWindows::webview()`. La implementación de wry de `PageLoadEvent::Started` lee `Source()` y no sirve para la frontera de confianza, que prohíbe `webview.uri()` [V].
+- **Interfaz.** Sin GTK en Windows hay que rehacer panel, pestañas, barra y divisores: `app.rs` ~1.785 líneas, `sidebar.rs` ~1.516 y más. Candidatas vivas: A (interfaz en HTML en un webview propio) y B (toolkit de Rust con webviews hijos).
+- **Código.** El inventario completo está en este plan; lo nuevo respecto al informe es: el secreto de las URL sale de `/dev/urandom` (`http.rs:92`), `is_loose` usa `starts_with('/')` (`vault.rs:87`), `canonicalize` en Windows devuelve `\\?\C:\…`, no se validan nombres reservados de Windows, y se lee `LANG` en `i18n.rs`. `std::os::unix` aparece en 6 archivos de producción (`vault.rs`, `update.rs`, `agent/{socket,server,cli}.rs`, `ui/app.rs`). Ya son portables: `ui/tabs.rs`, `ui/watch.rs`, `ui/page_calls.rs`, `ui/action.rs`, `session.rs` y la capa de datos.
 
 ## Puertas de decisión
 
@@ -32,104 +52,109 @@ Reglas del proyecto que se mantienen:
 
 ## Experimentos de Linux
 
-Los hago yo en esta máquina (algunos necesitan contenedores o una máquina virtual).
+Salvo L3, se ejecutan en CI con contenedores (ejecutores de Ubuntu), sin depender de esta máquina ni del usuario.
 
 **L1. ¿Compila y arranca el release en una base antigua?**
-- Hipótesis: compilar en Debian 12 (glibc 2.36, WebKitGTK 2.50.6 [V]) da un binario que baja la exigencia de glibc a ~2.36 sin cambiar el código.
-- Cómo: contenedor Debian 12, `cargo build --release`, `ldd` y `objdump -T` para ver las versiones exigidas.
-- Éxito: compila con la feature `v2_38` de `webkit2gtk` y la exigencia de glibc baja.
-- Fracaso: no compila (API o versión de crates) o el binario sigue exigiendo glibc ≥ 2.39. Entonces se prueba Ubuntu 22.04 y, si falla también, se acota el alcance.
-- Necesita: un servicio de contenedores. Docker está instalado pero su servicio no responde; puede arrancarlo el usuario con `! sudo systemctl start docker`. La alternativa es hacerlo en GitHub Actions.
+- Hipótesis: compilar en Debian 12 (glibc 2.36, WebKitGTK 2.50.6 [V según páginas de paquetes]) da un binario que baja la exigencia de glibc a ~2.36 sin tocar el código.
+- Cómo: contenedor Debian 12 con `libwebkit2gtk-4.1-dev`, `cargo build --release`, y `objdump -T` / `readelf -V` para ver las versiones exigidas.
+- Éxito: compila con la feature `v2_38` de `webkit2gtk` y la exigencia baja.
+- Fracaso: no compila o sigue exigiendo glibc ≥ 2.39. Entonces se prueba Ubuntu 22.04 y, si también falla, se acota el alcance.
 
 **L2. ¿En qué distros arranca de verdad?**
-- Hipótesis: con el binario de L1, `visor status` responde bajo `xvfb` en Ubuntu 22.04 y 24.04, Debian 12 y 13, Fedora, Arch y openSUSE; y falla en RHEL/Alma 9 y Alpine.
-- Cómo: contenedor por distro, instalar WebKitGTK 4.1 y `xvfb`, lanzar y consultar el estado.
-- Éxito: tabla con cada distro marcada «funciona», «falla (motivo)» o «no probada».
-- Fracaso: resultados que contradicen las tablas de paquetes. Se registra igual: el dato es el producto.
+- Hipótesis: con el binario de L1, `visor status` responde bajo `xvfb` en Ubuntu 22.04 y 24.04, Debian 12 y 13, Fedora 42 y 43, Arch y openSUSE Tumbleweed; falla en AlmaLinux 9 y Alpine.
+- Cómo: contenedor por distro, instalar WebKitGTK 4.1 y `xvfb`, lanzar con `VISOR_SOCKET` propio y consultar el estado.
+- Éxito: tabla con cada distro «funciona», «falla (motivo)» o «no probada». Fracaso: resultados que contradicen las tablas de paquetes; se registran igual.
 
-**L3. ¿Funciona entero bajo X11?**
+**L3. ¿Funciona entero bajo X11?** (manual, el usuario o una máquina virtual con escritorio)
 - Hipótesis: panel, arrastre, menús emergentes, escala y teclado funcionan igual que en Wayland.
-- Cómo: lista de comprobación manual bajo XWayland y, si hay una sesión Xorg o una máquina virtual disponible, bajo X11 real. Con escala 1 y 1,5.
-- Éxito: sin diferencias visibles. Se cambia el aviso del README.
-- Fracaso: fallos concretos de GTK3 en X11. Se anotan; el aviso pasa a «Wayland probado, X11 experimental».
+- Cómo: lista de comprobación bajo XWayland y, si es posible, X11 real, con escala 1 y 1,5.
+- Éxito: sin diferencias visibles; se cambia el aviso del README. Fracaso: fallos concretos; el aviso pasa a «Wayland probado, X11 experimental».
 
 **L4. ¿Compila en aarch64?**
-- Cómo: ejecutor ARM nativo de GitHub Actions (`ubuntu-22.04-arm`).
-- Éxito: compila y arranca. Fracaso: se anota qué dependencia falla.
+- Ejecutor ARM nativo (`ubuntu-22.04-arm` o `ubuntu-24.04-arm`) [V según el agente]. Éxito: compila y arranca. Fracaso: se anota qué dependencia falla.
 
-**L5. Formatos de paquete: ¿cuáles encajan?**
+**L5. Formatos de paquete.**
 - `.deb` con `cargo-deb`: instalarlo en un contenedor Ubuntu 22.04 limpio y comprobar que resuelve las dependencias.
 - Flatpak: ¿puede el CLI del host hablar con la app dentro del sandbox? Prueba mínima de socket en `xdg-run` y de acceso a una carpeta arbitraria. Si el socket no se alcanza sin permisos amplios, Flatpak se descarta por ahora.
 - `update.rs` bajo un paquete gestionado: comprobar que se desactiva.
 
-## Experimentos de Windows
+## Experimentos de Windows (en CI)
 
-**Los ejecuta el usuario en su equipo Windows.** Yo preparo cada prototipo en `spikes/` como proyecto Rust independiente, con instrucciones de una línea (`cargo run`) y un resultado que se pega aquí. No puedo ejecutar Windows desde esta máquina.
+Cada prototipo es un proyecto Rust independiente en `spikes/` más un flujo de trabajo para `windows-2025`. Resultado: artefactos y registros de la ejecución.
 
 **W1. ¿Cuánto del código compila ya en Windows?**
-- Hipótesis: `vault/`, `agent/`, `http.rs`, `session.rs`, `tabs.rs` y `watch.rs` compilan en Windows con unos pocos cambios, dejando la interfaz fuera.
-- Cómo: `cargo check` en Windows sobre una copia con `ui/` desactivada. Se cuentan los errores por categoría.
-- Éxito: errores acotados y todos de la lista conocida. Fracaso: hallazgos nuevos grandes (se añaden al inventario).
+- Hipótesis: `vault/`, `agent/`, `http.rs`, `session.rs`, `tabs.rs` y `watch.rs` compilan en Windows con pocos cambios, dejando la interfaz fuera.
+- Cómo: `cargo check` en el ejecutor sobre una copia con `ui/` desactivada. Se cuentan los errores por categoría.
+- Éxito: errores acotados y todos de la lista conocida. Fracaso: hallazgos nuevos grandes, que se añaden al inventario.
 
-**W2. wry + WebView2: ventana con varios webviews hijos.**
-- Hipótesis: con un entorno compartido (`with_environment`), 5-10 webviews hijos cuestan ≤ ~60-65 MB cada uno y se colocan con `set_bounds`.
-- Cómo: prototipo con `tao` + `wry`, un servidor HTTP local y 1, 5 y 10 webviews. Medir procesos y memoria con el Administrador de tareas o un script.
-- Éxito: el coste por webview es parecido al de WebKitGTK y no hay fallos de foco ni de redimensionado. Fracaso: coste muy superior; entonces cuentan más las pestañas ocultas suspendidas (`TrySuspendAsync`) o un solo webview.
+**W2. wry + WebView2: varios webviews hijos.**
+- Hipótesis: con un entorno compartido (`with_environment`), 5-10 webviews hijos cuestan ≲ 60-65 MB cada uno y se colocan con `set_bounds`.
+- Cómo: `tao` + `wry`, un servidor HTTP local y 1, 5 y 10 webviews. Medir procesos y memoria de forma programática.
+- Éxito: coste parecido al de WebKitGTK y sin fallos de foco ni de redimensionado. Fracaso: coste muy superior; entonces cuentan más las pestañas ocultas suspendidas (`TrySuspendAsync`) o un solo webview.
+- Aviso: en CI las cifras son orientativas (máquina virtual de 2 núcleos).
 
 **W3. La frontera de confianza: `Committed` por `NavigationId`.** (decide G1)
 - Hipótesis: se puede reproducir `Committed` con `NavigationStarting` + `ContentLoading` unidos por `NavigationId`, sin leer `Source()`.
-- Cómo: con `webview2-com` sobre `WebViewExtWindows::webview()`. Páginas de prueba que provoquen: redirección HTTP, `history.pushState`, cambio de fragmento, error de red, navegación solapada, iframe externo y carga pendiente.
+- Cómo: `webview2-com` sobre `WebViewExtWindows::webview()`. Páginas de prueba que provoquen redirección HTTP, `history.pushState`, cambio de fragmento, error de red, navegación solapada, iframe externo y carga pendiente. La prueba se registra sola y falla el trabajo si la URL no coincide.
 - Éxito: la URL registrada nunca cambia por `pushState` ni por fragmento, y es la del documento realmente cargado en todos los casos.
 - Fracaso: algún caso en el que la URL registrada no es la del documento. **Se detiene el port a Windows**: sin esta pieza no se puede cumplir `AGENTS.md`.
 
 **W4. Funciones que wry no da.**
-- Captura (`CapturePreview`), botones laterales del ratón (por script), pantalla completa, fallos de recursos de subframes, hoja de estilo por script de inicio, zoom y foco.
-- Cada una: funciona / funciona con límites / no funciona. Las que no funcionen se anotan como funciones que Windows no tendría.
+- Captura (`CapturePreview`), botones laterales del ratón (por script y, si es posible, simulados), pantalla completa, fallos de recursos de subframes, hoja de estilo por script de inicio, zoom y foco.
+- Cada una: funciona / funciona con límites / no funciona. Las que no funcionen se anotan como funciones que Windows no tendría. Las que necesiten entrada real quedan para W7.
 
 **W5. IPC del CLI.**
-- Tubería con nombre con ACL al usuario actual e instancia única, frente a TCP en localhost con token. Criterio: otro usuario del mismo equipo no puede conectar; el CLI y el MCP hablan igual que con el socket Unix.
+- Tubería con nombre con ACL al usuario actual e instancia única, frente a TCP en localhost con token. Criterio: el CLI y el MCP hablan igual que con el socket Unix; un segundo usuario no puede conectar (se prueba con un proceso con otra identidad si el ejecutor lo permite; si no, queda como revisión de código).
 
-**W6. Runtime ausente.**
-- Qué ocurre en un Windows 10 sin WebView2: flujo del bootstrapper y mensaje de error sin red. Se necesita una máquina virtual limpia.
+**W6. Runtime de WebView2 ausente.** (parcial en CI)
+- Comprobar en el ejecutor la detección del runtime (clave `pv`) y el flujo del bootstrapper (`/silent /install`). No cubre un Windows 10 limpio ni el mensaje de error sin red: eso queda para W7.
 
-**W7. Firma y SmartScreen.**
-- Comprobar si visor cumple las condiciones de SignPath Foundation (licencia OSI, repositorio público) y qué ve un usuario con un `.exe` sin firmar. Coste: cero. Plazo: lento, conviene empezar pronto.
+**W7. Pasada final con una persona.** (manual, el usuario, al final)
+- Instalar el artefacto que genere CI en un Windows 10 y un Windows 11 de escritorio: aspecto, HiDPI, ratón y teclado reales, botones laterales, pantalla completa, mensaje sin runtime y aviso de SmartScreen. Es la única parte que seguirá necesitando a una persona.
+- Sobre SmartScreen: el ejecutable irá **sin firmar** (decisión del usuario, 2026-10-16). Esta pasada solo anota qué ve la persona al descargarlo y qué pasos exactos debe dar para abrirlo, para ponerlo en el README.
 
 ## Experimentos de interfaz
 
-**U1. Prototipo A: panel, pestañas y barra en HTML.** (en Linux, 4 h)
+**U1. Prototipo A: panel, pestañas y barra en HTML.** (en Linux, ~4 h)
 - Cuadro: lista de pestañas, árbol de ~200 nodos, barra, y 2 webviews de página en `gtk::Fixed`. Recibe los efectos de `tabs.rs` y envía eventos por IPC.
-- Mide: arranque, PSS del árbol de procesos, CPU en reposo y peso (`tools/medir/medir.py`).
+- Mide con `tools/medir/medir.py`: arranque, PSS del árbol de procesos, CPU en reposo y peso.
 - Prueba: arrastre del árbol a una página; lectura con Orca; y que **una página no pueda alcanzar los mensajes de la interfaz** (frontera de confianza).
 - Fracaso: si el arrastre sobre webviews hijos no se puede resolver o la frontera se rompe, A se descarta.
 
 **U2. Prototipo B: toolkit de Rust (egui o slint) con webviews de wry.** (1 h de corte)
-- Primero: ¿arranca en Wayland con `build_gtk` dentro de la ventana? Si no arranca, se descarta en una hora.
-- Si arranca: mismas medidas y pruebas que U1.
+- Primero: ¿arranca en Wayland con `build_gtk` dentro de la ventana? Si no, se descarta en una hora. Si arranca: mismas medidas y pruebas que U1.
 
 **U3. GPUI (opcional, solo para refutar).**
-- Ventana GPUI con `gpui-webview` y 2 webviews en Hyprland con escala 1,5. Fuera del camino crítico: el estado actual es «descartado» (ver registro).
+- Ventana GPUI con `gpui-webview` y 2 webviews en Hyprland con escala 1,5. Fuera del camino crítico: el estado actual es «descartado».
 
-**Criterio para G2:** se elige A salvo que B ahorre más de ~50 MB y funcione en Wayland con arrastre y lector de pantalla sin parches. Se repite W2 con la interfaz elegida.
+**Criterio para G2:** se elige A salvo que B ahorre más de ~50 MB y funcione en Wayland con arrastre y lector de pantalla sin parches. Después se repite W2 en CI con la interfaz elegida.
 
 ## Experimentos diferidos (Mac)
 
-**M1.** Cuando se retome: probar en el ejecutor de macOS de GitHub Actions si `127.0.0.2` se puede abrir, el flujo de aviso de Gatekeeper sin firma y la compilación para x86_64 y aarch64. Hasta entonces, evitar decisiones que cierren la puerta: no depender de `127.0.0.2`, concentrar las rutas en `paths.rs`, captura tras una interfaz por plataforma.
+**M1.** Cuando se retome: probar en el ejecutor de macOS (gratis en repositorios públicos) si `127.0.0.2` se puede abrir, el aviso de Gatekeeper sin firma y la compilación para x86_64 y aarch64. Hasta entonces, evitar decisiones que cierren la puerta: no depender de `127.0.0.2`, concentrar las rutas en `paths.rs`, captura tras una interfaz por plataforma.
 
-## Mejoras sueltas que propongo (no se hacen sin tu aprobación)
+## Mejoras sueltas que se proponen (no se hacen sin aprobación)
 
 No dependen del resultado de los experimentos y mejoran visor también en Linux:
 
 - `http.rs:92`: sustituir `/dev/urandom` por el crate `getrandom` (seguridad: es el secreto de las URL).
-- Validar nombres reservados de Windows en `new_in` y `files.rs`, aunque Windows aún no exista.
+- Validar nombres reservados de Windows en `new_in` y `files.rs`.
 - Desactivar la actualización automática si un gestor de paquetes instaló el binario.
 
 ## Orden sugerido
 
-1. En paralelo: L1 y L2 (yo, con contenedores) y W1, W2, W3 (tú, con los prototipos que preparo).
-2. G1 con W3. Si pasa, W4, W5, W6, W7 y U1/U2.
-3. G2 y G3.
-4. Solo entonces, un plan de construcción nuevo, basado en lo que quede vivo.
+1. **Primero, en CI y en paralelo:** L1 y L2 (contenedores), W1, W2 y W3.
+2. **G1 con W3.** Si pasa: W4, W5, W6 y U1/U2.
+3. **G2 y G3.**
+4. **W7** con el usuario.
+5. Solo entonces, un plan de construcción nuevo, basado en lo que quede vivo.
+
+## Decisiones pendientes del usuario
+
+1. Permiso para subir la rama `worktree-port-multiplataforma` a GitHub (el CI la necesita).
+2. ¿Instalador, zip portable o ambos en Windows?
+3. ¿Se acepta dejar fuera RHEL/Alma/Rocky 9 y Alpine por ahora?
+4. ¿Flatpak sí o después?
 
 ## Registro de descartes
 
@@ -141,6 +166,7 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 | AppImage | Descartada por ahora | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
 | Snap | Descartada | Confinamiento parecido a Flatpak, poca adopción fuera de Ubuntu [S] |
 | Mac | Aplazada | Sin cuenta de Apple de pago |
+| Firma de código en Windows | Descartada por ahora | El usuario no pagará; se acepta SmartScreen. SignPath Foundation es gratis para código abierto y se puede retomar si cambia la decisión [S] |
 | RHEL/Alma/Rocky 9, Alpine | Sin solución prevista | RHEL 9 no trae WebKitGTK 4.1; Alpine usa musl [páginas de paquetes] |
 | Opción A (interfaz en HTML) | Viva | Pendiente de U1 |
 | Opción B (egui/slint) | Viva, poco probable | Sin ejemplos con wry en Wayland [V]; pendiente de U2 |
