@@ -152,7 +152,7 @@ MARKDOWN NOTES
     created from the vault root, and any missing folders are created too.
     ![[photo.png]] shows an image looked up by name.
   - PDF files: [[report.pdf]] and [text](report.pdf) open the PDF in visor,
-    looked up by name like a note, with WebKit's own viewer. ![[report.pdf]]
+    looked up by name like a note, in visor's PDF viewer (see PDF FILES). ![[report.pdf]]
     does not embed it. A link to a PDF that does not exist is not created:
     it is shown as a dead link. The person can highlight and comment on the
     text of a PDF, but visor never changes the PDF file and cannot edit it.
@@ -185,6 +185,19 @@ EXCALIDRAW DRAWINGS
     10 MB; not SVG. If it cannot be saved, the status bar says so and the
     drawing is not saved until you delete the image.
   - `visor screenshot` is useful to check the result.
+
+PDF FILES
+  - A .pdf of a vault opens in visor's viewer: its pages one below another,
+    fitted to the width of the window.
+  - Above the pages: the page number (you can type one), previous and next
+    page, and Find. Ctrl+F opens Find: Enter goes to the next match,
+    Shift+Enter to the previous one, Escape closes it. "Outline" appears
+    only when the PDF has one.
+  - Scripts inside a PDF do not run. "Open with another application"
+    opens the file with the system's PDF program, to print or save it.
+  - A PDF with a password is not opened: the viewer says it failed.
+  - A PDF outside every vault opens as a loose file, in WebKit's own
+    viewer, and cannot be annotated.
 
 ANNOTATIONS
   The person highlights text, comments on it, or annotates an element or a

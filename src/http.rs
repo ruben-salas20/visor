@@ -205,6 +205,15 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         let _ = request.respond(response);
         return;
     }
+    // A PDF opens in its viewer page, which reads the bytes back with `?raw`
+    // (through `serve_file`, so PDF.js can ask for ranges).
+    if vault::is_pdf(&path) && !query.split('&').any(|q| q == "raw") {
+        let response = Response::from_string(crate::vault::pdf::page(&vault.rel(&path)))
+            .with_header(header("Content-Type", "text/html; charset=utf-8"))
+            .with_header(header("Cache-Control", "no-store"));
+        let _ = request.respond(response);
+        return;
+    }
     let range = value("Range");
     serve_file(request, &path, range);
 }

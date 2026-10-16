@@ -1,0 +1,14 @@
+{
+  "name": "visor-pdfjs",
+  "private": true,
+  "description": "PDF.js para el visor de PDF de visor. «npm ci && npm run build» genera assets/pdfjs/.",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.4.299"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

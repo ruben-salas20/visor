@@ -63,6 +63,8 @@ enum PageMsg {
     ToggleTask { offset: usize, checked: bool },
     /// From a `[[link]]` to a note that does not exist yet.
     CreateNote { dir: String, name: String },
+    /// From the PDF viewer's «Abrir con otra aplicación»: the PDF the view shows.
+    OpenPdfElsewhere,
     AnnotSave { annotation: Value },
     AnnotDelete { id: String },
     /// The person's reply in the conversation of one of the page's annotations.
@@ -1491,6 +1493,20 @@ impl App {
                     reply(self, page_calls::note_create_failed(&e));
                 }
             }
+            PageMsg::OpenPdfElsewhere if trusted => {
+                // The file comes from the view's address, checked as a vault PDF, never from the message.
+                let name = vault::rel_from_url(url).unwrap_or_default();
+                let file = self.open_vault().and_then(|v| vault::pdf::file_for(&v, url));
+                match file {
+                    Ok(file) => {
+                        let uri = gtk::gio::File::for_path(&file).uri();
+                        if gtk::gio::AppInfo::launch_default_for_uri(&uri, None::<&gtk::gio::AppLaunchContext>).is_err() {
+                            self.sidebar.notice(&no_application(&name), true);
+                        }
+                    }
+                    Err(e) => self.sidebar.notice(&e, true),
+                }
+            }
             PageMsg::Console { level, text } if local => {
                 push_console(&mut self.shared.lock().unwrap(), view, &level, &text);
             }
@@ -1615,7 +1631,7 @@ impl App {
         let known = current.filter(|v| path.starts_with(v)).or_else(|| self.config.vault_for(&path));
         let target = match known {
             // Like a loose .html: a .md outside every vault, opened alone, with no folder added to the config.
-            None if vault::is_html(&path) || (loose && vault::is_markdown(&path)) => {
+            None if vault::is_html(&path) || vault::is_pdf(&path) || (loose && vault::is_markdown(&path)) => {
                 // Turning its folder into a vault would list and watch all of it, maybe a whole home.
                 if self.vault().is_none() {
                     self.sidebar.root.hide();
@@ -1623,7 +1639,7 @@ impl App {
                 path.to_string_lossy().into_owned()
             }
             None if !vault::is_page(&path) => {
-                return Err(tr("visor abre carpetas, páginas .html y notas .md.", "visor opens folders, .html pages and .md notes.").into());
+                return Err(tr("visor abre carpetas, páginas .html, notas .md y PDF.", "visor opens folders, .html pages, .md notes and PDFs.").into());
             }
             known => {
                 let root = match known {

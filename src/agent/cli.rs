@@ -48,7 +48,7 @@ fn send(command: &Command) -> Option<Value> {
 fn loose(command: &Command) -> bool {
     let Command::Open { target: Target::Path(page), loose, .. } = command else { return false };
     let Some(path) = page.path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
-    let opens_loose = vault::is_html(&path) || (*loose && vault::is_markdown(&path));
+    let opens_loose = vault::is_html(&path) || vault::is_pdf(&path) || (*loose && vault::is_markdown(&path));
     path.is_file() && opens_loose && config::Config::load().vault_for(&path).is_none()
 }
 

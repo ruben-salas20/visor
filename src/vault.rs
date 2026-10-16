@@ -7,6 +7,7 @@ pub mod files;
 pub(crate) mod front_matter;
 pub mod links;
 pub mod markdown;
+pub mod pdf;
 #[cfg(test)]
 mod walk_tests;
 
