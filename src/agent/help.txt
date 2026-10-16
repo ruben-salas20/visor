@@ -187,14 +187,17 @@ EXCALIDRAW DRAWINGS
   - `visor screenshot` is useful to check the result.
 
 PDF FILES
-  - A .pdf of a vault opens in visor's viewer: its pages one below another,
-    fitted to the width of the window.
-  - Above the pages: the page number (you can type one), previous and next
-    page, and Find. Ctrl+F opens Find: Enter goes to the next match,
-    Shift+Enter to the previous one, Escape closes it. "Outline" appears
-    only when the PDF has one.
-  - Scripts inside a PDF do not run. "Open with another application"
-    opens the file with the system's PDF program, to print or save it.
+  - A .pdf of a vault opens in visor's viewer: the full viewer of PDF.js
+    (the one in Firefox), in the person's language. Its toolbar has the
+    sidebar (thumbnails, outline), Find (Ctrl+F), the page number, the
+    zoom (Ctrl+plus, Ctrl+minus, Ctrl+0 change it while the PDF is in
+    front), print and download. Its menu has rotate, presentation mode,
+    scroll and spread modes and document properties.
+  - The viewer's own drawing and highlighting tools are off: the person
+    annotates with visor's annotations, which never change the file.
+  - Scripts inside a PDF do not run. "Open with another application", in
+    the viewer's menu, opens the file with the system's PDF program
+    (visor is skipped if it is the default).
   - A PDF with a password is not opened: the viewer says it failed.
   - A PDF outside every vault opens as a loose file, in WebKit's own
     viewer, and cannot be annotated.
@@ -329,7 +332,8 @@ SHORTCUTS IN THE APP
   Ctrl+1 … Ctrl+8  tab number N of the focused side; Ctrl+9, the last one
   Ctrl+| (o Ctrl+\)  split the window or go back to one side
   Ctrl+Alt+←  Ctrl+Alt+→  left or right side
-  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered)
+  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered); in a PDF,
+                          the viewer's own zoom
   Ctrl+,  settings: theme, text size, updates and search engine
   Ctrl+K  list of shortcuts. In an Excalidraw drawing, Ctrl+K is still
           Excalidraw's link.

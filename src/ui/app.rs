@@ -264,9 +264,9 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && shift && k == key::a => Action::PickElement,
             _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
             _ if ctrl && shift && k == key::b => Action::ToggleBar,
-            _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::Zoom(1),
-            _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::Zoom(-1),
-            _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::Zoom(0),
+            _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::ZoomKey(1),
+            _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::ZoomKey(-1),
+            _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::ZoomKey(0),
             _ if ctrl && digit > 0 => Action::SelectNth(digit),
             _ if ctrl && k == key::comma => Action::Settings,
             _ if ctrl && k == key::k && !in_drawing.get() => Action::Shortcuts,
@@ -732,18 +732,16 @@ impl App {
         }
     }
 
-    /// A PDF scales in PDF.js, which draws its canvases for the size it is told;
-    /// WebKit's zoom would stretch them blurry. Every other page uses WebKit's.
+    fn is_pdf_view(&self, id: u64) -> bool {
+        self.shared.lock().unwrap().page_of(id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)))
+    }
+
+    /// A PDF has the zoom of its own viewer, which draws the canvases at the
+    /// size shown; WebKit's would stretch them blurry, toolbar and all.
     fn apply_zoom(&self, id: u64) {
         let Some(view) = self.view_of(id) else { return };
-        let zoom = self.config.zoom.unwrap_or(1.0);
-        let pdf = self.shared.lock().unwrap().page_of(id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)));
-        if pdf {
-            view.webview().set_zoom_level(1.0);
-            let _ = view.evaluate_script(&page_calls::pdf_zoom(zoom));
-        } else {
-            view.webview().set_zoom_level(zoom);
-        }
+        let zoom = if self.is_pdf_view(id) { 1.0 } else { self.config.zoom.unwrap_or(1.0) };
+        view.webview().set_zoom_level(zoom);
     }
 
     fn live_views(&self) -> impl Iterator<Item = &WebView> {
@@ -889,7 +887,6 @@ impl App {
                     page.load_seq += 1;
                     crate::session::LOADED.notify_all();
                 }
-                self.apply_zoom(view);
                 let Some(loaded) = self.tabs.loaded(view) else { return };
                 if let Some(position) = &loaded.restore
                     && let Some(v) = self.view_of(view)
@@ -1079,6 +1076,10 @@ impl App {
                     view.webview().grab_focus();
                 }
             }
+            Action::ZoomKey(step) => match self.tabs.focused_view().filter(|id| self.is_pdf_view(*id)) {
+                Some(_) => self.eval(&page_calls::pdf_zoom(step)),
+                None => self.act(Action::Zoom(step)),
+            },
             Action::Zoom(step) => {
                 let now = self.config.zoom.unwrap_or(1.0);
                 let zoom = match step {

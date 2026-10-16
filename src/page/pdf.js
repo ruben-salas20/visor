@@ -1,216 +1,117 @@
-// The PDF viewer page (src/vault/pdf.rs). PDF.js is loaded from __visor__/pdfjs/,
-// never from a CDN. Scripting is off: a PDF runs no code here.
+// The PDF viewer page (src/vault/pdf.rs): the full viewer of PDF.js, the one in
+// Firefox, loaded from __visor__/pdfjs/ and never from a CDN. Scripting is off:
+// a PDF runs no code here. Its editing tools are off too: visor's annotations
+// (annot.js) mark the text instead.
 (function () {
   "use strict";
   const config = window.__visorPdfConfig;
-  const logic = window.__visorPdfLogic;
-  const texts = config.texts;
-  const $ = (id) => document.getElementById(id);
+  const assets = config.assets;
 
-  let pdfViewer = null;
-  let total = 0;
-  let zoom = 1;
-  let fitted = false;
-
-  // Fit to the width of the box, times visor's zoom: Rust keeps WebKit's own
-  // zoom at 1 here, so PDF.js draws the canvases sharp at the size shown.
-  const fit = () => {
-    if (!fitted) return;
-    pdfViewer.currentScaleValue = "page-width";
-    if (zoom !== 1) pdfViewer.currentScale *= zoom;
-  };
-
-  // Set before anything loads, so a script that waits on it can start at once.
-  // A rejected `ready` must not raise an unhandled error when nobody waits.
-  const loaded = (async () => {
-    const lib = await import(config.assets + "pdf.min.mjs");
-    // The viewer reads the library from the global object, so it is set first.
-    globalThis.pdfjsLib = lib;
-    lib.GlobalWorkerOptions.workerSrc = config.assets + "pdf.worker.min.mjs";
-    const viewer = await import(config.assets + "pdf_viewer.mjs");
-    // No code compiled from the PDF's fonts either: eval is where a PDF once ran script (CVE-2024-4367).
-    const doc = await lib.getDocument({ url: config.document, wasmUrl: config.assets + "wasm/", isEvalSupported: false }).promise;
-    return { viewer, doc };
-  })();
-  const ready = loaded.then(({ doc }) => doc.numPages);
-  ready.catch(() => {});
+  let app = null;
+  let ready = null;
+  const loaded = new Promise((resolve, reject) => {
+    ready = { resolve, reject };
+  });
+  loaded.catch(() => {});
   window.__visorPdf = {
-    ready,
+    // Resolves with the number of pages once the document is laid out.
+    ready: loaded,
     goToPage(n) {
-      if (!pdfViewer) return;
-      const page = logic.parsePage(n, total);
-      if (page !== null) pdfViewer.currentPageNumber = page;
+      const page = Number(n);
+      if (app?.pdfDocument && Number.isInteger(page) && page >= 1 && page <= app.pagesCount) app.page = page;
     },
-    zoom(z) {
-      zoom = z;
-      document.documentElement.style.setProperty("--visor-zoom", String(z));
-      fit();
+    // Ctrl+plus, Ctrl+minus and Ctrl+0, sent by Rust: they never reach the page.
+    zoom(step) {
+      if (!app?.pdfViewer) return;
+      if (step > 0) app.zoomIn();
+      else if (step < 0) app.zoomOut();
+      else app.zoomReset();
     },
   };
 
-  loaded.then(setup, () => {
-    $("status").textContent = texts.failed;
+  const failed = () => {
+    document.body.textContent = config.texts.failed;
+    ready.reject(new Error(config.texts.failed));
+  };
+
+  // The viewer opens `?file=` instead of its default when the address has it:
+  // the page would then show a PDF that is not the one its notes belong to.
+  if (new URLSearchParams(location.search).has("file")) {
+    failed();
+    return;
+  }
+
+  // visor's theme, not the system's: the viewer's colours follow color-scheme.
+  const theme = (mode) => {
+    if (mode === "dark" || mode === "light") document.documentElement.style.colorScheme = mode;
+  };
+  theme(getComputedStyle(document.documentElement).getPropertyValue("--visor-mode").trim());
+  addEventListener("visor:tema", (e) => theme(e.detail?.modo));
+
+  // Read by the viewer before it starts. Preferences are off so that nothing
+  // saved by the viewer can turn scripting or the editors back on.
+  document.addEventListener("webviewerloaded", () => {
+    const options = window.PDFViewerApplicationOptions;
+    options.set("disablePreferences", true);
+    options.setAll({
+      defaultUrl: config.document,
+      workerSrc: assets + "pdf.worker.min.mjs",
+      wasmUrl: assets + "wasm/",
+      imageResourcesPath: assets + "images/",
+      enableScripting: false,
+      annotationEditorMode: -1,
+      enableSignatureEditor: false,
+      enableComment: false,
+      enableAltText: false,
+      pdfBugEnabled: false,
+      // The page's address stays the one visor loaded: no #page= in its history.
+      disableHistory: true,
+      localeProperties: { lang: config.locale },
+    });
   });
 
-  async function setup({ viewer, doc }) {
-    total = doc.numPages;
-    const eventBus = new viewer.EventBus();
-    const linkService = new viewer.PDFLinkService({ eventBus });
-    const findController = new viewer.PDFFindController({ linkService, eventBus, updateMatchesCountOnProgress: true });
-    pdfViewer = new viewer.PDFViewer({
-      container: $("contenedor"),
-      viewer: $("visor"),
-      eventBus,
-      linkService,
-      findController,
-      l10n: new viewer.GenericL10n(config.lang),
-      enableScripting: false,
-      textLayerMode: 1,
-      imageResourcesPath: config.assets + "images/",
+  start().catch(failed);
+
+  async function start() {
+    const markup = await fetch(assets + "viewer-body.html").then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.text();
     });
-    linkService.setViewer(pdfViewer);
-    pdfViewer.setDocument(doc);
-    linkService.setDocument(doc, null);
+    document.body.insertAdjacentHTML("afterbegin", markup);
+    addOpenElsewhere();
 
-    eventBus.on("pagesinit", () => {
-      fitted = true;
-      fit();
-    });
-    // Only a change of width refits: the height changes when the find bar opens.
-    let width = 0;
-    new ResizeObserver(([entry]) => {
-      if (entry.contentRect.width === width) return;
-      width = entry.contentRect.width;
-      fit();
-    }).observe($("contenedor"));
+    // The viewer reads the library from the global object, so it is set first.
+    // Its options take no null for these folders, which are not packed
+    // (tools/pdfjs/README.md): without them, nothing is asked for.
+    const lib = await import(assets + "pdf.min.mjs");
+    const unpacked = { cMapUrl: null, standardFontDataUrl: null, iccUrl: null };
+    globalThis.pdfjsLib = { ...lib, getDocument: (params) => lib.getDocument({ ...params, ...unpacked }) };
+    lib.GlobalWorkerOptions.workerSrc = assets + "pdf.worker.min.mjs";
+    await import(assets + "viewer.mjs");
 
-    setupPages(eventBus);
-    setupText(eventBus);
-    setupFind(eventBus);
-    setupOutline(doc, linkService);
-    $("abrir-fuera").onclick = () => window.__visorPost({ type: "open_pdf_elsewhere" });
-  }
-
-  function setupPages(eventBus) {
-    const input = $("pagina");
-    const prev = $("anterior");
-    const next = $("siguiente");
-    $("total").textContent = texts.ofPages.replace("{m}", total);
-    const show = (n) => {
-      input.value = String(n);
-      input.setAttribute("aria-label", logic.pageLabel(texts.pageOf, n, total));
-      prev.disabled = n <= 1;
-      next.disabled = n >= total;
-    };
-    eventBus.on("pagechanging", ({ pageNumber }) => show(pageNumber));
-    show(1);
-    input.addEventListener("change", () => {
-      const page = logic.parsePage(input.value, total);
-      if (page === null) show(pdfViewer.currentPageNumber);
-      else pdfViewer.currentPageNumber = page;
-    });
-    prev.onclick = () => {
-      pdfViewer.currentPageNumber = Math.max(1, pdfViewer.currentPageNumber - 1);
-    };
-    next.onclick = () => {
-      pdfViewer.currentPageNumber = Math.min(total, pdfViewer.currentPageNumber + 1);
-    };
-  }
-
-  // One event per text layer drawn: the note's annotations wait for it. The
-  // event carries the page only; it fires on failure too, as PDF.js does.
-  function setupText(eventBus) {
-    eventBus.on("textlayerrendered", ({ pageNumber }) => {
+    app = window.PDFViewerApplication;
+    await app.initializedPromise;
+    const bus = app.eventBus;
+    bus.on("pagesinit", () => ready.resolve(app.pagesCount));
+    // One event per text layer drawn: the note's annotations wait for it. The
+    // event carries the page only; it fires on failure too, as PDF.js does.
+    bus.on("textlayerrendered", ({ pageNumber }) => {
       document.dispatchEvent(new CustomEvent("visor:pdf-textlayer", { detail: { page: pageNumber } }));
     });
   }
 
-  function setupFind(eventBus) {
-    const bar = $("buscar");
-    const input = $("texto");
-    let lastQuery = null;
-    const search = (query, findPrevious) => {
-      const again = query === lastQuery;
-      lastQuery = query;
-      eventBus.dispatch("find", {
-        source: window,
-        type: again ? "again" : "",
-        query,
-        caseSensitive: false,
-        entireWord: false,
-        highlightAll: true,
-        findPrevious,
-        matchDiacritics: false,
-      });
-    };
-    const open = () => {
-      bar.hidden = false;
-      input.focus();
-      input.select();
-    };
-    const close = () => {
-      bar.hidden = true;
-      input.value = "";
-      $("cuenta").textContent = "";
-      lastQuery = null;
-      search("", false);
-    };
-    eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
-      $("cuenta").textContent = logic.matchLabel(texts.matches, texts.noMatches, matchesCount.current, matchesCount.total);
-    });
-    bar.addEventListener("submit", (e) => e.preventDefault());
-    // Enter goes to the next match, Shift+Enter to the previous one.
-    input.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      search(input.value, e.shiftKey);
-    });
-    input.addEventListener("input", () => search(input.value, false));
-    $("buscar-antes").onclick = () => search(input.value, true);
-    $("buscar-despues").onclick = () => search(input.value, false);
-    $("buscar-cerrar").onclick = close;
-    $("buscar-boton").onclick = open;
-    document.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f") {
-        // The page takes Ctrl+F: the webview would otherwise do nothing with it.
-        e.preventDefault();
-        open();
-      } else if (e.key === "Escape" && !bar.hidden) {
-        close();
-      }
-    });
-  }
-
-  async function setupOutline(doc, linkService) {
-    const outline = await doc.getOutline();
-    if (!logic.hasOutline(outline)) return;
-    const panel = $("esquema");
-    const button = $("esquema-boton");
-    button.hidden = false;
-    button.onclick = () => {
-      panel.hidden = !panel.hidden;
-      button.setAttribute("aria-expanded", String(!panel.hidden));
-    };
-    const add = (items, list) => {
-      for (const item of items) {
-        const li = document.createElement("li");
-        if (item.dest) {
-          const entry = document.createElement("button");
-          entry.type = "button";
-          entry.textContent = item.title;
-          entry.onclick = () => linkService.goToDestination(item.dest);
-          li.append(entry);
-        } else {
-          li.textContent = item.title;
-        }
-        if (item.items?.length) {
-          const sub = document.createElement("ul");
-          add(item.items, sub);
-          li.append(sub);
-        }
-        list.append(li);
-      }
-    };
-    add(outline, $("esquema-lista"));
+  // First in the viewer's «more tools» menu, where its own «Open» was.
+  function addOpenElsewhere() {
+    const menu = document.getElementById("secondaryToolbarButtonContainer");
+    if (!menu) return;
+    const button = document.createElement("button");
+    button.id = "visorOpenElsewhere";
+    button.type = "button";
+    button.className = "toolbarButton labeled";
+    const label = document.createElement("span");
+    label.textContent = config.texts.openElsewhere;
+    button.append(label);
+    button.addEventListener("click", () => window.__visorPost({ type: "open_pdf_elsewhere" }));
+    menu.prepend(button);
   }
 })();

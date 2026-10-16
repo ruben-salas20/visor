@@ -31,9 +31,9 @@ pub fn image_saved(file_id: &str, ok: bool, name: &str, error: &str) -> String {
     )
 }
 
-/// The zoom of visor, for the PDF viewer to scale its pages by (see `App::apply_zoom`).
-pub fn pdf_zoom(zoom: f64) -> String {
-    format!("window.__visorPdf && window.__visorPdf.zoom({zoom})")
+/// Ctrl+plus (1), Ctrl+minus (-1) or Ctrl+0 (0) for the PDF viewer's own zoom.
+pub fn pdf_zoom(step: i8) -> String {
+    format!("window.__visorPdf && window.__visorPdf.zoom({step})")
 }
 
 /// Ctrl+E: opens or closes the editor of a note or a drawing.

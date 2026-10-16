@@ -11,7 +11,7 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 
 - **Bóveda** (`vault`): carpeta con páginas. visor la muestra como árbol y la sirve por HTTP desde 127.0.0.1.
 - **Página**: archivo `.html`, `.md` o dibujo.
-- **PDF** (`pdf`): `.pdf` de una bóveda. No es página (`vault::is_page`): se abre en el visor de PDF de visor (PDF.js, ADR 0037) y admite anotaciones de texto, ancladas a página y cita, pero no se edita. Un PDF suelto se abre en el visor de WebKit, sin anotaciones.
+- **PDF** (`pdf`): `.pdf` de una bóveda. No es página (`vault::is_page`): se abre en el visor completo de PDF.js, servido por visor (ADR 0037) y admite anotaciones de texto, ancladas a página y cita, pero no se edita. Un PDF suelto se abre en el visor de WebKit, sin anotaciones.
 - **Nota**: página `.md` que no es dibujo. Se lee renderizada, se edita con Ctrl+E y admite `[[enlaces]]` de Obsidian.
 - **Dibujo** (`drawing`): página `.excalidraw.md` (formato del plugin de Excalidraw de Obsidian) o `.excalidraw` (JSON de excalidraw.com). Se lee como lienzo, se edita con Ctrl+E y se guarda en su mismo formato. No es nota: no tiene `[[enlaces]]` ni anotaciones.
 - **Página suelta** (`loose`; «archivo suelto»): `.html` fuera de toda bóveda conocida. Se abre como pestaña, sin crear bóveda. Un `.md` fuera de toda bóveda abre su carpeta como bóveda, salvo con `visor open --loose` (el doble clic del gestor de archivos): entonces es suelto: se edita y guarda en su archivo, no se anota, y sus `[[enlaces]]` se buscan solo en su carpeta.
