@@ -63,6 +63,27 @@ jobs:
             }
           }
 
+      # The tao hang is intermittent (run 38948535407 hung, 38949242448 did not): count it.
+      - name: Repeticiones (control_tao y control_wry base, 10 veces cada uno)
+        run: |
+          $filas = @('### Repeticiones', '', '| binario | ok | bloqueado (4) | colgado | otra salida |', '|---|---|---|---|---|')
+          foreach ($bin in 'control_tao', 'control_wry') {
+            $c = @{ ok = 0; v4 = 0; colgado = 0; otra = 0 }
+            foreach ($i in 1..10) {
+              $base = "resultados\rep-$bin-$i"
+              $p = Start-Process -FilePath ".\target\release\$bin.exe" -ArgumentList @('--variante', 'base') -PassThru -NoNewWindow `
+                -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+              Wait-Process -Id $p.Id -Timeout 60 -ErrorAction SilentlyContinue
+              if (-not $p.HasExited) { taskkill /T /F /PID $p.Id | Out-Null; $c.colgado++ }
+              elseif ($p.ExitCode -eq 0) { $c.ok++ }
+              elseif ($p.ExitCode -eq 4) { $c.v4++ }
+              else { $c.otra++ }
+            }
+            $filas += "| $bin | $($c.ok) | $($c.v4) | $($c.colgado) | $($c.otra) |"
+          }
+          ($filas + '') -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $filas -join "`n" | Out-File -FilePath resultados\repeticiones.md -Encoding utf8
+
       # Medición con winit: modos contexto y entorno, N = 1, 5 y 10. Límite externo de 90 s por ejecución.
       - name: Medir (winit, contexto y entorno, N = 1, 5 y 10)
         run: |
