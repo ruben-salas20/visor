@@ -4,3 +4,4 @@ node_modules/
 __pycache__/
 /docs/img/intro.*.gif
 /docs/img/demo-captura.*.gif
+/spikes/*/target

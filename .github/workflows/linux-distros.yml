@@ -1,0 +1,169 @@
+# Experimentos L1 y L2 (docs/plan-multiplataforma.md): ¿compila visor en Debian 12
+# y en qué distros arranca? No es CI de releases.
+name: linux-distros
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [worktree-port-multiplataforma]
+    paths:
+      - ".github/workflows/linux-distros.yml"
+      - "spikes/linux/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (debian 12)
+    runs-on: ubuntu-24.04
+    container: debian:12
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config curl ca-certificates git \
+            libwebkit2gtk-4.1-dev
+
+      - name: Rust (stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Caché de cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-distros-debian12-${{ hashFiles('Cargo.lock') }}
+          restore-keys: linux-distros-debian12-
+
+      - name: Compilar en release
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release --locked
+
+      - name: Exigencia de glibc
+        run: |
+          {
+            echo "# glibc del binario compilado en Debian 12"
+            echo
+            spikes/linux/glibc-report.sh target/release/visor
+          } | tee glibc-report.md >> "$GITHUB_STEP_SUMMARY"
+          spikes/linux/glibc-report.sh target/release/visor --max > glibc-max.txt
+
+      - name: Subir binario e informe
+        uses: actions/upload-artifact@v4
+        with:
+          name: visor-debian12
+          path: |
+            target/release/visor
+            glibc-report.md
+            glibc-max.txt
+          if-no-files-found: error
+
+  distros:
+    name: ${{ matrix.id }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: ubuntu-22.04, image: "ubuntu:22.04" }
+          - { id: ubuntu-24.04, image: "ubuntu:24.04" }
+          - { id: debian-12, image: "debian:12" }
+          - { id: debian-13, image: "debian:13" }
+          - { id: fedora-42, image: "fedora:42" }
+          - { id: fedora-43, image: "fedora:43" }
+          - { id: arch, image: "archlinux:latest" }
+          - { id: opensuse-tumbleweed, image: "opensuse/tumbleweed" }
+          - { id: almalinux-9, image: "almalinux:9" }
+          - { id: alpine, image: "alpine:latest" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Binario de la fase de compilación
+        uses: actions/download-artifact@v4
+        with:
+          name: visor-debian12
+          path: ${{ runner.temp }}/artifact
+
+      - name: Prueba de arranque en el contenedor
+        id: smoke
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          docker run --rm --shm-size=1g \
+            -v "$GITHUB_WORKSPACE/spikes/linux:/spikes:ro" \
+            -v "$RUNNER_TEMP/artifact:/artifact:ro" \
+            -v "$RUNNER_TEMP/out:/out" \
+            "${{ matrix.image }}" \
+            sh -c 'command -v bash >/dev/null 2>&1 || { command -v apk >/dev/null && apk add --no-cache bash >/dev/null; }; exec bash /spikes/smoke.sh "${{ matrix.id }}" /artifact/visor /out/result.json'
+
+      - name: Subir resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.id }}
+          path: ${{ runner.temp }}/out/result.json
+          if-no-files-found: warn
+
+  summary:
+    name: resumen
+    needs: [build, distros]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar resultados
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: result-*
+          path: ${{ runner.temp }}/results
+          merge-multiple: true
+
+      - name: Descargar informe de glibc
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: visor-debian12
+          path: ${{ runner.temp }}/glibc
+
+      - name: Tabla
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          {
+            echo "## Linux: arranque por distro"
+            echo
+            echo "Compilación en Debian 12: **$BUILD_RESULT**. glibc que exige el binario: **$(cat "$RUNNER_TEMP/glibc/glibc-max.txt" 2>/dev/null || echo desconocida)**."
+            echo
+            echo "| distro | glibc del sistema | WebKitGTK instalado | resultado | motivo |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 - "$RUNNER_TEMP/results" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import glob, json, os, sys
+          rows = []
+          for path in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
+              with open(path, encoding="utf-8") as f:
+                  r = json.load(f)
+              res = "funciona" if r["resultado"] == "funciona" else "falla"
+              rows.append((r["distro"], r["glibc"], r["webkit"], res, r.get("motivo", "")))
+          if not rows:
+              print("| (ninguna distro llegó a dejar resultado) | | | | |")
+          for d, g, w, res, m in rows:
+              print(f"| {d} | {g or 'musl (sin glibc)'} | {w} | {res} | {m or '-'} |")
+          PY
