@@ -13,7 +13,7 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 - **Página**: archivo `.html`, `.md` o dibujo. Un PDF no es página: se abre en el visor de WebKit, sin anotaciones ni edición (`vault::is_pdf`, `Kind::Pdf`).
 - **Nota**: página `.md` que no es dibujo. Se lee renderizada, se edita con Ctrl+E y admite `[[enlaces]]` de Obsidian.
 - **Dibujo** (`drawing`): página `.excalidraw.md` (formato del plugin de Excalidraw de Obsidian) o `.excalidraw` (JSON de excalidraw.com). Se lee como lienzo, se edita con Ctrl+E y se guarda en su mismo formato. No es nota: no tiene `[[enlaces]]` ni anotaciones.
-- **Página suelta** (`loose`; «archivo suelto»): `.html` fuera de toda bóveda conocida. Se abre como pestaña, sin crear bóveda. Un `.md` suelto no existe como tal: abre su carpeta como bóveda.
+- **Página suelta** (`loose`; «archivo suelto»): `.html` fuera de toda bóveda conocida. Se abre como pestaña, sin crear bóveda. Un `.md` fuera de toda bóveda abre su carpeta como bóveda, salvo con `visor open --loose` (el doble clic del gestor de archivos): entonces es suelto, de solo lectura, y sus `[[enlaces]]` se buscan solo en su carpeta.
 - **Web externa**: página `http` o `https`. No es de confianza.
 - **Anotación** (`annotation`): resaltado, comentario o marca sobre un texto, un elemento o un punto. Es una conversación entre persona y agente, guardada en `<bóveda>/.visor/anotaciones/<ruta de la página>.json`.
 - **Anclaje** (`anchored`): la anotación sigue encontrando su texto o elemento; si no, queda huérfana (`anchored: false`).

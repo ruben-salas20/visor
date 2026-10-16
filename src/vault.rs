@@ -860,6 +860,7 @@ mod tests {
         assert_eq!(access(&url("a/nota.md")), Access::Trusted);
         assert_eq!(access(&format!("{}#x", url("a/nota.md"))), Access::Trusted);
         assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
+        assert_eq!(access(&url("/tmp/suelta.md")), Access::Local, "a loose .md is read-only, not untrusted");
         assert_eq!(access(&format!("{LOOSE_BASE}nota.md")), Access::None, "a vault path on the loose origin");
         assert_eq!(access(&format!("{BASE}/tmp/suelta.html")), Access::None, "a loose path on the vault origin");
     }

@@ -1,4 +1,5 @@
 mod agent;
+mod desktop;
 mod http;
 mod i18n;
 mod paths;

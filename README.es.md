@@ -52,6 +52,8 @@ install -m 755 visor-x86_64-linux ~/.local/bin/visor
 
 Desde ese momento visor se actualiza solo: al arrancar, como mucho una vez al día, busca una versión nueva en GitHub Releases, la comprueba y la instala para el siguiente arranque. Lo puedes desactivar en Ajustes (Ctrl+,).
 
+Al arrancar, visor escribe también el archivo `~/.local/share/applications/visor.desktop`. Es una *entrada de aplicación*: una descripción corta que hace que el gestor de archivos ofrezca visor al abrir un `.md` o un `.html` (por ejemplo, en «Abrir con»). Para que sea el predeterminado para esos archivos, elígelo en los ajustes de aplicaciones predeterminadas de tu escritorio. Los archivos fuera de tus bóvedas se abren como archivos sueltos; mira `visor help`.
+
 ### Compilarlo tú
 
 Necesitas Rust 1.89 o posterior. Escribe estas órdenes dentro de la carpeta de visor:

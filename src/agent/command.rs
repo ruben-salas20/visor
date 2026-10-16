@@ -17,7 +17,8 @@ pub enum Command {
     Ping,
     Status,
     Reload,
-    Open { target: Target, place: Option<OpenPlace> },
+    /// `loose` opens a `.md` outside every vault as a loose note, like a loose `.html`.
+    Open { target: Target, place: Option<OpenPlace>, loose: bool },
     /// No target closes the focused side's active tab; a page closes every tab showing it.
     Close { target: Option<Page> },
     Console { level: Option<Level>, clear: bool },
@@ -113,11 +114,11 @@ impl Command {
         match cmd {
             "open" => {
                 let usage = tr(
-                    "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]",
-                    "Usage: visor open <folder, file or URL> [--tab | --beside]",
+                    "Uso: visor open <carpeta, archivo o URL> [--tab | --beside] [--loose]",
+                    "Usage: visor open <folder, file or URL> [--tab | --beside] [--loose]",
                 );
                 let raw = rest.iter().find(|a| !a.starts_with("--")).ok_or(usage)?;
-                if let Some(unknown) = rest.iter().find(|a| a.starts_with("--") && *a != "--tab" && *a != "--beside") {
+                if let Some(unknown) = rest.iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--tab" | "--beside" | "--loose")) {
                     return Err(trf!("Opción desconocida: {unknown}. {usage}", "Unknown option: {unknown}. {usage}"));
                 }
                 let place = if flag("--beside") {
@@ -132,7 +133,7 @@ impl Command {
                 } else {
                     Target::Path(Page::resolve(raw, Some(&cwd()?)))
                 };
-                Ok(Self::Open { target, place })
+                Ok(Self::Open { target, place, loose: flag("--loose") })
             }
             "close" => {
                 let usage = tr("Uso: visor close [<ruta>]", "Usage: visor close [<path>]");
@@ -195,7 +196,7 @@ impl Command {
     /// directory belongs to the client, not to the person's vault.
     pub fn from_mcp(tool: &str, args: &Value) -> Result<Self, String> {
         let allowed: &[&str] = match tool {
-            "open" => &["target", "place"],
+            "open" => &["target", "place", "loose"],
             "close" => &["target"],
             "console" => &["errors_only", "clear"],
             "screenshot" => &["path"],
@@ -225,7 +226,8 @@ impl Command {
                 } else {
                     Target::Path(Page::absolute_only(target))
                 };
-                Self::Open { target, place }
+                let loose = args.boolean("loose")?.unwrap_or(false);
+                Self::Open { target, place, loose }
             }
             "close" => Self::Close { target: args.string("target")?.map(Page::absolute_only) },
             "console" => Self::Console {
@@ -311,6 +313,12 @@ impl Command {
                     Some("beside") => Some(OpenPlace::Beside),
                     Some(_) => return Err(invalid("place")),
                 },
+                // Clients from before this flag send no `loose`.
+                loose: match &request["loose"] {
+                    Value::Null => false,
+                    Value::Bool(loose) => *loose,
+                    _ => return Err(invalid("loose")),
+                },
             },
             "close" => Self::Close {
                 target: match (optional("raw")?, path()?) {
@@ -361,13 +369,16 @@ impl Command {
             Self::Status => json!({ "cmd": "status" }),
             Self::Reload => json!({ "cmd": "reload" }),
             Self::Update => json!({ "cmd": "update" }),
-            Self::Open { target, place: at } => {
+            Self::Open { target, place: at, loose } => {
                 let mut wire = match target {
                     Target::Url { url } => json!({ "url": url }),
                     Target::Path(target) => page(target),
                 };
                 wire["cmd"] = json!("open");
                 wire["place"] = json!(place(at));
+                if *loose {
+                    wire["loose"] = json!(true);
+                }
                 wire
             }
             Self::Close { target } => match target {
@@ -493,23 +504,45 @@ mod tests {
     fn open_from_args() {
         assert_eq!(
             cli("open notas/a.html").unwrap(),
-            Command::Open { target: Target::Path(page("notas/a.html", Some("/work/notas/a.html"))), place: None }
+            Command::Open { target: Target::Path(page("notas/a.html", Some("/work/notas/a.html"))), place: None, loose: false }
         );
         assert_eq!(
             cli("open /abs/a.html --tab").unwrap(),
-            Command::Open { target: Target::Path(page("/abs/a.html", Some("/abs/a.html"))), place: Some(OpenPlace::Tab) }
+            Command::Open { target: Target::Path(page("/abs/a.html", Some("/abs/a.html"))), place: Some(OpenPlace::Tab), loose: false }
         );
         assert_eq!(
             cli("open --beside https://example.com").unwrap(),
-            Command::Open { target: Target::Url { url: "https://example.com".into() }, place: Some(OpenPlace::Beside) }
+            Command::Open { target: Target::Url { url: "https://example.com".into() }, place: Some(OpenPlace::Beside), loose: false }
         );
         // --beside wins over --tab.
         assert!(matches!(cli("open x --tab --beside"), Ok(Command::Open { place: Some(OpenPlace::Beside), .. })));
     }
 
     #[test]
+    fn open_loose_flag() {
+        assert!(matches!(cli("open notas/a.md --loose"), Ok(Command::Open { loose: true, .. })));
+        assert!(matches!(cli("open notas/a.md"), Ok(Command::Open { loose: false, .. })));
+        assert!(matches!(mcp("open", json!({ "target": "/abs/a.md", "loose": true })), Ok(Command::Open { loose: true, .. })));
+        assert!(matches!(mcp("open", json!({ "target": "/abs/a.md" })), Ok(Command::Open { loose: false, .. })));
+        assert_eq!(mcp("open", json!({ "target": "/abs/a.md", "loose": "yes" })), Err("El argumento loose no es válido.".into()));
+    }
+
+    /// Clients from before `loose` send no such key, and the socket still reads them.
+    #[test]
+    fn wire_carries_loose() {
+        let wire = |command: Command| serde_json::from_str::<Value>(&command.to_wire()).unwrap();
+        let loose = cli("open /abs/a.md --loose").unwrap();
+        assert_eq!(wire(loose.clone())["loose"], json!(true));
+        assert_eq!(Command::from_wire(&wire(loose.clone())).unwrap(), loose);
+        assert_eq!(
+            Command::from_wire(&json!({ "cmd": "open", "path": "", "raw": "a.md", "place": null })).unwrap(),
+            Command::Open { target: Target::Path(page("a.md", None)), place: None, loose: false }
+        );
+    }
+
+    #[test]
     fn open_from_args_errors() {
-        let usage = "Uso: visor open <carpeta, archivo o URL> [--tab | --beside]";
+        let usage = "Uso: visor open <carpeta, archivo o URL> [--tab | --beside] [--loose]";
         assert_eq!(cli("open").unwrap_err(), usage);
         assert_eq!(cli("open --tab").unwrap_err(), usage);
         assert_eq!(cli("open x --fast").unwrap_err(), format!("Opción desconocida: --fast. {usage}"));
@@ -627,15 +660,15 @@ mod tests {
     fn open_from_mcp() {
         assert_eq!(
             mcp("open", json!({ "target": "/abs/a.html" })).unwrap(),
-            Command::Open { target: Target::Path(page("/abs/a.html", Some("/abs/a.html"))), place: None }
+            Command::Open { target: Target::Path(page("/abs/a.html", Some("/abs/a.html"))), place: None, loose: false }
         );
         assert_eq!(
             mcp("open", json!({ "target": "notas/a.html", "place": "here" })).unwrap(),
-            Command::Open { target: Target::Path(page("notas/a.html", None)), place: Some(OpenPlace::Here) }
+            Command::Open { target: Target::Path(page("notas/a.html", None)), place: Some(OpenPlace::Here), loose: false }
         );
         assert_eq!(
             mcp("open", json!({ "target": "http://x.y", "place": "tab" })).unwrap(),
-            Command::Open { target: Target::Url { url: "http://x.y".into() }, place: Some(OpenPlace::Tab) }
+            Command::Open { target: Target::Url { url: "http://x.y".into() }, place: Some(OpenPlace::Tab), loose: false }
         );
         assert!(matches!(
             mcp("open", json!({ "target": "a", "place": "beside" })),
@@ -727,8 +760,8 @@ mod tests {
     #[test]
     fn cli_and_mcp_agree() {
         let unresolved = |command: Command| match command {
-            Command::Open { target: Target::Path(Page { raw, .. }), place } => {
-                Command::Open { target: Target::Path(Page { raw, path: None }), place }
+            Command::Open { target: Target::Path(Page { raw, .. }), place, loose } => {
+                Command::Open { target: Target::Path(Page { raw, path: None }), place, loose }
             }
             Command::Notes { scope: NotesScope::Page(Page { raw, .. }) } => {
                 Command::Notes { scope: NotesScope::Page(Page { raw, path: None }) }
@@ -744,6 +777,7 @@ mod tests {
             ("open x/a.html --beside", "open", json!({ "target": "x/a.html", "place": "beside" })),
             ("open https://a.b/c", "open", json!({ "target": "https://a.b/c" })),
             ("open /abs/a.html", "open", json!({ "target": "/abs/a.html" })),
+            ("open x/a.md --loose", "open", json!({ "target": "x/a.md", "loose": true })),
             ("status", "status", json!({})),
             ("reload", "reload", json!({})),
             ("close", "close", json!({})),
@@ -769,7 +803,7 @@ mod tests {
     fn wire_survives_paths_that_are_not_utf8() {
         use std::os::unix::ffi::OsStringExt;
         let path = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff.html".to_vec()));
-        let command = Command::Open { target: Target::Path(Page { raw: "x".into(), path: Some(path) }), place: None };
+        let command = Command::Open { target: Target::Path(Page { raw: "x".into(), path: Some(path) }), place: None, loose: false };
         let wire: Value = serde_json::from_str(&command.to_wire()).unwrap();
         assert_eq!(wire["path"], "/tmp/\u{fffd}.html");
     }
@@ -860,11 +894,11 @@ mod tests {
         let read = |request: Value| Command::from_wire(&request);
         assert_eq!(
             read(json!({ "cmd": "open", "path": "", "raw": "a.html", "place": "here" })).unwrap(),
-            Command::Open { target: Target::Path(page("a.html", None)), place: Some(OpenPlace::Here) }
+            Command::Open { target: Target::Path(page("a.html", None)), place: Some(OpenPlace::Here), loose: false }
         );
         assert_eq!(
             read(json!({ "cmd": "open", "url": "https://a.b", "place": null })).unwrap(),
-            Command::Open { target: Target::Url { url: "https://a.b".into() }, place: None }
+            Command::Open { target: Target::Url { url: "https://a.b".into() }, place: None, loose: false }
         );
         assert_eq!(read(json!({ "cmd": "close" })).unwrap(), Command::Close { target: None });
         assert_eq!(

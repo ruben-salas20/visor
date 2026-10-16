@@ -52,6 +52,8 @@ install -m 755 visor-x86_64-linux ~/.local/bin/visor
 
 From then on visor updates itself: when it starts, at most once a day, it looks for a new version on GitHub Releases, checks it and installs it for the next start. You can turn this off in Settings (Ctrl+,).
 
+When visor starts, it also writes the file `~/.local/share/applications/visor.desktop`. That file is a *desktop entry*: a short description that lets your file manager offer visor when you open a `.md` or `.html` file (for example, under "Open with"). To make visor the default for those files, pick it in your desktop's default-applications settings. Files outside your vaults open as loose files; see `visor help`.
+
 ### Build it yourself
 
 You need Rust 1.89 or later. Type these commands inside the visor folder:

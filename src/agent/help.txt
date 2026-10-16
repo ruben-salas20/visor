@@ -6,7 +6,7 @@ file changes on disk, the view updates by itself.
 
 USE
   visor                      Opens the app.
-  visor open <path|URL> [--tab | --beside]
+  visor open <path|URL> [--tab | --beside] [--loose]
                              Opens a folder as a vault, shows a file or
                              loads a web page (http or https). Starts the
                              app if it is closed. Waits for the page to
@@ -22,6 +22,12 @@ USE
                              every vault opens its folder as a vault,
                              unless that folder is your home folder (~) or
                              the root (/): there it is an error.
+                             --loose opens a .md outside every vault as a
+                             loose file: its folder is not listed or added
+                             to visor, and it cannot be annotated. Its
+                             [[links]] and images are found by name only
+                             in its folder and subfolders (not hidden ones).
+                             A .md inside a vault opens in that vault.
   visor close [<path>]       Closes the active tab of the focused side.
                              With a path, closes every tab that shows that
                              file, on either side. Returns "closed" (how

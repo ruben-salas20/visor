@@ -135,6 +135,8 @@
   let ed = null;
   let opening = false;
   async function open(atEnd = false) {
+    // A loose note is read-only: its page is served without the editor's save path.
+    if (config.readonly) return;
     if (opening) return;
     opening = true;
     const anchor = atEnd ? null : viewAnchor();

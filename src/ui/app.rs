@@ -205,6 +205,13 @@ pub fn launch() -> i32 {
     if app.config.auto_update != Some(false) {
         crate::update::spawn();
     }
+    // Lets the system offer visor for .md and .html; a write only when the binary moved.
+    if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe()) {
+        std::thread::spawn(move || {
+            let _ = crate::desktop::write_if_changed(&icon, crate::desktop::ICON);
+            let _ = crate::desktop::refresh(&exe, &file);
+        });
+    }
     // Load the page now instead of after the sidebar: both webviews start in parallel.
     let current = app.config.current.clone().filter(|p| !loose && p.is_dir());
     app.show_vault(current);
@@ -678,7 +685,7 @@ impl App {
         let in_vault = self.vault().and_then(|v| Some(v.rel(&v.resolve(text)?)));
         match address::plan(text, in_vault.as_deref()) {
             Plan::Loose => {
-                if self.open(PathBuf::from(text), text, Place::Here).is_err() {
+                if self.open(PathBuf::from(text), text, Place::Here, false).is_err() {
                     self.pane().bar().set_error();
                 }
             }
@@ -883,8 +890,8 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Agent(AgentRequest::Open { path, raw, place, reply }) => {
-                let _ = reply.send(self.open(path, &raw, place));
+            UserEvent::Agent(AgentRequest::Open { path, raw, place, loose, reply }) => {
+                let _ = reply.send(self.open(path, &raw, place, loose));
             }
             UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
                 let _ = reply.send(Ok(self.open_in(url, place)));
@@ -1590,7 +1597,7 @@ impl App {
 
     /// Opens a folder as vault or a file inside the vault that contains it.
     /// An HTML page outside every known vault opens on its own.
-    fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
+    fn open(&mut self, path: PathBuf, raw: &str, place: Place, loose: bool) -> Result<Option<Loading>, String> {
         let current = self.vault().map(|v| v.path().to_path_buf());
         let path = self.resolve_page(path, raw)?;
         if path.is_dir() {
@@ -1600,7 +1607,8 @@ impl App {
         }
         let known = current.filter(|v| path.starts_with(v)).or_else(|| self.config.vault_for(&path));
         let target = match known {
-            None if vault::is_html(&path) => {
+            // Like a loose .html: a .md outside every vault, opened alone, with no folder added to the config.
+            None if vault::is_html(&path) || (loose && vault::is_markdown(&path)) => {
                 // Turning its folder into a vault would list and watch all of it, maybe a whole home.
                 if self.vault().is_none() {
                     self.sidebar.root.hide();

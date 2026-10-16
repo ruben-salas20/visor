@@ -46,9 +46,10 @@ fn send(command: &Command) -> Option<Value> {
 /// Whether `open` asks for an HTML page outside every known vault, which the
 /// app shows on its own. Decided here too, so the app starts without the last vault.
 fn loose(command: &Command) -> bool {
-    let Command::Open { target: Target::Path(page), .. } = command else { return false };
+    let Command::Open { target: Target::Path(page), loose, .. } = command else { return false };
     let Some(path) = page.path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
-    path.is_file() && vault::is_html(&path) && config::Config::load().vault_for(&path).is_none()
+    let opens_loose = vault::is_html(&path) || (*loose && vault::is_markdown(&path));
+    path.is_file() && opens_loose && config::Config::load().vault_for(&path).is_none()
 }
 
 /// Starts the app detached from this terminal and waits until it answers.
