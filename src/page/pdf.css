@@ -43,7 +43,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 #texto { flex: 1 1 14em; max-width: 24em; }
 #cuenta { min-width: 6em; opacity: 0.8; }
 
-#cuerpo { flex: 1 1 auto; display: flex; min-height: 0; }
+#cuerpo { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
 
 #esquema {
   flex: 0 0 240px;
@@ -56,7 +56,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid Highlight; outlin
 #esquema li { margin: 0.2em 0; }
 #esquema button { border: 0; padding: 0; text-align: left; }
 
-#contenedor { flex: 1 1 auto; overflow: auto; position: relative; }
+/* PDF.js refuses a container that is not absolutely positioned. */
+#contenedor { position: absolute; inset: 0; overflow: auto; }
+#esquema:not([hidden]) + #contenedor { left: 240px; }
 
 #status { padding: 1em; opacity: 0.8; }
 #status:empty { display: none; }

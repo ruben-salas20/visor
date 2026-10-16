@@ -53,7 +53,7 @@ pub fn page(rel: &str) -> String {
 </form>\
 <div id=\"cuerpo\">\
 <aside id=\"esquema\" hidden aria-label=\"{outline_label}\"><ul id=\"esquema-lista\"></ul></aside>\
-<main id=\"contenedor\"><div id=\"visor\" class=\"pdfViewer\"></div></main>\
+<div id=\"contenedor\" role=\"main\"><div id=\"visor\" class=\"pdfViewer\"></div></div>\
 </div>\
 <div id=\"status\" role=\"status\" data-visor-skip></div>\
 <script>window.__visorPdfConfig = {config};</script>\
