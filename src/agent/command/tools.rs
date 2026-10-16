@@ -125,7 +125,7 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "notes",
-            "Returns the person's annotations: highlighted text, comments or marked elements. Each one is a conversation: comment is what the person wrote, and replies are the messages in order, with author (\"persona\" or \"agente\", the literal values). pending means the person is waiting for your reply. Without arguments, the annotations of the open page. With page, those of another page. With all, those of the whole vault. On the open page, anchored says whether each annotation still finds its text or element.",
+            "Returns the person's annotations: highlighted text, comments or marked elements. Each one is a conversation: comment is what the person wrote, and replies are the messages in order, with author (\"persona\" or \"agente\", the literal values). pending means the person is waiting for your reply. Without arguments, the annotations of the open page. With page, those of another page. With all, those of the whole vault. On the open page, anchored says whether each annotation still finds its text or element. On a PDF, target.page is the PDF page of the quote, and a note whose page is not shown yet is not counted as lost.",
             object(
                 json!({
                     "page": {

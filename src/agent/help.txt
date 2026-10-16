@@ -74,7 +74,9 @@ USE
                              page or of the whole vault (a path and --all
                              cannot be combined). For the open page,
                              "anchored" says whether each one still finds
-                             its text or element.
+                             its text or element. In a PDF, a note whose
+                             page is not shown yet is not reported as lost:
+                             it waits until the page is drawn.
   visor notes reply <id> <text>
                              Replies to an annotation; the person sees it
                              at once in their note.
@@ -152,8 +154,9 @@ MARKDOWN NOTES
   - PDF files: [[report.pdf]] and [text](report.pdf) open the PDF in visor,
     looked up by name like a note, with WebKit's own viewer. ![[report.pdf]]
     does not embed it. A link to a PDF that does not exist is not created:
-    it is shown as a dead link. PDFs have no annotations and cannot be
-    edited. In the tree, a PDF opens like a page (Ctrl: new tab).
+    it is shown as a dead link. The person can highlight and comment on the
+    text of a PDF, but visor never changes the PDF file and cannot edit it.
+    In the tree, a PDF opens like a page (Ctrl: new tab).
   - The person ticks tasks (- [ ] / - [x]) with a click and visor saves it
     to the .md. It reads the file again before changing it.
   - It warns the person before you edit a note that is open in the editor:
@@ -185,12 +188,15 @@ EXCALIDRAW DRAWINGS
 
 ANNOTATIONS
   The person highlights text, comments on it, or annotates an element or a
-  point (a chart, an image, a canvas). They are saved apart, in
+  point (a chart, an image, a canvas; not in PDFs). They are saved apart, in
   <vault>/.visor/anotaciones/<page path>.json, and do not change the page.
   Reply with `visor notes reply`; do not edit those files.
   - "target" says where: the quoted text ("quote.exact", with the context
     "prefix" and "suffix") or the element ("element": tag, id, CSS
     selector, text), and the point ("point": x and y from 0 to 1).
+    In a PDF, "target.page" is the page number (from 1) and "quote.start"
+    is the offset in that page's text; there are no elements or points,
+    only highlighted text. The "page" field of each note is the PDF file.
   - "title" names element annotations (the name the person gave or a
     computed one, e.g. "Diagram in “Ondas”"); older ones may not have
     it. Add aria-label, alt or a caption (figcaption, caption) to charts,

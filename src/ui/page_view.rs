@@ -15,6 +15,7 @@ use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 const BRIDGE: &str = include_str!("../page/bridge.js");
+const ANNOT_QUOTE: &str = include_str!("../page/annot-quote.js");
 const ANNOT: &str = include_str!("../page/annot.js");
 
 /// The message without its key, if visor's own scripts sent it. visor's start
@@ -86,11 +87,11 @@ pub fn build_page(
                 .replace("__VISOR_KEY__", &key)
                 .replace("__VISOR_LANG__", crate::i18n::lang().code()),
         )
-        .with_initialization_script(
-            ANNOT
-                .replace("__VISOR_BASE__", vault::base())
-                .replace("__VISOR_LANG__", crate::i18n::lang().code()),
-        )
+        // One script: annot.js takes the quote helpers off window before any page script runs.
+        .with_initialization_script(format!(
+            "{ANNOT_QUOTE}\n{}",
+            ANNOT.replace("__VISOR_BASE__", vault::base()).replace("__VISOR_LANG__", crate::i18n::lang().code())
+        ))
         .with_ipc_handler(move |request: Request<String>| {
             let url = sender.borrow().clone();
             if let Some(body) = accept(request.body(), &key, &url) {

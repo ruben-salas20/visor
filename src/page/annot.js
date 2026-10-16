@@ -5,6 +5,10 @@
 (() => {
   const tr = (es, en) => ("__VISOR_LANG__" === "en" ? en : es);
   const BASE = "__VISOR_BASE__";
+  // annot-quote.js runs just before, in the same script (page_view.rs). Taken off
+  // window at once, so no page, a website included, keeps a visor global from it.
+  const Q = window.__visorAnnotQuote;
+  delete window.__visorAnnotQuote;
   if (window.top !== window || window.__visorAnnot || !location.href.startsWith(BASE)) return;
 
   const page = decodeURIComponent(location.href.slice(BASE.length).split(/[?#]/)[0]);
@@ -12,14 +16,14 @@
   if (page.startsWith("/")) return;
   // A drawing has no text to mark: its canvas is Excalidraw's.
   if (/\.excalidraw(\.md)?$/i.test(page)) return;
-  // A PDF is WebKit's viewer, whose own tools take the selection; PDF notes are #27.
-  if (/\.pdf$/i.test(page)) return;
+  if (!Q) return;
+  // A PDF is marked text only, one page at a time: its text lives in the viewer's text layers.
+  const pdf = /\.pdf$/i.test(page);
   const storeUrl = BASE + ".visor/anotaciones/" + page.split("/").map(encodeURIComponent).join("/") + ".json";
   const send = (m) => window.__visorPost(m);
   const COLORS = { amarillo: "#f2c94c", verde: "#6fcf97", azul: "#56a0f5", rosa: "#f28bb0" };
   const COLOR_NAMES = { amarillo: tr("amarillo", "yellow"), verde: tr("verde", "green"), azul: tr("azul", "blue"), rosa: tr("rosa", "pink") };
   const SKIP = "script,style,noscript,textarea,template,[data-visor-skip]";
-  const CONTEXT = 32;
 
   // Cuts by code points, not UTF-16 units: a cut inside an emoji leaves a lone
   // surrogate, and visor refuses the whole message that carries one.
@@ -27,21 +31,21 @@
     const chars = Array.from(s);
     return chars.length > max ? chars.slice(0, max).join("") : s;
   };
-  // A slice of the page text may start or end inside a pair: drop the stray half.
-  const whole = (s) => s.replace(/^[\uDC00-\uDFFF]/, "").replace(/[\uD800-\uDBFF]$/, "").toWellFormed();
 
   let notes = [];
   const anchors = new Map(); // id -> Range (text) or { el, point } (element)
   let host = null;
   let ui = null;
   let lastReport = "";
+  // A note the list asked to show while its PDF page was not rendered yet.
+  let revealing = null;
 
   // ---------- text index: the page's visible text with a map back to nodes ----------
 
-  function textIndex() {
+  function textIndex(root = document.body) {
     const nodes = [];
     let text = "";
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: (n) => (n.parentElement && !n.parentElement.closest(SKIP) ? 1 : 3),
     });
     for (let n; (n = walker.nextNode()); ) {
@@ -78,35 +82,33 @@
     return range;
   }
 
-  // Finds the quote again: the occurrence whose surroundings match best,
-  // and among equals the one closest to where it used to be.
+  // The text a quote is found in: the whole page, or one PDF page's text layer.
+  // Null while that PDF page is not rendered.
+  function indexFor(target) {
+    if (!pdf) return textIndex();
+    const layer = pageLayer(target.page);
+    return layer && textIndex(layer);
+  }
+
+  function pageLayer(page) {
+    if (!Number.isInteger(page)) return null;
+    return document.querySelector(`.page[data-page-number="${page}"] .textLayer`);
+  }
+
+  // A PDF note whose page is not rendered has no text to find: it is waiting, not lost.
+  function waiting(note) {
+    return pdf && note.target.kind === "text" && !pageLayer(note.target.page);
+  }
+
   function locate(index, quote) {
-    const { exact, prefix = "", suffix = "", start = 0 } = quote;
-    if (!exact) return null;
-    let best = null, bestScore = -Infinity;
-    for (let i = index.text.indexOf(exact); i !== -1; i = index.text.indexOf(exact, i + 1)) {
-      const before = index.text.slice(Math.max(0, i - prefix.length), i);
-      const after = index.text.slice(i + exact.length, i + exact.length + suffix.length);
-      let score = 0;
-      while (score < before.length && before[before.length - 1 - score] === prefix[prefix.length - 1 - score]) score++;
-      let s = 0;
-      while (s < after.length && after[s] === suffix[s]) s++;
-      score += s - Math.abs(i - start) / 1e6;
-      if (score > bestScore) { best = i; bestScore = score; }
-    }
-    return best === null ? null : rangeAt(index, best, best + exact.length);
+    const hit = Q.locateIn(index.text, quote);
+    return hit && rangeAt(index, hit.start, hit.end);
   }
 
   function quoteOf(index, range) {
     const start = offsetOf(index, range.startContainer, range.startOffset);
     const end = offsetOf(index, range.endContainer, range.endOffset);
-    const exact = index.text.slice(start, end);
-    return {
-      exact: exact.toWellFormed(),
-      prefix: whole(index.text.slice(Math.max(0, start - CONTEXT), start)),
-      suffix: whole(index.text.slice(end, end + CONTEXT)),
-      start,
-    };
+    return Q.quoteAt(index.text, start, end);
   }
 
   // ---------- elements ----------
@@ -375,11 +377,18 @@
 
   // Finds every note in the page again and repaints. Cheap when nothing changed.
   function resolve() {
-    const index = notes.some((n) => n.target.kind === "text") ? textIndex() : null;
+    // One index per PDF page per pass; HTML has one index for the whole page.
+    const indexes = new Map();
+    const indexOf = (target) => {
+      const key = pdf ? target.page : "";
+      if (!indexes.has(key)) indexes.set(key, indexFor(target));
+      return indexes.get(key);
+    };
     anchors.clear();
     for (const note of notes) {
       if (note.target.kind === "text") {
-        const range = locate(index, note.target.quote || {});
+        const index = indexOf(note.target);
+        const range = index && locate(index, note.target.quote || {});
         if (range) anchors.set(note.id, range);
       } else {
         const el = findElement(note.target.element || {});
@@ -387,12 +396,17 @@
       }
     }
     paint();
+    if (revealing && anchors.has(revealing)) {
+      const note = notes.find((n) => n.id === revealing);
+      revealing = null;
+      if (note) reveal(note);
+    }
   }
 
   // Tells the app which notes could not be placed, for `visor notes`. Only on change.
   function report() {
     const saved = notes.filter((n) => n.saved);
-    const orphans = saved.filter((n) => !anchors.has(n.id)).map((n) => n.id);
+    const orphans = saved.filter((n) => !anchors.has(n.id) && !waiting(n)).map((n) => n.id);
     const key = saved.length + ":" + orphans.join(",");
     if (key === lastReport) return;
     lastReport = key;
@@ -843,7 +857,16 @@
     const start = range.startContainer.parentElement || range.startContainer;
     if (!document.body.contains(range.commonAncestorContainer)) return null;
     if (start.closest?.(SKIP + ",input,[contenteditable]")) return null;
+    if (pdf && pdfPageOf(range) === null) return null;
     return range;
+  }
+
+  // The PDF page a selection lies in, or null when it leaves that page's text layer.
+  function pdfPageOf(range) {
+    const layerOf = (n) => (n.nodeType === Node.ELEMENT_NODE ? n : n.parentElement)?.closest(".textLayer");
+    const a = layerOf(range.startContainer);
+    if (!a || a !== layerOf(range.endContainer)) return null;
+    return Number(a.closest(".page")?.dataset.pageNumber) || null;
   }
 
   function showToolbar(range) {
@@ -856,10 +879,13 @@
     const make = (color, comment) => {
       // Before the note exists: a refused popover must not leave an unsaved note behind.
       if (comment && !closePopSafely()) return;
-      const index = textIndex();
+      const page = pdf ? pdfPageOf(range) : null;
+      const index = indexFor({ page });
+      if (!index) return hideToolbar();
       const quote = quoteOf(index, range);
       if (!quote.exact.trim()) return hideToolbar();
-      const note = { id: newId(), color, comment: "", replies: [], target: { kind: "text", quote } };
+      const target = pdf ? { kind: "text", page, quote } : { kind: "text", quote };
+      const note = { id: newId(), color, comment: "", replies: [], target };
       anchors.set(note.id, rangeAt(index, quote.start, quote.start + quote.exact.length));
       getSelection().removeAllRanges();
       hideToolbar();
@@ -907,7 +933,9 @@
     if (host && e.composedPath().includes(host)) return;
     hideToolbar();
   });
-  addEventListener("scroll", hideToolbar, { passive: true });
+  // A PDF scrolls in its viewer's own box, which does not bubble to window: capture
+  // reaches it, and the pins follow the text. HTML keeps its plain listener.
+  addEventListener("scroll", () => { hideToolbar(); if (pdf) placePins(); }, { passive: true, capture: pdf });
 
   // A click on highlighted text opens its note, unless it was meant for a link or control.
   addEventListener("click", (e) => {
@@ -957,6 +985,8 @@
   // The listeners exist only while picking: otherwise every mouse move and click
   // on the page would call into this code just to return.
   function startPicking() {
+    // A PDF has text only: its elements belong to the viewer.
+    if (pdf) return;
     if (picking) return stopPicking();
     if (!closePopSafely()) return;
     ensureHost();
@@ -1016,46 +1046,73 @@
     if (!notes.length) {
       const p = document.createElement("p");
       p.className = "empty";
-      p.textContent = tr("Todavía no hay anotaciones. Selecciona texto o pulsa Ctrl+Shift+A para anotar un elemento.", "No annotations yet. Select text or press Ctrl+Shift+A to annotate an element.");
+      p.textContent = pdf
+        ? tr("Todavía no hay anotaciones. Selecciona texto de la página para anotarlo.", "No annotations yet. Select text on the page to annotate it.")
+        : tr("Todavía no hay anotaciones. Selecciona texto o pulsa Ctrl+Shift+A para anotar un elemento.", "No annotations yet. Select text or press Ctrl+Shift+A to annotate an element.");
       panel.append(p);
     }
     const list = document.createElement("ul");
-    const ordered = [...notes].sort((a, b) => (a.target.quote?.start ?? 1e12) - (b.target.quote?.start ?? 1e12));
-    for (const note of ordered) {
-      const li = document.createElement("li");
-      const b = document.createElement("button");
-      b.style.setProperty("--c", COLORS[note.color] || COLORS.amarillo);
-      if (note.target.kind === "text") {
-        const q = document.createElement("q");
-        q.textContent = note.target.quote?.exact || "";
-        b.append(q);
-      } else {
-        const what = document.createElement("strong");
-        what.textContent = titleOf(note);
-        b.append(what);
-      }
-      if (note.comment) b.append(document.createTextNode(note.comment));
-      const meta = document.createElement("small");
-      const n = note.replies?.length || 0;
-      meta.textContent = [
-        anchors.has(note.id) ? "" : note.target.kind === "text"
-          ? tr("Ya no se encuentra en la página: el texto cambió o se borró.", "It is no longer on the page: the text changed or was deleted.")
-          : tr("Ya no se encuentra en la página: el elemento cambió o se borró.", "It is no longer on the page: the element changed or was deleted."),
-        n ? tr(`${n} respuesta${n > 1 ? "s" : ""}`, `${n} ${n > 1 ? "replies" : "reply"}`) : "",
-      ].filter(Boolean).join(" · ");
-      if (!anchors.has(note.id)) meta.className = "orphan";
-      b.append(meta);
-      b.onclick = () => {
-        const a = anchors.get(note.id);
-        const node = a instanceof Range ? a.startContainer.parentElement : a?.el;
-        node?.scrollIntoView({ block: "center", behavior: "smooth" });
-        setTimeout(() => openNote(note), node ? 350 : 0);
-      };
-      li.append(b);
-      list.append(li);
-    }
+    const ordered = [...notes].sort((a, b) => Q.compareTargets(a.target, b.target));
+    for (const note of ordered) list.append(listItem(note));
     panel.append(list);
     ui.append(panel);
+  }
+
+  function listItem(note) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.style.setProperty("--c", COLORS[note.color] || COLORS.amarillo);
+    if (note.target.kind === "text") {
+      const q = document.createElement("q");
+      q.textContent = note.target.quote?.exact || "";
+      b.append(q);
+    } else {
+      const what = document.createElement("strong");
+      what.textContent = titleOf(note);
+      b.append(what);
+    }
+    if (note.comment) b.append(document.createTextNode(note.comment));
+    b.append(metaOf(note));
+    b.onclick = () => reveal(note);
+    li.append(b);
+    return li;
+  }
+
+  function metaOf(note) {
+    const meta = document.createElement("small");
+    const n = note.replies?.length || 0;
+    const lost = !anchors.has(note.id) && !waiting(note);
+    meta.textContent = [
+      pdf && note.target.kind === "text" ? tr(`Página ${note.target.page}`, `Page ${note.target.page}`) : "",
+      anchors.has(note.id) ? "" : waitingText(note),
+      n ? tr(`${n} respuesta${n > 1 ? "s" : ""}`, `${n} ${n > 1 ? "replies" : "reply"}`) : "",
+    ].filter(Boolean).join(" · ");
+    if (lost) meta.className = "orphan";
+    return meta;
+  }
+
+  function waitingText(note) {
+    if (waiting(note)) return tr("Página sin mostrar: se encontrará al abrirla.", "Page not shown yet: it will be found when it opens.");
+    return note.target.kind === "text"
+      ? tr("Ya no se encuentra en la página: el texto cambió o se borró.", "It is no longer on the page: the text changed or was deleted.")
+      : tr("Ya no se encuentra en la página: el elemento cambió o se borró.", "It is no longer on the page: the element changed or was deleted.");
+  }
+
+  // Scrolls to a note and opens it. A PDF page that is not shown yet is asked for
+  // first; the note opens once its text appears (see resolve).
+  function reveal(note) {
+    const a = anchors.get(note.id);
+    if (waiting(note)) {
+      const viewer = window.__visorPdf;
+      if (viewer?.goToPage) {
+        revealing = note.id;
+        viewer.goToPage(note.target.page);
+      }
+      return;
+    }
+    const node = a instanceof Range ? a.startContainer.parentElement : a?.el;
+    node?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setTimeout(() => openNote(note), node ? 350 : 0);
   }
 
   // ---------- loading and keeping up with the page ----------
@@ -1091,7 +1148,8 @@
         timer = 0;
         const broken = notes.some((n) => {
           const a = anchors.get(n.id);
-          return !a || (a instanceof Range ? a.collapsed || !a.startContainer.isConnected : !a.el.isConnected);
+          if (!a) return !waiting(n);
+          return a instanceof Range ? a.collapsed || !a.startContainer.isConnected : !a.el.isConnected;
         });
         if (broken) resolve(); else placePins();
       }, 1000);
@@ -1110,6 +1168,9 @@
       requestAnimationFrame(() => { pinsQueued = false; placePins(); });
     });
   }
+
+  // The PDF viewer builds a page's text layer when the page is shown. Anchors follow the layers.
+  if (pdf) document.addEventListener("visor:pdf-textlayer", () => resolve());
 
   // Ctrl+E (note.js) marks the page while the source is on screen. Own observer,
   // without the one-second delay of the mutation one: the markers must not sit on the editor.

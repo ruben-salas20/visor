@@ -446,10 +446,6 @@ impl Vault {
         if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
             return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
         }
-        // A PDF is shown by WebKit's viewer and takes no annotations: visor has no page to attach them to.
-        if is_pdf(Path::new(rel)) {
-            return Err(tr("Un PDF no tiene anotaciones", "A PDF has no annotations").into());
-        }
         self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
     }
 
@@ -859,14 +855,14 @@ mod tests {
     }
 
     #[test]
-    fn pdf_is_not_an_annotable_or_editable_page() {
+    fn pdf_is_annotable_but_not_editable() {
         bases();
         let (vault, dir) = make("pdf");
         let pdf = vault.root().join("a/libro.pdf");
         fs::write(&pdf, "%PDF-1.4").unwrap();
         assert!(!is_page(&pdf) && is_pdf(&pdf));
-        assert!(vault.page(&url("a/libro.pdf")).is_err(), "annotations by URL");
-        assert!(vault.page_at("a/libro.pdf").is_err(), "annotations by path");
+        assert!(vault.page(&url("a/libro.pdf")).is_ok(), "annotations by URL");
+        assert!(vault.page_at("a/libro.pdf").is_ok(), "annotations by path");
         assert!(vault.note(&url("a/libro.pdf")).is_err(), "editing");
         assert!(vault.drawing(&url("a/libro.pdf")).is_err(), "editing a drawing");
         fs::remove_dir_all(dir).unwrap();
