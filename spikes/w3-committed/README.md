@@ -37,7 +37,7 @@ en la tabla y en el JSON.
 | `error_red` | puerto sin servidor | la URL, con error |
 | `atras_entre_documentos` | `/a`, `/b`, `GoBack()`; muestra a 1200 ms en `/b` | `/a` |
 | `adelante` | lo anterior y luego `GoForward()`; muestra a 2000 ms en `/a` | `/b` |
-| `atras_a_pushstate` | `/push` (pushState a `/falsa`), luego `GoBack()` | `/push`, nunca `/falsa` |
+| `atras_a_pushstate` | `/b`, luego `/push` (pushState a `/falsa`), luego `GoBack()` | `/b`, nunca `/falsa`: Chromium salta las entradas de pushState sin gesto del usuario |
 | `script_navega` | `/script` hace `location.href = '/b'` tras cargar | `/b` |
 | `recarga` | `/a` y `Reload()`; exige al menos 2 `ContentLoading` | `/a` |
 | `sin_contenido` | desde `/a`, `/vacio` responde 204 | `/a` |

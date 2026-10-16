@@ -136,14 +136,15 @@ pub fn all() -> Vec<Case> {
                 3000,
             )
         },
-        // Back inside the same document: pushState entry /falsa -> /push, no ContentLoading.
+        // Chromium skips history entries a page adds with pushState without a user gesture, so
+        // Back from /falsa leaves the document and lands on /b (seen in CI, run 38944867295).
         Case {
             must_not_commit: &[Url { port: Port::Main, path: "/falsa" }],
             ..base(
                 "atras_a_pushstate",
-                vec![nav("/push", 0), act(Action::Back, 1500)],
-                principal("/push"),
-                2500,
+                vec![nav("/b", 0), nav("/push", 1000), act(Action::Back, 2500)],
+                principal("/b"),
+                3500,
             )
         },
         base("script_navega", vec![nav("/script", 0)], principal("/b"), 2000),
