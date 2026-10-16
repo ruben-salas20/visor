@@ -28,7 +28,28 @@ fn main() {
             0
         }
         Some("mcp") => mcp::run(),
+        _ if from_launcher(&args) => app::launch(),
         Some(_) => cli::run(&args),
     };
     std::process::exit(code);
+}
+
+/// `visor open --loose` with no file: the app menu runs the desktop entry's
+/// `Exec` (`open --loose %f`) with nothing in place of `%f`, to start visor.
+fn from_launcher(args: &[String]) -> bool {
+    matches!(args, [open, flag] if open == "open" && flag == "--loose")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::from_launcher;
+
+    #[test]
+    fn the_app_menu_starts_visor() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(from_launcher(&args(&["open", "--loose"])));
+        assert!(!from_launcher(&args(&["open", "--loose", "nota.md"])), "a file opens it");
+        assert!(!from_launcher(&args(&["open"])), "an agent's `visor open` with no path is still an error");
+        assert!(!from_launcher(&args(&["open", "--tab"])));
+    }
 }
