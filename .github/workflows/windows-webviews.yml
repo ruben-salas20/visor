@@ -13,7 +13,7 @@ permissions:
 jobs:
   medir:
     runs-on: windows-2025
-    timeout-minutes: 60
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -44,17 +44,27 @@ jobs:
       - name: Compilar (release)
         run: cargo build --release
 
-      # Combinaciones: contexto x 3 variantes de --crear x N; entorno solo con secuencial.
-      - name: Medir (barrido de N y variantes)
+      # Control: el ejemplo multiwebview de wry 0.57 (4 webviews), con límite externo de 60 s.
+      - name: Control wry (multiwebview sin cambios, 60 s)
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          $combos = @()
-          foreach ($crear in 'secuencial', 'sin_url', 'espera_carga') {
-            foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('contexto', $crear, $n) }
+          $p = Start-Process -FilePath .\target\release\control_wry.exe -PassThru -NoNewWindow `
+            -RedirectStandardOutput 'resultados\control.stdout.txt' -RedirectStandardError 'resultados\control.stderr.txt'
+          Wait-Process -Id $p.Id -Timeout 60 -ErrorAction SilentlyContinue
+          if (-not $p.HasExited) {
+            taskkill /T /F /PID $p.Id | Out-Null
+            Set-Content -Path 'resultados\control.estado.txt' -Value 'colgado' -Encoding utf8
+          } else {
+            if ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
+            Set-Content -Path 'resultados\control.estado.txt' -Value $estado -Encoding utf8
           }
-          foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('entorno', 'secuencial', $n) }
-          foreach ($c in $combos) {
-            $modo = $c[0]; $crear = $c[1]; $n = $c[2]
+
+      # Barrido reducido: contexto y secuencial, N = 1 y 2 (el resto ya se sabe que se cuelga).
+      - name: Medir (contexto secuencial, N = 1 y 2)
+        run: |
+          New-Item -ItemType Directory -Force -Path resultados | Out-Null
+          foreach ($n in 1, 2) {
+            $modo = 'contexto'; $crear = 'secuencial'
             $base = "resultados\w2-$modo-$crear-$n"
             # Límite externo de 90 s: si vence, se mata el árbol y el paso sigue con el resto.
             $p = Start-Process -FilePath .\target\release\w2-webviews.exe `
@@ -79,10 +89,7 @@ jobs:
           )
           $errores = @()
           $combos = @()
-          foreach ($crear in 'secuencial', 'sin_url', 'espera_carga') {
-            foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('contexto', $crear, $n) }
-          }
-          foreach ($n in 1, 2, 3, 5, 10) { $combos += , @('entorno', 'secuencial', $n) }
+          foreach ($n in 1, 2) { $combos += , @('contexto', 'secuencial', $n) }
           $total1 = @{}
           foreach ($c in $combos) {
             $modo = $c[0]; $crear = $c[1]; $n = $c[2]
@@ -108,7 +115,15 @@ jobs:
             $filas += "| $modo | $crear | $n | $estado | $hijos | $wv2 | $ws | $pb | $extra | $carga | $redim |"
           }
           $cabecera = "WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}"
-          $bloque = @($cabecera, '', $filas)
+          $ctrl = 'sin estado'
+          if (Test-Path 'resultados\control.estado.txt') { $ctrl = (Get-Content 'resultados\control.estado.txt' -Raw).Trim() }
+          $bloque = @($cabecera, '', "Control wry (4 webviews, sin cambios): $ctrl", '')
+          if (Test-Path 'resultados\control.stderr.txt') {
+            $bloque += '', 'Control, últimas líneas de stderr:', '```'
+            $bloque += (Get-Content 'resultados\control.stderr.txt' -Tail 15)
+            $bloque += '```'
+          }
+          $bloque += '', $filas
           if ($errores.Count -gt 0) { $bloque += '', 'Errores:', $errores }
           ($bloque -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 

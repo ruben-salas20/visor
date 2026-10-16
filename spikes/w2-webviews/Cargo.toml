@@ -11,6 +11,8 @@ description = "Experimento W2 (issue 35): coste de N webviews hijos de WebView2 
 [dependencies]
 tao = "0.37.1"
 wry = "0.57.0"
+# Solo para src/bin/control_wry.rs (el ejemplo multiwebview de wry 0.57 usa winit).
+winit = "0.30"
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
