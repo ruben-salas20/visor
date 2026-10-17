@@ -205,6 +205,13 @@ pub fn launch() -> i32 {
     if app.config.auto_update != Some(false) {
         crate::update::spawn();
     }
+    // Lets the system offer visor for .md and .html; a write only when the binary moved.
+    if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe()) {
+        std::thread::spawn(move || {
+            let _ = crate::desktop::write_if_changed(&icon, crate::desktop::ICON);
+            let _ = crate::desktop::refresh(&exe, &file);
+        });
+    }
     // Load the page now instead of after the sidebar: both webviews start in parallel.
     let current = app.config.current.clone().filter(|p| !loose && p.is_dir());
     app.show_vault(current);
@@ -678,7 +685,7 @@ impl App {
         let in_vault = self.vault().and_then(|v| Some(v.rel(&v.resolve(text)?)));
         match address::plan(text, in_vault.as_deref()) {
             Plan::Loose => {
-                if self.open(PathBuf::from(text), text, Place::Here).is_err() {
+                if self.open(PathBuf::from(text), text, Place::Here, false).is_err() {
                     self.pane().bar().set_error();
                 }
             }
@@ -883,8 +890,8 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Agent(AgentRequest::Open { path, raw, place, reply }) => {
-                let _ = reply.send(self.open(path, &raw, place));
+            UserEvent::Agent(AgentRequest::Open { path, raw, place, loose, reply }) => {
+                let _ = reply.send(self.open(path, &raw, place, loose));
             }
             UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
                 let _ = reply.send(Ok(self.open_in(url, place)));
@@ -1409,6 +1416,8 @@ impl App {
         let access = vault::access(url);
         let local = access != Access::None;
         let trusted = access == Access::Trusted;
+        // A loose note may write its own file, and nothing else: `note_path` checks which.
+        let note = trusted || access == Access::Local;
         let reply = |app: &App, code: String| {
             if let Some(v) = app.view_of(view) {
                 let _ = v.evaluate_script(&code);
@@ -1416,7 +1425,7 @@ impl App {
         };
         match msg {
             PageMsg::PickVault if trusted || url.starts_with("about:") => self.pick_vault(),
-            PageMsg::SaveNote { text } if trusted => {
+            PageMsg::SaveNote { text } if note => {
                 let result = self.save_note(url, &text);
                 let (ok, error) = match result {
                     Ok(()) => (true, String::new()),
@@ -1439,7 +1448,7 @@ impl App {
                 };
                 reply(self, page_calls::image_saved(&file_id, ok, &name, &error));
             }
-            PageMsg::ToggleTask { offset, checked } if trusted => {
+            PageMsg::ToggleTask { offset, checked } if note => {
                 let error = self.toggle_task(url, offset, checked).err().unwrap_or_default();
                 reply(self, page_calls::note_toggled(&error));
             }
@@ -1512,8 +1521,16 @@ impl App {
 
     /// Writes a note's text. Only the note itself may save, and only Markdown:
     /// an HTML page in the vault cannot overwrite files through this.
+    /// The note a page loaded from `url` may write: one of the vault, or a loose note's own file.
+    fn note_path(&mut self, url: &str) -> Result<PathBuf, String> {
+        if vault::access(url) == Access::Local {
+            return vault::loose_note(url, &self.shared.lock().unwrap().loose);
+        }
+        Ok(self.open_vault()?.note(url)?.1)
+    }
+
     fn save_note(&mut self, url: &str, text: &str) -> Result<(), String> {
-        let (_, path) = self.open_vault()?.note(url)?;
+        let path = self.note_path(url)?;
         self.own_write = Some(OwnWrite::new(&path, text));
         vault::write_atomic(&path, text).map_err(|e| e.to_string())
     }
@@ -1551,10 +1568,7 @@ impl App {
     /// Ticks or unticks one task of the note at `url`. Rust re-reads the file and
     /// checks that a task really starts at `offset`, so the page cannot write anything else.
     fn toggle_task(&mut self, url: &str, offset: usize, checked: bool) -> Result<(), String> {
-        let (_, path) = self.open_vault()?.page(url)?;
-        if !vault::is_markdown(&path) {
-            return Err(tr("Solo se pueden cambiar notas .md", "Only .md notes can be changed").into());
-        }
+        let path = self.note_path(url)?;
         let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let text = crate::vault::markdown::toggle_task(&source, offset, checked).ok_or(tr("La tarea ya no está en la nota", "The task is no longer in the note"))?;
         self.save_note(url, &text)
@@ -1590,7 +1604,7 @@ impl App {
 
     /// Opens a folder as vault or a file inside the vault that contains it.
     /// An HTML page outside every known vault opens on its own.
-    fn open(&mut self, path: PathBuf, raw: &str, place: Place) -> Result<Option<Loading>, String> {
+    fn open(&mut self, path: PathBuf, raw: &str, place: Place, loose: bool) -> Result<Option<Loading>, String> {
         let current = self.vault().map(|v| v.path().to_path_buf());
         let path = self.resolve_page(path, raw)?;
         if path.is_dir() {
@@ -1600,7 +1614,8 @@ impl App {
         }
         let known = current.filter(|v| path.starts_with(v)).or_else(|| self.config.vault_for(&path));
         let target = match known {
-            None if vault::is_html(&path) => {
+            // Like a loose .html: a .md outside every vault, opened alone, with no folder added to the config.
+            None if vault::is_html(&path) || (loose && vault::is_markdown(&path)) => {
                 // Turning its folder into a vault would list and watch all of it, maybe a whole home.
                 if self.vault().is_none() {
                     self.sidebar.root.hide();

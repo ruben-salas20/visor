@@ -6,7 +6,7 @@ file changes on disk, the view updates by itself.
 
 USE
   visor                      Opens the app.
-  visor open <path|URL> [--tab | --beside]
+  visor open <path|URL> [--tab | --beside] [--loose]
                              Opens a folder as a vault, shows a file or
                              loads a web page (http or https). Starts the
                              app if it is closed. Waits for the page to
@@ -22,6 +22,13 @@ USE
                              every vault opens its folder as a vault,
                              unless that folder is your home folder (~) or
                              the root (/): there it is an error.
+                             --loose opens a .md outside every vault as a
+                             loose file: its folder is not listed or added
+                             to visor, and it cannot be annotated, but
+                             Ctrl+E edits it and saves to the file. Its
+                             [[links]] and images are found by name only
+                             in its folder and subfolders (not hidden ones).
+                             A .md inside a vault opens in that vault.
   visor close [<path>]       Closes the active tab of the focused side.
                              With a path, closes every tab that shows that
                              file, on either side. Returns "closed" (how
@@ -142,6 +149,11 @@ MARKDOWN NOTES
     creates it when clicked; if it has folders ([[folder/note]]), it is
     created from the vault root, and any missing folders are created too.
     ![[photo.png]] shows an image looked up by name.
+  - PDF files: [[report.pdf]] and [text](report.pdf) open the PDF in visor,
+    looked up by name like a note, with WebKit's own viewer. ![[report.pdf]]
+    does not embed it. A link to a PDF that does not exist is not created:
+    it is shown as a dead link. PDFs have no annotations and cannot be
+    edited. In the tree, a PDF opens like a page (Ctrl: new tab).
   - The person ticks tasks (- [ ] / - [x]) with a click and visor saves it
     to the .md. It reads the file again before changing it.
   - It warns the person before you edit a note that is open in the editor:

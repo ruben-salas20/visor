@@ -46,7 +46,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
     match command {
         Command::Ping => json!({ "ok": true }),
         Command::Status => shared.lock().unwrap().status(),
-        Command::Open { target, place } => {
+        Command::Open { target, place, loose } => {
             let place = match place {
                 Some(OpenPlace::Tab) => Place::NewTab,
                 Some(OpenPlace::Beside) => Place::Beside,
@@ -55,7 +55,7 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
             let (reply, answer) = mpsc::channel();
             let event = match target {
                 Target::Url { url } => AgentRequest::OpenUrl { url, place, reply },
-                Target::Path(page) => AgentRequest::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, reply },
+                Target::Path(page) => AgentRequest::Open { path: page.path.unwrap_or_default(), raw: page.raw, place, loose, reply },
             };
             let start = Instant::now();
             send(event);

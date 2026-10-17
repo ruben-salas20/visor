@@ -8,7 +8,7 @@ use crate::trf;
 use crate::vault;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use tiny_http::{Header, ListenAddr, Request, Response, Server, StatusCode};
@@ -123,9 +123,8 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         let _ = request.respond(text(404, tr("No encontrado", "Not found")));
         return;
     };
-    if realm == Realm::Vault
-        && let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS)
-    {
+    // Both origins serve the bundled libraries: a loose note's page loads them from its own origin.
+    if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS) {
         serve_asset(request, name);
         return;
     }
@@ -137,11 +136,12 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     }
     if realm == Realm::Loose {
         let allowed = shared.lock().unwrap().loose.clone();
-        match loose_file(Path::new(&rel), &allowed) {
-            Some(path) => {
-                let range = value("Range");
-                serve_file(request, &path, range);
+        let range = value("Range");
+        match vault::loose_file(Path::new(&rel), &allowed) {
+            Some((path, folder)) if vault::is_markdown(&path) => {
+                let _ = request.respond(loose_note(&path, &folder, query));
             }
+            Some((path, _)) => serve_file(request, &path, range),
             None => {
                 let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
             }
@@ -209,14 +209,37 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     serve_file(request, &path, range);
 }
 
-/// A file a loose page may read: inside the folder of a loose tab that is
-/// open, subfolders included, and with nothing hidden on the way.
-fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
-    // A loose path is absolute, so the lookup starts at `/`.
-    let real = |p: &Path| p.canonicalize().ok().or_else(|| vault::find_nfc(Path::new("/"), p)?.canonicalize().ok());
-    let path = real(path).filter(|p| p.is_file())?;
-    let visible = |rel: &Path| !rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
-    allowed.iter().any(|dir| path.strip_prefix(dir).is_ok_and(visible)).then_some(path)
+/// A loose note, answered like a vault note: rendered, or for the editor its
+/// source (`?raw`) or where a link leads (`?wiki=`, `?embed=`). Its links reach
+/// only its folder, as `loose_page` says.
+fn loose_note(path: &Path, folder: &Path, query: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+    use crate::vault::markdown;
+    let rel = vault::rel(folder, path);
+    let param = |name: &str| {
+        query.split('&').find_map(|q| q.strip_prefix(name)).map(|v| percent_encoding::percent_decode_str(v).decode_utf8_lossy().into_owned())
+    };
+    let response = if let Some(name) = param("embed=") {
+        match markdown::loose_embed_url(&name, &rel, folder) {
+            Some(url) => text(302, "").with_header(header("Location", &url)),
+            None => text(404, tr("No existe", "Does not exist")),
+        }
+    } else if let Some(target) = param("wiki=") {
+        match markdown::loose_wiki_url(&target, &rel, folder) {
+            Some(url) => text(200, &url),
+            None => text(404, tr("No existe", "Does not exist")),
+        }
+    } else {
+        let Ok(source) = std::fs::read_to_string(path) else {
+            return text(500, tr("No se pudo leer la nota", "Could not read the note"));
+        };
+        let (body, mime) = if query.split('&').any(|q| q == "raw") {
+            (source, "text/plain; charset=utf-8")
+        } else {
+            (markdown::loose_page(&source, &rel, folder), "text/html; charset=utf-8")
+        };
+        Response::from_string(body).with_header(header("Content-Type", mime))
+    };
+    response.with_header(header("Cache-Control", "no-store"))
 }
 
 fn serve_file(request: Request, path: &Path, range: Option<String>) {
@@ -261,11 +284,11 @@ mod tests {
         let root = dir.canonicalize().unwrap();
         let allowed = [root.join("Pra\u{301}ctica")];
         let nfc = format!("{}/Práctica/Ejercicios de Práctica.pdf", root.display());
-        let found = loose_file(Path::new(&nfc), &allowed).expect("NFC spelling");
+        let (found, _) = vault::loose_file(Path::new(&nfc), &allowed).expect("NFC spelling");
         assert_eq!(found, root.join("Pra\u{301}ctica/Ejercicios de Pra\u{301}ctica.pdf"));
         let nfd_name = format!("{}/Pra\u{301}ctica/Ejercicios de Pra\u{301}ctica.pdf", root.display());
-        assert!(loose_file(Path::new(&nfd_name), &allowed).is_some(), "NFD spelling");
-        assert!(loose_file(Path::new(&format!("{}/Práctica/../Otra/x.pdf", root.display())), &allowed).is_none());
+        assert!(vault::loose_file(Path::new(&nfd_name), &allowed).is_some(), "NFD spelling");
+        assert!(vault::loose_file(Path::new(&format!("{}/Práctica/../Otra/x.pdf", root.display())), &allowed).is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -282,7 +305,8 @@ mod tests {
         let root = dir.canonicalize().unwrap();
         std::os::unix::fs::symlink(root.join("otra/y.html"), root.join("pagina/enlace.html")).unwrap();
         let allowed = [root.join("pagina")];
-        let reads = |rel: &str| loose_file(&root.join(rel), &allowed).is_some();
+        let reads = |rel: &str| vault::loose_file(&root.join(rel), &allowed).is_some();
+        assert!(vault::loose_file(&root.join("pagina/x.html"), &allowed).is_some_and(|(_, folder)| folder == root.join("pagina")));
         assert!(reads("pagina/x.html"));
         assert!(reads("pagina/css/e.css"), "subfolders");
         assert!(!reads("pagina/.oculta/s.txt"), "hidden folder");
@@ -291,6 +315,26 @@ mod tests {
         assert!(!reads("pagina/enlace.html"), "a link out of the folder");
         assert!(!reads("pagina/css/../../otra/y.html"));
         assert!(!reads("pagina/falta.html"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn loose_notes_render_from_their_folder() {
+        let dir = std::env::temp_dir().join(format!("visor-loose-note-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("notas")).unwrap();
+        fs::write(dir.join("notas/tema.md"), "# Tema\n\n- [ ] uno\n").unwrap();
+        let root = dir.canonicalize().unwrap();
+        let note = root.join("notas/tema.md");
+        let allowed = [root.join("notas")];
+        let (path, folder) = vault::loose_file(&note, &allowed).expect("a loose note is readable");
+        let mut html = String::new();
+        loose_note(&path, &folder, "").into_reader().read_to_string(&mut html).unwrap();
+        assert!(html.contains("<h1 "), "{html}");
+        let mut raw = String::new();
+        loose_note(&path, &folder, "raw").into_reader().read_to_string(&mut raw).unwrap();
+        assert_eq!(raw, "# Tema\n\n- [ ] uno\n", "the editor gets the source");
+        assert!(vault::loose_file(&root.join("notas/../tema.md"), &allowed).is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 }

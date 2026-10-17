@@ -27,6 +27,16 @@ pub fn update_check() -> PathBuf {
         .join("visor/actualizacion")
 }
 
+/// The desktop entry that offers visor for `.md` and `.html` files.
+pub fn desktop_entry() -> Option<PathBuf> {
+    Some(dirs::data_dir()?.join("applications/visor.desktop"))
+}
+
+/// The icon that the desktop entry names.
+pub fn desktop_icon() -> Option<PathBuf> {
+    Some(dirs::data_dir()?.join("icons/hicolor/scalable/apps/visor.svg"))
+}
+
 pub fn events() -> PathBuf {
     dirs::state_dir()
         .unwrap_or_else(std::env::temp_dir)

@@ -4,7 +4,7 @@ use crate::i18n::tr;
 use crate::trf;
 use crate::ui::action::{Action, SidebarMsg, UserEvent};
 use crate::ui::address::Engine;
-use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_plus, drawn_icon, icon_button};
+use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_pdf, draw_plus, drawn_icon, icon_button};
 use crate::ui::theme::Theme;
 use crate::vault::{self, Dir};
 use gtk::cairo::{Context, Format, ImageSurface};
@@ -64,15 +64,16 @@ const ARROW_W: f64 = 18.0;
 const ARROW_H: f64 = 16.0;
 const LEVEL_STEP: i32 = 18;
 
-/// Folder arrows as surfaces for the tree's pixbuf cell, in the muted color.
-/// Drawn here because GTK's own expander is a theme icon, and loading one
-/// costs a sandboxed SVG load (see icons.rs). Rebuilt when the theme or the
-/// screen scale changes.
+/// Folder arrows and file icons as surfaces for the tree's pixbuf cell, in the
+/// muted color. Drawn here because GTK's own expander is a theme icon, and
+/// loading one costs a sandboxed SVG load (see icons.rs). Rebuilt when the
+/// theme or the screen scale changes.
 struct Arrows {
     scale: i32,
     right: ImageSurface,
     down: ImageSurface,
     blank: ImageSurface,
+    pdf: ImageSurface,
 }
 
 impl Arrows {
@@ -83,34 +84,53 @@ impl Arrows {
             right: arrow(&rgba, scale, Some(-std::f64::consts::FRAC_PI_2)),
             down: arrow(&rgba, scale, Some(0.0)),
             blank: arrow(&rgba, scale, None),
+            pdf: pdf_icon(&rgba, scale),
         }
     }
 }
 
-/// One arrow pointing down, turned by `turn` radians; `None` gives an empty surface.
-fn arrow(rgba: &gdk::RGBA, scale: i32, turn: Option<f64>) -> ImageSurface {
+/// A surface of the arrow cell's size, filled by `draw` in the muted color.
+fn glyph(rgba: &gdk::RGBA, scale: i32, draw: impl FnOnce(&Context)) -> ImageSurface {
     let px = |v: f64| (v * scale as f64).round() as i32;
     let surface = ImageSurface::create(Format::ARgb32, px(ARROW_W), px(ARROW_H)).expect("arrow surface");
     // The device scale also scales the new context, so no cr.scale here.
     surface.set_device_scale(scale as f64, scale as f64);
     let cr = Context::new(&surface).expect("arrow context");
-    let Some(turn) = turn else { return surface };
     cr.set_source_rgba(rgba.red(), rgba.green(), rgba.blue(), rgba.alpha());
     cr.set_line_cap(gtk::cairo::LineCap::Round);
     cr.set_line_join(gtk::cairo::LineJoin::Round);
-    // The glyph is drawn on the 16-unit grid and enlarged to about 7 px;
-    // its line width is set after the path, in grid units, to stay at 1.5 px.
-    // The 1.5 px nudge evens the gaps on both sides of the arrow: the names
-    // start 4 px after the cell, so a centred arrow sits too far from them.
-    const GROW: f64 = 1.2;
-    cr.translate(ARROW_W / 2.0 + 1.5, ARROW_H / 2.0);
-    cr.rotate(turn);
-    cr.scale(GROW, GROW);
-    cr.translate(-5.0, -5.0);
-    draw_chevron(&cr);
-    cr.set_line_width(1.5 / GROW);
+    draw(&cr);
     let _ = cr.stroke();
     surface
+}
+
+/// One arrow pointing down, turned by `turn` radians; `None` gives an empty surface.
+fn arrow(rgba: &gdk::RGBA, scale: i32, turn: Option<f64>) -> ImageSurface {
+    let Some(turn) = turn else { return glyph(rgba, scale, |_| {}) };
+    glyph(rgba, scale, |cr| {
+        // The glyph is drawn on the 16-unit grid and enlarged to about 7 px;
+        // its line width is set after the path, in grid units, to stay at 1.5 px.
+        // The 1.5 px nudge evens the gaps on both sides of the arrow: the names
+        // start 4 px after the cell, so a centred arrow sits too far from them.
+        const GROW: f64 = 1.2;
+        cr.translate(ARROW_W / 2.0 + 1.5, ARROW_H / 2.0);
+        cr.rotate(turn);
+        cr.scale(GROW, GROW);
+        cr.translate(-5.0, -5.0);
+        draw_chevron(cr);
+        cr.set_line_width(1.5 / GROW);
+    })
+}
+
+/// The PDF icon, shown in the arrow cell of a PDF's row, at about 13 px.
+fn pdf_icon(rgba: &gdk::RGBA, scale: i32) -> ImageSurface {
+    glyph(rgba, scale, |cr| {
+        const SHRINK: f64 = 0.8;
+        cr.translate((ARROW_W - 16.0 * SHRINK) / 2.0, (ARROW_H - 16.0 * SHRINK) / 2.0);
+        cr.scale(SHRINK, SHRINK);
+        draw_pdf(cr);
+        cr.set_line_width(1.5 / SHRINK);
+    })
 }
 
 struct State {
@@ -493,7 +513,7 @@ impl Sidebar {
                 let st = state.borrow();
                 let dir = is_dir(model, iter);
                 let surface = if !dir {
-                    &st.arrows.blank
+                    if Row::of(model, iter) == Row::Pdf { &st.arrows.pdf } else { &st.arrows.blank }
                 } else if model.path(iter).is_some_and(|p| tree.row_expanded(&p)) {
                     &st.arrows.down
                 } else {
@@ -1381,6 +1401,8 @@ enum Row {
     Folder,
     Page,
     Image,
+    /// A PDF, shown by WebKit's own viewer. Opens like a page, without annotations.
+    Pdf,
     /// A file the viewer cannot show. Listed so the folder is complete, but inert.
     Other,
     /// The notice inside an empty folder; it gives the folder an arrow.
@@ -1388,7 +1410,7 @@ enum Row {
 }
 
 impl Row {
-    const ALL: [Row; 5] = [Row::Folder, Row::Page, Row::Image, Row::Other, Row::Empty];
+    const ALL: [Row; 6] = [Row::Folder, Row::Page, Row::Image, Row::Pdf, Row::Other, Row::Empty];
 
     fn of(model: &impl IsA<gtk::TreeModel>, iter: &gtk::TreeIter) -> Row {
         let code: u32 = model.value(iter, KIND as i32).get().unwrap_or_default();
@@ -1423,6 +1445,7 @@ fn fill(store: &gtk::TreeStore, parent: Option<&gtk::TreeIter>, dir: &Dir, show_
         let kind = match file.kind {
             vault::Kind::Page => Row::Page,
             vault::Kind::Image => Row::Image,
+            vault::Kind::Pdf => Row::Pdf,
             vault::Kind::Other => Row::Other,
         };
         store.insert_with_values(

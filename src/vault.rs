@@ -48,12 +48,18 @@ pub struct File {
 pub enum Kind {
     Page,
     Image,
+    Pdf,
     Other,
 }
 
 /// Files the viewer lists and shows: HTML pages, Markdown notes and drawings.
 pub fn is_page(path: &Path) -> bool {
     is_html(path) || is_markdown(path) || is_drawing(path)
+}
+
+/// A PDF: opened in WebKitGTK's own viewer, never annotated or edited by visor.
+pub fn is_pdf(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 /// An image the viewer can show: the formats browsers display.
@@ -122,6 +128,8 @@ fn scan(walk: &mut Walk, root: &Path, dir: &Path) -> Option<Dir> {
                 Kind::Page
             } else if is_image(&path) {
                 Kind::Image
+            } else if is_pdf(&path) {
+                Kind::Pdf
             } else {
                 Kind::Other
             };
@@ -438,6 +446,10 @@ impl Vault {
         if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
             return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
         }
+        // A PDF is shown by WebKit's viewer and takes no annotations: visor has no page to attach them to.
+        if is_pdf(Path::new(rel)) {
+            return Err(tr("Un PDF no tiene anotaciones", "A PDF has no annotations").into());
+        }
         self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
     }
 
@@ -620,6 +632,26 @@ pub fn url(rel: &str) -> String {
     let path: Vec<String> = rel.split('/').map(|seg| utf8_percent_encode(seg, SEGMENT).to_string()).collect();
     let base = if is_loose(rel) { loose_base() } else { base() };
     format!("{base}{}", path.join("/"))
+}
+
+/// A file a loose page may read, and the loose folder it is in: inside the folder
+/// of a loose tab that is open, subfolders included, and with nothing hidden on the way.
+pub fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
+    // A loose path is absolute, so the lookup starts at `/`.
+    let real = |p: &Path| p.canonicalize().ok().or_else(|| find_nfc(Path::new("/"), p)?.canonicalize().ok());
+    let path = real(path).filter(|p| p.is_file())?;
+    let visible = |rel: &Path| !rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+    let folder = allowed.iter().find(|dir| path.strip_prefix(dir).is_ok_and(visible))?;
+    Some((path.clone(), folder.clone()))
+}
+
+/// The one file a loose page may write: the `.md` its document was loaded from,
+/// in an open loose folder. `url` is that document's address, never one the page gives.
+pub fn loose_note(url: &str, allowed: &[PathBuf]) -> Result<PathBuf, String> {
+    let not_loose = || tr("La página no es una nota suelta", "The page is not a loose note");
+    let rel = rel_from_url(url).filter(|rel| is_loose(rel)).ok_or_else(not_loose)?;
+    let (path, _) = loose_file(Path::new(&rel), allowed).ok_or_else(not_loose)?;
+    if is_markdown(&path) { Ok(path) } else { Err(tr("Solo se pueden guardar notas .md", "Only .md notes can be saved").into()) }
 }
 
 /// Inverse of [`url`]; `None` for pages the server does not serve, and for a
@@ -827,6 +859,46 @@ mod tests {
     }
 
     #[test]
+    fn pdf_is_not_an_annotable_or_editable_page() {
+        bases();
+        let (vault, dir) = make("pdf");
+        let pdf = vault.root().join("a/libro.pdf");
+        fs::write(&pdf, "%PDF-1.4").unwrap();
+        assert!(!is_page(&pdf) && is_pdf(&pdf));
+        assert!(vault.page(&url("a/libro.pdf")).is_err(), "annotations by URL");
+        assert!(vault.page_at("a/libro.pdf").is_err(), "annotations by path");
+        assert!(vault.note(&url("a/libro.pdf")).is_err(), "editing");
+        assert!(vault.drawing(&url("a/libro.pdf")).is_err(), "editing a drawing");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_loose_page_writes_only_its_own_note() {
+        bases();
+        let dir = std::env::temp_dir().join(format!("visor-loose-write-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("notas/.oculta")).unwrap();
+        fs::create_dir_all(dir.join("otra")).unwrap();
+        for f in ["notas/tema.md", "notas/pagina.html", "notas/.oculta/x.md", "otra/fuera.md", "notas/dibujo.excalidraw.md"] {
+            fs::write(dir.join(f), "").unwrap();
+        }
+        let root = dir.canonicalize().unwrap();
+        let allowed = [root.join("notas")];
+        let loose = |rel: &str| url(&root.join(rel).to_string_lossy());
+        assert_eq!(loose_note(&loose("notas/tema.md"), &allowed), Ok(root.join("notas/tema.md")));
+        assert!(loose_note(&format!("{}#x", loose("notas/tema.md")), &allowed).is_ok(), "a fragment");
+        assert!(loose_note(&loose("notas/pagina.html"), &allowed).is_err(), "a loose HTML writes nothing");
+        assert!(loose_note(&loose("notas/dibujo.excalidraw.md"), &allowed).is_err(), "a drawing is not a note");
+        assert!(loose_note(&loose("notas/.oculta/x.md"), &allowed).is_err(), "hidden");
+        assert!(loose_note(&loose("otra/fuera.md"), &allowed).is_err(), "outside the open loose folders");
+        assert!(loose_note(&loose("notas/../otra/fuera.md"), &allowed).is_err(), "dots");
+        let on_vault_origin = format!("{BASE}{}", root.join("notas/tema.md").to_string_lossy().trim_start_matches('/'));
+        assert!(loose_note(&on_vault_origin, &allowed).is_err(), "the vault origin");
+        assert!(loose_note("https://example.com/tema.md", &allowed).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn access_by_url() {
         bases();
         assert_eq!(access("https://example.com/"), Access::None);
@@ -834,6 +906,7 @@ mod tests {
         assert_eq!(access(&url("a/nota.md")), Access::Trusted);
         assert_eq!(access(&format!("{}#x", url("a/nota.md"))), Access::Trusted);
         assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
+        assert_eq!(access(&url("/tmp/suelta.md")), Access::Local, "a loose .md is read-only, not untrusted");
         assert_eq!(access(&format!("{LOOSE_BASE}nota.md")), Access::None, "a vault path on the loose origin");
         assert_eq!(access(&format!("{BASE}/tmp/suelta.html")), Access::None, "a loose path on the vault origin");
     }

@@ -12,6 +12,8 @@
   if (page.startsWith("/")) return;
   // A drawing has no text to mark: its canvas is Excalidraw's.
   if (/\.excalidraw(\.md)?$/i.test(page)) return;
+  // A PDF is WebKit's viewer, whose own tools take the selection; PDF notes are #27.
+  if (/\.pdf$/i.test(page)) return;
   const storeUrl = BASE + ".visor/anotaciones/" + page.split("/").map(encodeURIComponent).join("/") + ".json";
   const send = (m) => window.__visorPost(m);
   const COLORS = { amarillo: "#f2c94c", verde: "#6fcf97", azul: "#56a0f5", rosa: "#f28bb0" };

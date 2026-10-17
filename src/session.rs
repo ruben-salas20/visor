@@ -34,7 +34,8 @@ pub enum Place {
 
 /// What the socket server asks of the window.
 pub enum AgentRequest {
-    Open { path: PathBuf, raw: String, place: Place, reply: Reply },
+    /// `loose`: a `.md` outside every vault opens as a loose note (`visor open --loose`).
+    Open { path: PathBuf, raw: String, place: Place, loose: bool, reply: Reply },
     OpenUrl { url: String, place: Place, reply: Reply },
     /// Closes the focused side's active tab, or every tab showing the page
     /// (`path` as resolved by the caller, `raw` as written).

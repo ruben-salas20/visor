@@ -14,7 +14,7 @@ pub fn list() -> Vec<Value> {
     vec![
         tool(
             "open",
-            "Opens a vault, a file or a web page in visor. Waits for the page to load and returns the errors and warnings it produced. Starts the app if it is closed. A folder opens as a vault; a .html that is not in any vault opens as a loose file.",
+            "Opens a vault, a file or a web page in visor. Waits for the page to load and returns the errors and warnings it produced. Starts the app if it is closed. A folder opens as a vault; a .html that is not in any vault opens as a loose file; a .md that is not in any vault opens as a loose file only with loose set.",
             object(
                 json!({
                     "target": {
@@ -26,6 +26,10 @@ pub fn list() -> Vec<Value> {
                         "type": "string",
                         "enum": ["here", "tab", "beside"],
                         "description": "here: replaces the active tab (default). tab: opens a new tab. beside: opens it on the other side and splits the window if needed.",
+                    },
+                    "loose": {
+                        "type": "boolean",
+                        "description": "Opens a .md outside every vault alone, without a vault, its folder listed, notes or annotations (like a loose .html). A .md inside a vault is opened in its vault either way.",
                     },
                 }),
                 &["target"],

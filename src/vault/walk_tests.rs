@@ -19,7 +19,7 @@ fn panel_lists_pages_images_other_files_and_empty_folders() {
     let root = dir.join("v");
     fs::create_dir_all(root.join("vacia")).unwrap();
     fs::create_dir_all(root.join("con")).unwrap();
-    for f in ["con/nota.md", "con/FOTO.PNG", "con/tabla.xlsx", "con/.oculto.png"] {
+    for f in ["con/nota.md", "con/FOTO.PNG", "con/tabla.xlsx", "con/Libro.PDF", "con/.oculto.png"] {
         fs::write(root.join(f), "").unwrap();
     }
     let top = tree(&root);
@@ -31,6 +31,7 @@ fn panel_lists_pages_images_other_files_and_empty_folders() {
         got,
         [
             ("FOTO.PNG", "con/FOTO.PNG", Kind::Image),
+            ("Libro.PDF", "con/Libro.PDF", Kind::Pdf),
             ("nota", "con/nota.md", Kind::Page),
             ("tabla.xlsx", "con/tabla.xlsx", Kind::Other),
         ]
@@ -94,5 +95,19 @@ fn one_policy_for_hidden_names_and_duplicate_links() {
     let mut flat: Vec<_> = files(&root, &root, is_page).iter().map(|p| rel(&root, p)).collect();
     flat.sort();
     assert_eq!(flat, found);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn pdf_is_not_other_in_the_tree() {
+    let dir = temp("pdf");
+    let root = dir.join("v");
+    fs::create_dir_all(root.join("libros")).unwrap();
+    fs::write(root.join("libros/manual.pdf"), "%PDF-1.4").unwrap();
+    let top = tree(&root);
+    let libros = top.dirs.iter().find(|d| d.name == "libros").unwrap();
+    assert_eq!(libros.files.iter().map(|f| f.kind).collect::<Vec<_>>(), [Kind::Pdf]);
+    assert_eq!(libros.files[0].name, "manual.pdf", "a PDF keeps its extension, as images do");
+    assert!(!is_page(&root.join("libros/manual.pdf")));
     fs::remove_dir_all(dir).unwrap();
 }
