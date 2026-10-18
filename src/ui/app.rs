@@ -1192,7 +1192,12 @@ impl App {
             Action::Go(text) => self.go(&text),
             Action::PickElement => self.page_call(page_calls::annot_pick_element()),
             Action::ToggleAnnotations => self.page_call(page_calls::annot_toggle_panel()),
-            Action::ToggleEdit => self.page_call(page_calls::note_toggle()),
+            Action::ToggleEdit => {
+                // The bar searched the reading view, which the editor hides; left
+                // open, it would also keep Ctrl+F from opening the editor's search.
+                self.pane().find_close();
+                self.page_call(page_calls::note_toggle());
+            }
             Action::NewNote => {
                 if self.vault().is_none() {
                     return;

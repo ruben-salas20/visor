@@ -18,10 +18,14 @@
   }
 
   // Walks the text nodes under `root` and returns the folded text with, for
-  // each folded character, the node and offset where it came from.
+  // each folded character, the node and offset where it came from. Text in
+  // different blocks, or on both sides of a <br>, is kept apart by a line
+  // break: the whitespace between blocks has no boxes and is skipped, so
+  // without it "<h2>Resumen</h2><p>El" would read "ResumenEl".
   function foldWithMap(root, matchCase) {
-    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
       acceptNode(node) {
+        if (node.nodeType === Node.ELEMENT_NODE) return node.tagName === "BR" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
         const parent = node.parentElement;
         if (!parent || SKIPPED.has(parent.tagName) || !visible(parent) || !drawn(node)) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
@@ -29,7 +33,20 @@
     });
     const parts = [];
     const map = [];
+    let block = null;
+    let broken = false;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        broken = true;
+        continue;
+      }
+      const here = blockOf(node.parentElement);
+      if (parts.length && (broken || here !== block)) {
+        parts.push("\n");
+        map.push(map[map.length - 1]);
+      }
+      block = here;
+      broken = false;
       const text = node.data;
       let offset = 0;
       for (const ch of text) {
@@ -52,6 +69,20 @@
       seen.set(element, !element.closest("[data-visor-skip]") && (!element.checkVisibility || element.checkVisibility()));
     }
     return seen.get(element);
+  }
+
+  // The nearest ancestor laid out as a block, table cell, list item…: text
+  // in the same one reads as one run.
+  const blocks = new Map();
+  function blockOf(element) {
+    let block = blocks.get(element);
+    if (block === undefined) {
+      const display = getComputedStyle(element).display;
+      const inline = display === "inline" || display === "contents";
+      block = inline && element.parentElement ? blockOf(element.parentElement) : element;
+      blocks.set(element, block);
+    }
+    return block;
   }
 
   // checkVisibility() says yes to text placed straight in a closed <details>;
@@ -131,6 +162,7 @@
     // Searches the whole page for `text` and shows the first match.
     search(text, matchCase, wholeWord) {
       seen.clear();
+      blocks.clear();
       const folded = foldWithMap(document.body, !!matchCase);
       const needle = matchCase ? text : foldChar(text);
       const hits = findAll(folded.text, needle, !!wholeWord);
