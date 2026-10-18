@@ -27,6 +27,11 @@
       else if (step < 0) app.zoomOut();
       else app.zoomReset();
     },
+    // Ctrl+F, sent by Rust: opens PDF.js's own find bar (app.findBar, made when the viewer starts).
+    find() {
+      if (!app?.findBar) return;
+      app.findBar.open();
+    },
   };
 
   const failed = () => {

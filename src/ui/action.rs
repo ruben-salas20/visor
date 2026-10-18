@@ -128,4 +128,8 @@ pub enum Action {
     Settings,
     /// Shows or hides the list of keyboard shortcuts.
     Shortcuts,
+    /// Ctrl+F: the page's own search (PDF, note editor) or the native find bar.
+    Find,
+    /// Ctrl+F found no search of the page's own: opens the native find bar on the focused side.
+    FindNative,
 }

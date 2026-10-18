@@ -7,10 +7,33 @@
     history, defaultKeymap, historyKeymap, insertTab,
     Language, defineLanguageFacet, languageDataProp, syntaxTree, syntaxHighlighting, HighlightStyle,
     parser, GFM, tags: t,
+    search, searchKeymap, openSearchPanel,
   } = window.CM;
   const config = window.__visorNoteConfig;
   // Helper named tx: "tr" is already a local name in this file.
   const tx = (es, en) => (config.lang === "en" ? en : es);
+
+  // Texts of the search panel (Ctrl+F in the editor), by CodeMirror's own keys.
+  const searchPhrases = EditorState.phrases.of({
+    "Find": tx("Buscar", "Find"),
+    "Replace": tx("Reemplazar", "Replace"),
+    "next": tx("siguiente", "next"),
+    "previous": tx("anterior", "previous"),
+    "all": tx("todas", "all"),
+    "match case": tx("mayúsculas", "match case"),
+    "by word": tx("palabra completa", "by word"),
+    "regexp": tx("expresión regular", "regexp"),
+    "replace": tx("reemplazar", "replace"),
+    "replace all": tx("reemplazar todas", "replace all"),
+    "close": tx("cerrar", "close"),
+    "current match": tx("coincidencia actual", "current match"),
+    "on line": tx("en la línea", "on line"),
+    "replaced match on line $": tx("Reemplazada la coincidencia de la línea $", "Replaced match on line $"),
+    "replaced $ matches": tx("Reemplazadas $ coincidencias", "Replaced $ matches"),
+    // Alt+G, from searchKeymap.
+    "Go to line": tx("Ir a la línea", "Go to line"),
+    "go": tx("ir", "go"),
+  });
 
   // ---------- Markdown: GFM plus what pulldown-cmark reads in visor ----------
 
@@ -900,7 +923,9 @@
               { key: "ArrowDown", run: intoBlock(true) },
               { key: "ArrowUp", run: intoBlock(false) },
             ])),
-            keymap.of([...defaultKeymap, ...historyKeymap]),
+            keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+            search({ top: true }),
+            searchPhrases,
             markdown,
             syntaxHighlighting(highlight),
             blockField,
@@ -933,6 +958,8 @@
       return {
         text: () => doc().toString(),
         focus: () => view.focus(),
+        // Ctrl+F: opens the search panel; with one line selected, it starts from that text.
+        find: () => openSearchPanel(view),
         get scrollTop() { return view.scrollDOM.scrollTop; },
         atEnd() {
           const end = doc().length;

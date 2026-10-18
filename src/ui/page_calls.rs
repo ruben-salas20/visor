@@ -36,6 +36,16 @@ pub fn pdf_zoom(step: i8) -> String {
     format!("window.__visorPdf && window.__visorPdf.zoom({step})")
 }
 
+/// Ctrl+F in a PDF: PDF.js has its own find bar.
+pub fn pdf_find() -> &'static str {
+    "window.__visorPdf && window.__visorPdf.find()"
+}
+
+/// Ctrl+F: true when the note's editor is open and showed its own search.
+pub fn note_find() -> &'static str {
+    "!!(window.__visorNote && window.__visorNote.find && window.__visorNote.find())"
+}
+
 /// Ctrl+E: opens or closes the editor of a note or a drawing.
 pub fn note_toggle() -> &'static str {
     "(window.__visorNote || window.__visorDrawing)?.toggle()"

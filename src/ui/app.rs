@@ -5,6 +5,7 @@ use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, Size
 use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
 use crate::ui::address::{self, Engine, Plan};
 use crate::ui::bar::Bar;
+use crate::ui::find;
 use crate::vault::config::{Config, PaneState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
@@ -270,6 +271,7 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if ctrl && digit > 0 => Action::SelectNth(digit),
             _ if ctrl && k == key::comma => Action::Settings,
             _ if ctrl && k == key::k && !in_drawing.get() => Action::Shortcuts,
+            _ if ctrl && !shift && k == key::f && !in_drawing.get() => Action::Find,
             _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
             _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
             _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
@@ -406,6 +408,35 @@ impl App {
         self.views.iter().find(|(id, _)| *id == view).map(|(_, v)| v)
     }
 
+    /// Opens the native find bar on the focused side, over its active page.
+    fn open_find(&self) {
+        let Some(id) = self.tabs.focused_view() else { return };
+        let Some(view) = self.view_of(id) else { return };
+        self.pane().find().open(id, &view.webview());
+    }
+
+    /// Ctrl+F in a page that is not a PDF: the note editor's own search if it
+    /// has one, else the native bar. The answer comes back later, as an event.
+    fn ask_note_find(&self) {
+        let Some(view) = self.view() else { return };
+        let proxy = self.proxy.clone();
+        let asked = view.evaluate_script_with_callback(page_calls::note_find(), move |answer| {
+            if find::native_wanted(&answer) {
+                let _ = proxy.send_event(UserEvent::Action(Action::FindNative));
+            }
+        });
+        if asked.is_err() {
+            self.open_find();
+        }
+    }
+
+    /// A search that moves away from a view ends first: its matches must not stay highlighted.
+    fn find_forget_all(&self, view: u64) {
+        for pane in &self.panes {
+            pane.find_forget(view);
+        }
+    }
+
     /// Shows the vault list and the tree of the current vault in the sidebar.
     fn show_sidebar(&self) {
         let vault = self.vault();
@@ -522,12 +553,14 @@ impl App {
                     }
                 }
                 Effect::Unload { view } => {
+                    self.find_forget_all(view);
                     self.views.retain(|(id, _)| *id != view);
                     self.documents.remove(&view);
                     self.shared.lock().unwrap().pages.remove(&view);
                 }
                 Effect::MoveView { view, from, to } => {
                     // Views move to the other side's container; WebKit keeps the page loaded.
+                    self.find_forget_all(view);
                     if let Some(v) = self.view_of(view) {
                         let widget = v.webview();
                         self.panes[from].views().remove(&widget);
@@ -553,6 +586,7 @@ impl App {
                     }
                 }
                 Effect::Show { side } => {
+                    self.panes[side].find_close();
                     self.show_active(side);
                     self.panes[side].bar().set_text(self.tabs.side(side).tab().target());
                     self.update_nav(side);
@@ -1124,6 +1158,18 @@ impl App {
             Action::CheckUpdates => self.check_updates(),
             Action::Restart => self.ask_restart(),
             Action::Shortcuts => self.shortcuts.toggle(),
+            Action::Find => {
+                if self.pane().find_open() {
+                    self.pane().find().focus_text();
+                } else if let Some(id) = self.tabs.focused_view() {
+                    if self.is_pdf_view(id) {
+                        self.eval(page_calls::pdf_find());
+                    } else {
+                        self.ask_note_find();
+                    }
+                }
+            }
+            Action::FindNative => self.open_find(),
             Action::Settings => {
                 let side = self.sidebar.root.clone();
                 if !side.is_visible() {

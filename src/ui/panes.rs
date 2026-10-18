@@ -1,11 +1,12 @@
 use crate::i18n::tr;
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::bar::Bar;
+use crate::ui::find::FindBar;
 use crate::ui::icons::{draw_back, draw_close, draw_forward, draw_list, draw_plus, draw_reload, draw_target, drawn_icon, icon_button};
 use crate::ui::tabs::Side;
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
 use tao::event_loop::EventLoopProxy;
 
@@ -23,6 +24,10 @@ pub struct Pane {
     annot_tools: gtk::Box,
     bar: Bar,
     views: gtk::Box,
+    /// Floats over the pages: the find bar, and the drop zone below.
+    overlay: gtk::Overlay,
+    /// Made on the first Ctrl+F in this side, then only shown and hidden.
+    find: OnceCell<FindBar>,
     /// Covers the pages while a file is dragged from the sidebar and says
     /// which zone is under the pointer: one half of the side, or all of it.
     /// It paints nothing; the page draws the mark (see App::frost).
@@ -89,7 +94,32 @@ impl Pane {
         views.show();
         overlay.show();
         root.show();
-        Pane { id, root, strip, back, forward, tab_list, annot_tools, bar, views, drop, whole, proxy: proxy.clone() }
+        Pane { id, root, strip, back, forward, tab_list, annot_tools, bar, views, overlay, find: OnceCell::new(), drop, whole, proxy: proxy.clone() }
+    }
+
+    /// This side's find bar, made the first time it is asked for.
+    pub fn find(&self) -> &FindBar {
+        self.find.get_or_init(|| FindBar::new(&self.overlay))
+    }
+
+    /// Whether this side's find bar is shown.
+    pub fn find_open(&self) -> bool {
+        self.find.get().is_some_and(|f| f.is_open())
+    }
+
+    /// Hides this side's find bar as its page changes. The keyboard stays
+    /// where it is: the old page may be hidden, and Ctrl+T wants the address bar.
+    pub fn find_close(&self) {
+        if let Some(f) = self.find.get().filter(|f| f.is_open()) {
+            f.close(false);
+        }
+    }
+
+    /// Ends this side's search if it is on `view`, which is about to be unloaded or moved.
+    pub fn find_forget(&self, view: u64) {
+        if let Some(f) = self.find.get() {
+            f.forget(view);
+        }
     }
 
     /// Shows or hides the drop zone. `whole`: a drop takes the side, not a half.

@@ -7,3 +7,4 @@ export { history, defaultKeymap, historyKeymap, insertTab } from "@codemirror/co
 export { Language, defineLanguageFacet, languageDataProp, syntaxTree, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 export { parser, GFM } from "@lezer/markdown";
 export { tags, styleTags } from "@lezer/highlight";
+export { search, searchKeymap, openSearchPanel } from "@codemirror/search";
