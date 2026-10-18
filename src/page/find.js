@@ -99,12 +99,12 @@
 
   // Positions in the folded text where `needle` starts and ends a whole word.
   // Both sides are checked here; WebKit's own option, used on websites, only
-  // checks the start.
+  // checks the start. One past the limit is looked for, to know there are more.
   function findAll(haystack, needle, wholeWord) {
     const found = [];
     if (needle === "") return found;
     let at = haystack.indexOf(needle);
-    while (at !== -1 && found.length < MAX_MATCHES) {
+    while (at !== -1 && found.length <= MAX_MATCHES) {
       const end = at + needle.length;
       if (!wholeWord || (!isWordChar(haystack[at - 1]) && !isWordChar(haystack[end]))) {
         found.push([at, end]);
@@ -114,7 +114,7 @@
     return found;
   }
 
-  const state = { ranges: [], current: 0 };
+  const state = { ranges: [], current: 0, more: false };
 
   function rangeFor(folded, [start, end]) {
     const first = folded.map[start];
@@ -144,7 +144,7 @@
   }
 
   function result() {
-    return { current: state.ranges.length ? state.current : 0, total: state.ranges.length };
+    return { current: state.ranges.length ? state.current : 0, total: state.ranges.length, more: state.more };
   }
 
   // The highlight colours are set here, not in the page CSS, so the pages that
@@ -166,6 +166,8 @@
       const folded = foldWithMap(document.body, !!matchCase);
       const needle = matchCase ? text : foldChar(text);
       const hits = findAll(folded.text, needle, !!wholeWord);
+      state.more = hits.length > MAX_MATCHES;
+      hits.length = Math.min(hits.length, MAX_MATCHES);
       state.ranges = hits.map((hit) => rangeFor(folded, hit));
       // From where the person is reading, not from the top of the page.
       const below = state.ranges.findIndex((range) => range.getBoundingClientRect().bottom >= 0);
@@ -191,6 +193,7 @@
     clear() {
       state.ranges = [];
       state.current = 0;
+      state.more = false;
       if ("highlights" in CSS) {
         CSS.highlights.delete("visor-find");
         CSS.highlights.delete("visor-find-current");

@@ -93,7 +93,7 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 Las páginas sin diagramas no cambian: sus diferencias están dentro del ruido entre rondas.
 
-2026-10-18, #38 (buscar en la página con Ctrl+F), mismas condiciones. Tres rondas alternadas con el binario de `main` (`667daff`). Ninguna medida cambia: las dos primeras rondas dieron +10–18 MB con `ondas.md` y el PDF, y la tercera, −1–2 MB; la nota mínima y el HTML suelto se movieron en sentido contrario. Ese día, las dos versiones daban en las mismas páginas tiempos por encima de la tabla de arriba (`ondas.md`, 419–467 ms): no compares estas cifras con ella. Coste: el binario pasa de 5 209 632 a 5 242 928 bytes (+33 KB) y el paquete de CodeMirror, +6,5 KB con brotli (ADR 0028).
+2026-10-18, #38 (buscar en la página con Ctrl+F), mismas condiciones. Tres rondas alternadas con el binario de `main` (`667daff`). Ninguna medida cambia: las dos primeras rondas dieron +10–18 MB con `ondas.md` y el PDF, y la tercera, −1–2 MB; la nota mínima y el HTML suelto se movieron en sentido contrario. Ese día, las dos versiones daban en las mismas páginas tiempos por encima de la tabla de arriba (`ondas.md`, 419–467 ms): no compares estas cifras con ella. Coste: el binario pasa de 5 209 632 a 5 243 840 bytes (+34 KB) y el paquete de CodeMirror, +6,6 KB con brotli (ADR 0028).
 
 ### En Hyprland
 

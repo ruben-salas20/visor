@@ -27,3 +27,23 @@ test("punctuation is escaped", () => {
 test("decomposed input is composed first", () => {
   assert.equal(accentPattern("ü"), accentPattern("ü"));
 });
+
+test("letters beyond Spanish lose their marks too, as in the reading view", () => {
+  assert.ok(find("dvorak", "Dvořák"));
+  assert.ok(find("sao paulo", "São Paulo"));
+  assert.ok(!find("lodz", "Łódź")); // «Ł» has no mark to lose, in either search
+  assert.ok(find("odz", "Łódź"));
+  assert.ok(find("αθηνα", "Αθήνα"));
+});
+
+test("text that keeps the letter and its mark apart is found", () => {
+  assert.ok(find("arbol", "árbol"));
+  assert.ok(find("árbol", "árbol"));
+});
+
+test("\\n, \\t and \\\\ name the character, as CodeMirror's plain search does", () => {
+  assert.ok(find("uno\\ndos", "uno\ndos"));
+  assert.ok(!find("uno\\ndos", "uno\\ndos"));
+  assert.ok(find("a\\tb", "a\tb"));
+  assert.ok(find("a\\\\b", "a\\b"));
+});

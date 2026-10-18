@@ -12,4 +12,4 @@
 
 Paquete con brotli (2026-10-09): 89 406 bytes con esos dos exports, 89 455 sin ellos.
 
-Con `@codemirror/search` y la búsqueda sin tildes (#38, 2026-10-18): 95 902 bytes, +6 496.
+Con `@codemirror/search` y la búsqueda sin tildes (#38, 2026-10-18): 96 032 bytes, +6 626.

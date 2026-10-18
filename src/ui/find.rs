@@ -17,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use webkit2gtk::{FindController, FindControllerExt, FindOptions, WebView, WebViewExt};
 
-/// WebKit stops counting here, so a page with more matches shows this many.
+/// WebKit and `find.js` stop counting here: past it, the counter says "more than".
 const MAX_MATCHES: u32 = 1000;
 
 /// Whether the answer of `note_find` asks for the native bar. Anything but
@@ -35,12 +35,13 @@ pub enum Engine {
     WebKit,
 }
 
-/// Reads the page's answer, `{"current": n, "total": n}`. Anything else, such
-/// as an error or a page that no longer runs the search, counts as no matches.
-pub fn parse_answer(raw: &str) -> (u32, u32) {
-    let Ok(value) = serde_json::from_str::<Value>(raw) else { return (0, 0) };
+/// Reads the page's answer, `{"current": n, "total": n, "more": bool}`; `more`
+/// says the search stopped at its limit. Anything else, such as an error or a
+/// page that no longer runs the search, counts as no matches.
+pub fn parse_answer(raw: &str) -> (u32, u32, bool) {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else { return (0, 0, false) };
     let field = |name: &str| value[name].as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
-    (field("current"), field("total"))
+    (field("current"), field("total"), value["more"].as_bool().unwrap_or(false))
 }
 
 /// The match shown after one step from `current` (1-based, 0 for none),
@@ -57,13 +58,16 @@ pub fn step(current: u32, total: u32, forward: bool) -> u32 {
     }
 }
 
-/// The counter next to the entry: "3 de 12", or "Sin resultados".
-pub fn counter(current: u32, total: u32, lang: Lang) -> String {
-    match (total, lang) {
-        (0, Lang::Es) => "Sin resultados".into(),
-        (0, Lang::En) => "No results".into(),
-        (total, Lang::Es) => format!("{current} de {total}"),
-        (total, Lang::En) => format!("{current} of {total}"),
+/// The counter next to the entry: "3 de 12", "3 de más de 1000" (`more`:
+/// the search stopped at `total`), or "Sin resultados".
+pub fn counter(current: u32, total: u32, more: bool, lang: Lang) -> String {
+    match (total, more, lang) {
+        (0, _, Lang::Es) => "Sin resultados".into(),
+        (0, _, Lang::En) => "No results".into(),
+        (total, false, Lang::Es) => format!("{current} de {total}"),
+        (total, false, Lang::En) => format!("{current} of {total}"),
+        (total, true, Lang::Es) => format!("{current} de más de {total}"),
+        (total, true, Lang::En) => format!("{current} of more than {total}"),
     }
 }
 
@@ -94,6 +98,8 @@ struct Inner {
     /// The match shown, 1-based; 0 when there is none.
     current: Cell<u32>,
     total: Cell<u32>,
+    /// The search stopped at `MAX_MATCHES`: there are more than `total`.
+    more: Cell<bool>,
     /// Numbers the page's requests. An answer is used only if no newer request
     /// was made, and `close`/`detach` make every pending answer stale.
     request: Cell<u64>,
@@ -169,6 +175,7 @@ impl FindBar {
             whole_word,
             current: Cell::new(0),
             total: Cell::new(0),
+            more: Cell::new(false),
             request: Cell::new(0),
             searched: RefCell::new(None),
         }));
@@ -234,6 +241,7 @@ impl FindBar {
         }
         self.0.current.set(0);
         self.0.total.set(0);
+        self.0.more.set(false);
         self.0.frame.hide();
     }
 
@@ -260,12 +268,15 @@ impl FindBar {
         let Some(controller) = web.find_controller() else { return false };
         let b = self.clone();
         let found = controller.connect_found_text(move |_, n| {
-            b.0.total.set(n);
+            // Past the limit WebKit gives a count above it (G_MAXUINT), not the limit.
+            b.0.total.set(n.min(MAX_MATCHES));
+            b.0.more.set(n > MAX_MATCHES);
             b.refresh();
         });
         let b = self.clone();
         let missed = controller.connect_failed_to_find_text(move |_| {
             b.0.total.set(0);
+            b.0.more.set(false);
             b.0.current.set(0);
             b.refresh();
         });
@@ -292,6 +303,7 @@ impl FindBar {
         }
         self.0.current.set(0);
         self.0.total.set(0);
+        self.0.more.set(false);
     }
 
     /// Makes every answer still on its way stale.
@@ -322,12 +334,14 @@ impl FindBar {
             controller.search_finish();
             inner.current.set(0);
             inner.total.set(0);
+            inner.more.set(false);
             return;
         }
         match step_to {
             None => {
                 inner.current.set(1);
                 inner.total.set(0);
+                inner.more.set(false);
                 let flags = options(inner.match_case.is_active(), inner.whole_word.is_active());
                 controller.search(text, flags.bits(), MAX_MATCHES);
             }
@@ -350,6 +364,7 @@ impl FindBar {
             evaluate(&s.web, &page_calls::find_clear(), |_| {});
             inner.current.set(0);
             inner.total.set(0);
+            inner.more.set(false);
             return;
         }
         let request = inner.request.get();
@@ -362,9 +377,10 @@ impl FindBar {
             if b.0.request.get() != request {
                 return;
             }
-            let (current, total) = answer.map(|raw| parse_answer(&raw)).unwrap_or((0, 0));
+            let (current, total, more) = answer.map(|raw| parse_answer(&raw)).unwrap_or((0, 0, false));
             b.0.current.set(current);
             b.0.total.set(total);
+            b.0.more.set(more);
             b.refresh();
         });
     }
@@ -374,7 +390,7 @@ impl FindBar {
         let text = if inner.entry.text().is_empty() {
             String::new()
         } else {
-            counter(inner.current.get(), inner.total.get(), lang())
+            counter(inner.current.get(), inner.total.get(), inner.more.get(), lang())
         };
         inner.count.set_text(&text);
     }
@@ -386,10 +402,12 @@ mod tests {
 
     #[test]
     fn counter_names_the_match_and_the_total() {
-        assert_eq!(counter(3, 12, Lang::Es), "3 de 12");
-        assert_eq!(counter(3, 12, Lang::En), "3 of 12");
-        assert_eq!(counter(0, 0, Lang::Es), "Sin resultados");
-        assert_eq!(counter(0, 0, Lang::En), "No results");
+        assert_eq!(counter(3, 12, false, Lang::Es), "3 de 12");
+        assert_eq!(counter(3, 12, false, Lang::En), "3 of 12");
+        assert_eq!(counter(0, 0, false, Lang::Es), "Sin resultados");
+        assert_eq!(counter(0, 0, false, Lang::En), "No results");
+        assert_eq!(counter(3, 1000, true, Lang::Es), "3 de más de 1000");
+        assert_eq!(counter(3, 1000, true, Lang::En), "3 of more than 1000");
     }
 
     #[test]
@@ -423,15 +441,16 @@ mod tests {
 
     #[test]
     fn the_page_answer_gives_current_and_total() {
-        assert_eq!(parse_answer(r#"{"current":2,"total":5}"#), (2, 5));
-        assert_eq!(parse_answer(r#"{"current":0,"total":0}"#), (0, 0));
+        assert_eq!(parse_answer(r#"{"current":2,"total":5,"more":false}"#), (2, 5, false));
+        assert_eq!(parse_answer(r#"{"current":0,"total":0}"#), (0, 0, false));
+        assert_eq!(parse_answer(r#"{"current":7,"total":1000,"more":true}"#), (7, 1000, true));
     }
 
     #[test]
     fn a_damaged_answer_counts_as_no_matches() {
-        assert_eq!(parse_answer(""), (0, 0));
-        assert_eq!(parse_answer("null"), (0, 0));
-        assert_eq!(parse_answer(r#"{"total":"3"}"#), (0, 0));
-        assert_eq!(parse_answer(r#"{"current":1,"total":-4}"#), (1, 0));
+        assert_eq!(parse_answer(""), (0, 0, false));
+        assert_eq!(parse_answer("null"), (0, 0, false));
+        assert_eq!(parse_answer(r#"{"total":"3"}"#), (0, 0, false));
+        assert_eq!(parse_answer(r#"{"current":1,"total":-4}"#), (1, 0, false));
     }
 }
