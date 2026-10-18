@@ -275,8 +275,8 @@
   // ---------- widgets ----------
 
   // No widget may draw a replaced element (<img>, <input>, <canvas>…) inside the
-  // editable, nor an element whose role WebKit treats as a leaf (role="img":
-  // role="figure" is fine): WebKitGTK 2.54 aborts the web process when a
+  // editable, nor an element whose role WebKit treats as a leaf (role="img", a
+  // <button>: role="figure" is fine): WebKitGTK 2.54 aborts the web process when a
   // selection lands at the end of the contenteditable while an AT-SPI client
   // watches (WebKit bug 279313). The DOM range counts the element as one
   // character (U+FFFC) that the accessible text omits, so the caret offset lands
@@ -355,7 +355,9 @@
       const el = document.createElement("div");
       el.className = "md-mermaid";
       el.addEventListener("mousedown", (e) => reveal(view, el, e));
-      handles.set(el, window.__visorNote.diagram(el, this.source, { onRender: () => view.requestMeasure() }));
+      // No zoom: its controls are <button>s, which abort the web process inside
+      // the editable like a replaced element (see the note above the widgets).
+      handles.set(el, window.__visorNote.diagram(el, this.source, { zoom: false, onRender: () => view.requestMeasure() }));
       return el;
     }
     destroy(dom) {

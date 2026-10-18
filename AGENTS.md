@@ -14,7 +14,7 @@ Solo lo que el código no dice por sí mismo.
 - `src/vault/drawing.rs` y `src/page/drawing*.js`: dibujos de Excalidraw (`assets/excalidraw/`, solo en sus páginas). El formato de `.excalidraw.md` está en `page/drawing-format.js`, sin DOM: pruebas con `node --test tools/excalidraw/test/drawing-format.test.mjs`. `drawing::accepts` impide que un texto sin forma de dibujo sustituya al archivo.
 - `src/agent/command.rs`: cada orden se define una vez (`Command`); CLI, socket y MCP salen de ahí (esquemas MCP en `command/tools.rs`). Una orden nueva se añade solo allí y en `help.txt`.
 - `src/http.rs`: sirve la bóveda, `assets/` y las carpetas de los HTML sueltos. `src/paths.rs`: socket, configuración, registro de eventos. `agent/socket.rs`: una sola instancia posee el socket (bloqueo de archivo).
-- `src/page/`: JavaScript y CSS de las páginas. `editor.js/css` solo se carga al editar. Dentro del `contenteditable` del editor no puede haber elementos reemplazados (`<img>`, `<input>`, `<math>`) ni con rol hoja (`role="img"`): con un cliente AT-SPI escuchando, WebKit aborta (ADR 0038).
+- `src/page/`: JavaScript y CSS de las páginas. `editor.js/css` solo se carga al editar. Dentro del `contenteditable` del editor no puede haber elementos reemplazados (`<img>`, `<input>`, `<math>`) ni con rol hoja (`role="img"`, `<button>`): con un cliente AT-SPI escuchando, WebKit aborta (ADR 0038).
 - `build.rs`: comprime con brotli `assets/` y `editor.js/css`. CodeMirror se regenera en `tools/codemirror/` (ADR 0028). Medidas: `tools/medir/medir.py`.
 
 ## Reglas
