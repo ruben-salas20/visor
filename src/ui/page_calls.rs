@@ -36,6 +36,41 @@ pub fn pdf_zoom(step: i8) -> String {
     format!("window.__visorPdf && window.__visorPdf.zoom({step})")
 }
 
+/// Ctrl+F in a PDF: PDF.js has its own find bar.
+pub fn pdf_find() -> &'static str {
+    "window.__visorPdf && window.__visorPdf.find()"
+}
+
+/// Ctrl+F: true when the note's editor is open and showed its own search.
+pub fn note_find() -> &'static str {
+    "!!(window.__visorNote && window.__visorNote.find && window.__visorNote.find())"
+}
+
+/// The page's own search (`find.js`), for the pages of the vault and loose
+/// files. Every call carries the script; it only runs the first time, when
+/// `window.__visorFind` is not there yet.
+const FIND: &str = include_str!("../page/find.js");
+
+fn find_call(call: &str) -> String {
+    format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return JSON.stringify(window.__visorFind.{call}); }})()")
+}
+
+/// Searches the page for `text` and shows its first match. The answer is the
+/// JSON `{current, total}` that `find::parse_answer` reads.
+pub fn find_search(text: &str, match_case: bool, whole_word: bool) -> String {
+    find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)))
+}
+
+/// Shows the next match (`forward`) or the previous one, wrapping around.
+pub fn find_step(forward: bool) -> String {
+    find_call(if forward { "next()" } else { "previous()" })
+}
+
+/// Removes the highlights of the page's search.
+pub fn find_clear() -> String {
+    find_call("clear()")
+}
+
 /// Ctrl+E: opens or closes the editor of a note or a drawing.
 pub fn note_toggle() -> &'static str {
     "(window.__visorNote || window.__visorDrawing)?.toggle()"
@@ -179,6 +214,20 @@ mod tests {
             r#"window.__visorNote && window.__visorNote.saved(false, "no \"se\" pudo")"#
         );
         assert_eq!(note_saved(true, ""), r#"window.__visorNote && window.__visorNote.saved(true, "")"#);
+    }
+
+    #[test]
+    fn find_search_quotes_the_text_and_loads_the_script_once() {
+        let call = find_search(r#"a "b""#, true, false);
+        assert!(call.starts_with("(() => { if (!window.__visorFind) {"));
+        assert!(call.ends_with(r#"return JSON.stringify(window.__visorFind.search("a \"b\"", true, false)); })()"#));
+    }
+
+    #[test]
+    fn find_step_and_clear_name_the_call() {
+        assert!(find_step(true).ends_with("window.__visorFind.next()); })()"));
+        assert!(find_step(false).ends_with("window.__visorFind.previous()); })()"));
+        assert!(find_clear().ends_with("window.__visorFind.clear()); })()"));
     }
 
     #[test]

@@ -7,10 +7,114 @@
     history, defaultKeymap, historyKeymap, insertTab,
     Language, defineLanguageFacet, languageDataProp, syntaxTree, syntaxHighlighting, HighlightStyle,
     parser, GFM, tags: t,
+    search, searchKeymap, openSearchPanel, closeSearchPanel, findNext, findPrevious, replaceNext, replaceAll,
+    selectMatches, getSearchQuery, setSearchQuery, SearchQuery, runScopeHandlers, accentPattern,
   } = window.CM;
   const config = window.__visorNoteConfig;
   // Helper named tx: "tr" is already a local name in this file.
   const tx = (es, en) => (config.lang === "en" ? en : es);
+
+  // Texts of the search panel (Ctrl+F in the editor), by CodeMirror's own keys.
+  const searchPhrases = EditorState.phrases.of({
+    "Find": tx("Buscar", "Find"),
+    "Replace": tx("Reemplazar", "Replace"),
+    "next": tx("siguiente", "next"),
+    "previous": tx("anterior", "previous"),
+    "all": tx("todas", "all"),
+    "match case": tx("mayúsculas", "match case"),
+    "by word": tx("palabra completa", "by word"),
+    "regexp": tx("expresión regular", "regexp"),
+    "replace": tx("reemplazar", "replace"),
+    "replace all": tx("reemplazar todas", "replace all"),
+    "close": tx("cerrar", "close"),
+    "current match": tx("coincidencia actual", "current match"),
+    "on line": tx("en la línea", "on line"),
+    "replaced match on line $": tx("Reemplazada la coincidencia de la línea $", "Replaced match on line $"),
+    "replaced $ matches": tx("Reemplazadas $ coincidencias", "Replaced $ matches"),
+    // Alt+G, from searchKeymap.
+    "Go to line": tx("Ir a la línea", "Go to line"),
+    "go": tx("ir", "go"),
+  });
+
+  // Ctrl+F panel. Without «mayúsculas» or «expresión regular», it sends a
+  // regexp that also accepts accents; the field keeps the text as typed.
+  const typedBy = new WeakMap(); // query sent → { search, replace } as typed
+  const choices = new WeakMap(); // view → the checkboxes and replacement last used
+
+  const make = (tag, attrs, ...kids) => {
+    const node = document.createElement(tag);
+    // Properties where the element has them, attributes for the rest (class, main-field).
+    for (const [k, v] of Object.entries(attrs || {})) (k in node ? (node[k] = v) : node.setAttribute(k, v));
+    node.append(...kids);
+    return node;
+  };
+
+  class FindPanel {
+    constructor(view) {
+      this.view = view;
+      this.top = true;
+      this.pos = 80;
+      this.query = getSearchQuery(view.state);
+      const kept = choices.get(view) || {};
+      const phrase = (key) => view.state.phrase(key);
+      const edit = () => this.commit();
+      this.field = make("input", { class: "cm-textfield", name: "search", "main-field": "true", placeholder: phrase("Find"), "aria-label": phrase("Find"), value: (typedBy.get(this.query) || this.query).search, onchange: edit, onkeyup: edit });
+      this.replaceField = make("input", { class: "cm-textfield", name: "replace", placeholder: phrase("Replace"), "aria-label": phrase("Replace"), value: kept.replace || "", onchange: edit, onkeyup: edit });
+      const box = (name, checked) => make("input", { type: "checkbox", name, checked: !!checked, onchange: edit });
+      this.caseField = box("case", kept.caseSensitive);
+      this.reField = box("re", kept.regexp);
+      this.wordField = box("word", kept.wholeWord);
+      const button = (name, onclick, text) => make("button", { class: "cm-button", name, onclick, type: "button" }, text);
+      this.dom = make("div", { class: "cm-search", onkeydown: (e) => this.keydown(e) },
+        this.field,
+        button("next", () => findNext(view), phrase("next")),
+        button("prev", () => findPrevious(view), phrase("previous")),
+        button("select", () => selectMatches(view), phrase("all")),
+        make("label", null, this.caseField, phrase("match case")),
+        make("label", null, this.reField, phrase("regexp")),
+        make("label", null, this.wordField, phrase("by word")),
+        ...(view.state.readOnly ? [] : [
+          make("br"),
+          this.replaceField,
+          button("replace", () => replaceNext(view), phrase("replace")),
+          button("replaceAll", () => replaceAll(view), phrase("replace all")),
+        ]),
+        make("button", { name: "close", onclick: () => closeSearchPanel(view), "aria-label": phrase("close"), type: "button" }, "×"));
+      // A query set by openSearchPanel (from a selection) has not been translated yet.
+      if (!typedBy.has(this.query)) queueMicrotask(() => this.commit());
+    }
+    mount() { this.field.select(); }
+    update(update) {
+      for (const tr of update.transactions) for (const effect of tr.effects) {
+        if (effect.is(setSearchQuery) && effect.value !== this.query && !effect.value.eq(this.query)) {
+          this.query = effect.value;
+          this.field.value = (typedBy.get(effect.value) || effect.value).search;
+          queueMicrotask(() => this.commit());
+        }
+      }
+    }
+    commit() {
+      const own = { search: this.field.value, regexp: this.reField.checked, caseSensitive: this.caseField.checked, wholeWord: this.wordField.checked, replace: this.replaceField.value };
+      choices.set(this.view, own);
+      const plain = !own.regexp && !own.caseSensitive;
+      const query = new SearchQuery({
+        ...own,
+        search: plain ? accentPattern(own.search) : own.search,
+        regexp: own.regexp || plain,
+        // In a regexp «$» names a group: escaped, the replacement keeps it literal.
+        replace: plain ? own.replace.replace(/\$/g, "$$$$") : own.replace,
+      });
+      if (query.eq(this.query)) return;
+      typedBy.set(query, { search: own.search, replace: own.replace });
+      this.query = query;
+      this.view.dispatch({ effects: setSearchQuery.of(query) });
+    }
+    keydown(e) {
+      if (runScopeHandlers(this.view, e, "search-panel")) e.preventDefault();
+      else if (e.key === "Enter" && e.target === this.field) { e.preventDefault(); (e.shiftKey ? findPrevious : findNext)(this.view); }
+      else if (e.key === "Enter" && e.target === this.replaceField) { e.preventDefault(); replaceNext(this.view); }
+    }
+  }
 
   // ---------- Markdown: GFM plus what pulldown-cmark reads in visor ----------
 
@@ -925,7 +1029,9 @@
               { key: "ArrowDown", run: intoBlock(true) },
               { key: "ArrowUp", run: intoBlock(false) },
             ])),
-            keymap.of([...defaultKeymap, ...historyKeymap]),
+            keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+            search({ top: true, createPanel: (view) => new FindPanel(view) }),
+            searchPhrases,
             markdown,
             syntaxHighlighting(highlight),
             blockField,
@@ -958,6 +1064,8 @@
       return {
         text: () => doc().toString(),
         focus: () => view.focus(),
+        // Ctrl+F: opens the search panel; with one line selected, it starts from that text.
+        find: () => openSearchPanel(view),
         get scrollTop() { return view.scrollDOM.scrollTop; },
         atEnd() {
           const end = doc().length;

@@ -12,4 +12,8 @@ El build es `build.mjs`, que llama a esbuild con un plugin que parchea `@codemir
 
 ## Cifras
 
-Paquete con brotli: 89 406 bytes el 2026-10-09 con esos dos exports (89 455 sin ellos); 89 382 el 2026-10-18 con el buffer parcheado (ADR 0038).
+Paquete con brotli (2026-10-09): 89 406 bytes con esos dos exports, 89 455 sin ellos.
+
+Con `@codemirror/search` y la búsqueda sin tildes (#38, 2026-10-18): 96 032 bytes, +6 626.
+
+Con el buffer de widget parcheado (ADR 0038, 2026-10-18): 89 382 bytes antes de la búsqueda; 96 073 con ella, +41 sobre los 96 032 sin el parche.

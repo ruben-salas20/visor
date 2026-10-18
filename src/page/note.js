@@ -264,6 +264,12 @@
     get editing() { return editing; },
     // Text the user typed that is not saved yet, or a save still on its way.
     get unsaved() { return dirty || sent.length > 0; },
+    // Ctrl+F, sent by Rust: the editor has its own search; reading uses visor's bar.
+    find() {
+      if (!editing || !ed) return false;
+      ed.find();
+      return true;
+    },
     createFailed(error) {
       notify(tr(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`, `Could not create the note. ${/[.!?]$/.test(error) ? error : error + "."}`));
     },
