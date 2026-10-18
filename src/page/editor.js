@@ -274,6 +274,16 @@
 
   // ---------- widgets ----------
 
+  // No widget may draw a replaced element (<img>, <input>, <canvas>…) inside the
+  // editable, nor an element whose role WebKit treats as a leaf (role="img":
+  // role="figure" is fine): WebKitGTK 2.54 aborts the web process when a
+  // selection lands at the end of the contenteditable while an AT-SPI client
+  // watches (WebKit bug 279313). The DOM range counts the element as one
+  // character (U+FFFC) that the accessible text omits, so the caret offset lands
+  // one past the UTF-16 -> UTF-8 mapping and is indexed out of bounds.
+  // CodeMirror's own widget buffer is the same case and is turned into a <span>
+  // when the package is built (tools/codemirror).
+
   // A click on a rendered block puts the cursor in it, which shows its text.
   function reveal(view, dom, e) {
     const a = e.target.closest?.("a[data-href], a[data-wiki]");
@@ -303,10 +313,11 @@
     constructor(on) { super(); this.on = on; }
     eq(other) { return other.on === this.on; }
     toDOM(view) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
+      // A <span>, not an <input>: the drawn box is all note.css styles it with.
+      const box = document.createElement("span");
       box.className = "md-task";
-      box.checked = this.on;
+      box.setAttribute("role", "checkbox");
+      box.setAttribute("aria-checked", this.on ? "true" : "false");
       box.setAttribute("aria-label", this.on ? tx("Tarea hecha", "Task done") : tx("Tarea pendiente", "Task pending"));
       box.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -358,12 +369,24 @@
     constructor(src, alt) { super(); this.src = src; this.alt = alt; }
     eq(other) { return other.src === this.src && other.alt === this.alt; }
     toDOM(view) {
+      // The image goes as the box's background, not as an <img>: a replaced
+      // element inside the editable aborts the web process (WebKit bug 279313).
+      // The box takes the image's shape through its aspect ratio, and
+      // editor.css sizes it like the reading view's images.
       const box = document.createElement("div");
       box.className = "md-image";
-      const img = box.appendChild(document.createElement("img"));
-      img.src = new URL(this.src, location.href).href;
-      img.alt = this.alt;
-      img.onload = () => view.requestMeasure();
+      box.setAttribute("role", "figure");
+      if (this.alt) box.setAttribute("aria-label", this.alt);
+      const url = new URL(this.src, location.href).href;
+      box.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+      const size = new Image();
+      size.onload = () => {
+        box.style.width = size.naturalWidth + "px";
+        box.style.aspectRatio = size.naturalWidth + " / " + size.naturalHeight;
+        view.requestMeasure();
+      };
+      size.onerror = () => { box.textContent = this.alt; view.requestMeasure(); };
+      size.src = url;
       box.addEventListener("mousedown", (e) => reveal(view, box, e));
       return box;
     }
