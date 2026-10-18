@@ -3,6 +3,7 @@ pub mod action;
 pub mod address;
 pub mod app;
 pub mod bar;
+pub mod find;
 pub mod icons;
 pub mod page_calls;
 pub mod page_view;

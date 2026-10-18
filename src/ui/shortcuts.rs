@@ -16,6 +16,7 @@ pub const SHORTCUTS: &[(&str, (&str, &str))] = &[
     ("Ctrl+L", ("barra de direcciones: URL, dominio, ruta de la bóveda, ruta absoluta o búsqueda", "address bar: URL, domain, vault path, absolute path or search")),
     ("Ctrl+Shift+B", ("mostrar u ocultar la barra de direcciones", "show or hide the address bar")),
     ("Ctrl+E", ("editar la nota o el dibujo abiertos, o volver a la vista", "edit the open note or drawing, or go back to the view")),
+    ("Ctrl+F", ("buscar en la página", "find in the page")),
     ("Ctrl+N", ("nueva nota en la carpeta de la actual", "new note in the current folder")),
     ("Ctrl+Shift+A", ("anotar un elemento o un punto", "annotate an element or a point")),
     ("Ctrl+Shift+L", ("lista de anotaciones de la página", "list of the page's annotations")),
