@@ -57,6 +57,9 @@
 /* :has, not "+": CodeMirror puts a buffer element between adjacent widgets. */
 #editor .cm-line:has(.md-ordinal) .md-task { margin-left: 0; }
 .md-math { cursor: text; }
+/* WebKit bug 279313: a <math> inside the editable counts as one character the
+   accessible text omits, like a replaced element. The editor shows KaTeX's HTML. */
+#editor .katex-mathml { display: none; }
 
 /* blocks. Lines and block widgets take padding, never margins: CodeMirror
    measures their boxes, and a margin would shift every position below. */
@@ -77,8 +80,7 @@
 .md-math-block { overflow-x: auto; padding: .4em 0; text-align: center; cursor: text; }
 .md-mermaid { padding: .4em 0; text-align: center; cursor: text; }
 .md-mermaid svg { max-width: 100%; height: auto; }
-.md-image { padding: .3em 0; }
-.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
+.md-image { width: fit-content; max-width: 100%; padding: .3em 0; background-repeat: no-repeat; background-position: left top; background-size: contain; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
 .md-table { padding: .3em 0; cursor: text; }
 .md-table table { margin: 0; }
 .md-table a { color: var(--accent); }

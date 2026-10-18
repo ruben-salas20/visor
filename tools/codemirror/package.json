@@ -3,7 +3,7 @@
   "private": true,
   "description": "CodeMirror 6 para el editor de notas de visor. «npm run build» genera assets/codemirror/codemirror.min.js.",
   "scripts": {
-    "build": "esbuild entry.js --bundle --minify --format=iife --global-name=CM --legal-comments=none --target=safari16 --outfile=../../assets/codemirror/codemirror.min.js"
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

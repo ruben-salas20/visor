@@ -49,8 +49,8 @@
   // page gets a plain sentence.
   function diagram(el, text, options = {}) {
     return pele.mount(el, text, {
-      ...options,
       zoom: { labels: { zoomIn: tr("Acercar", "Zoom in"), zoomOut: tr("Alejar", "Zoom out"), reset: tr("Restablecer el zoom", "Reset zoom") } },
+      ...options,
       onError: (e) => {
         console.error("Diagrama: " + e.message);
         el.classList.add("md-error");

@@ -55,8 +55,10 @@ li > input[type="checkbox"], .md-task {
   border: 1.5px solid color-mix(in srgb, var(--fg) 55%, var(--bg)); border-radius: .25em; display: inline-block;
   cursor: pointer;
 }
-:is(li > input[type="checkbox"], .md-task):checked { background: var(--accent); border-color: var(--accent); }
-:is(li > input[type="checkbox"], .md-task):checked::before {
+:is(li > input[type="checkbox"], .md-task):checked,
+.md-task[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+:is(li > input[type="checkbox"], .md-task):checked::before,
+.md-task[aria-checked="true"]::before {
   content: ""; position: absolute; inset: 0; background: var(--bg);
   -webkit-mask: var(--check) center / 100% 100% no-repeat; mask: var(--check) center / 100% 100% no-repeat;
 }
