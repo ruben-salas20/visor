@@ -337,6 +337,8 @@ SHORTCUTS IN THE APP
   Ctrl+,  settings: theme, text size, updates and search engine
   Ctrl+F  search in the page: Enter next, Shift+Enter previous, Esc closes.
           In a PDF or a note's editor, their own search.
+          In a page of the vault or a loose file, every match is marked and
+          the current one is orange; the counter is exact there.
   Ctrl+K  list of shortcuts. In an Excalidraw drawing, Ctrl+K is still
           Excalidraw's link.
   Alt+←  back    Alt+→  forward (also the mouse side buttons)

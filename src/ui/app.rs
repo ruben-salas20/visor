@@ -408,11 +408,17 @@ impl App {
         self.views.iter().find(|(id, _)| *id == view).map(|(_, v)| v)
     }
 
-    /// Opens the native find bar on the focused side, over its active page.
+    /// Opens the find bar on the focused side, over its active page. Visor's
+    /// own pages get the search of `find.js`; the engine is decided from the
+    /// address the page was loaded at, not from what the view shows now.
     fn open_find(&self) {
         let Some(id) = self.tabs.focused_view() else { return };
         let Some(view) = self.view_of(id) else { return };
-        self.pane().find().open(id, &view.webview());
+        let engine = match self.documents.get(&id) {
+            Some(document) if vault::agent_may_read(&document.borrow()) => find::Engine::Page,
+            _ => find::Engine::WebKit,
+        };
+        self.pane().find().open(id, &view.webview(), engine);
     }
 
     /// Ctrl+F in a page that is not a PDF: the note editor's own search if it
@@ -1320,6 +1326,8 @@ impl App {
     }
 
     fn navigated(&mut self, view: u64, url: String) {
+        // A search ends with the page it ran in: the next page may be a website.
+        self.find_forget_all(view);
         let file = vault::rel_from_url(&url);
         let target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
         let Some(nav) = self.tabs.navigated(view, target) else { return };
