@@ -11,13 +11,23 @@ export XDG_CONFIG_HOME=$TMP/cfg XDG_STATE_HOME=$TMP/state XDG_DATA_HOME=$TMP/dat
 target/release/visor & echo $! > $TMP/pid      # ciérrala con kill $(cat $TMP/pid)
 ```
 
+Para que la ventana no aparezca en el escritorio del usuario, ábrela en un sway sin pantalla. Su ventana cuenta como visible, así que WebKit no frena la página:
+
+```sh
+printf 'output HEADLESS-1 resolution 1920x1080\nxwayland disable\nexec sh -c "echo $WAYLAND_DISPLAY > %s/display"\n' $TMP > $TMP/sway.conf
+env -u WAYLAND_DISPLAY -u DISPLAY WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 SWAYSOCK=$TMP/sway.sock \
+  sway -c $TMP/sway.conf & echo $! > $TMP/sway.pid
+sleep 1; export WAYLAND_DISPLAY=$(cat $TMP/display) SWAYSOCK=$TMP/sway.sock   # antes de arrancar visor
+```
+
 Cierra solo por PID: `pkill -f` con un patrón presente en tu propia orden mata tu shell, y con la ruta relativa alcanza la instancia del usuario.
 
 ## Interactuar sin ratón
 
-- Teclas reales (Hyprland usa configuración en Lua):
+- En sway sin pantalla, la ventana de visor tiene el foco. Teclas: `wtype -P F24 -p F24 -s 100 -M ctrl -P e -p e -m ctrl` (sway pierde la primera tecla de cada `wtype` mientras carga su mapa de teclado; F24 no hace nada). Captura: `grim` sin geometría. Ventanas: `swaymsg -t get_tree`.
+- Teclas reales en Hyprland (Hyprland usa configuración en Lua):
   `hyprctl dispatch 'hl.dsp.send_key_state({ mods = "CTRL", key = "E", state = "down", window = "address:0x…" })'`, y lo mismo con `state = "up"`. La dirección sale de `hyprctl clients -j` filtrando por `pid`.
-- Captura: `grim -g "x,y anchoxalto"` con la geometría de `hyprctl clients -j`.
+- Captura en Hyprland: `grim -g "x,y anchoxalto"` con la geometría de `hyprctl clients -j`.
 - Gestos imposibles de enviar (selección de texto, clics): una página de prueba en la bóveda que los reproduzca por script (`dispatchEvent`, `.click()` dentro de `document.querySelector("visor-capa").shadowRoot`); lee el resultado con `visor console`.
 - URL base del servidor (lleva una clave nueva en cada arranque): una página con `visor.send({ href: location.href })` y `visor events --limit 1`.
 
@@ -35,8 +45,8 @@ tools/medir/medir.py --resumen ${TMPDIR:-/tmp}/visor-medir/resultados-….jsonl
 
 El cambio de página y la pestaña nueva se miden de dos formas. `cambio_pagina_ms` y `pestana_nueva_ms` son lo que tarda la carga dentro de la app: con `VISOR_TIEMPOS=1`, `visor open` añade `ms` a su respuesta. Las variantes `_cli_ms` incluyen además el arranque de la CLI (~25 ms), como lo ve un agente. Para comparar con otra app, usa las primeras. `medir.py` también pone `VISOR_NO_UPDATE=1`, para que ninguna ronda consulte GitHub.
 
-- Cada ronda dura ~2 min por binario y abre ventanas en el escritorio activo: no uses el equipo mientras tanto. Rondas: 1 para comprobar un cambio, 2 antes de un push que reúne varios cambios y 3 antes de sacar un release. Repite con una ronda más si una cifra se sale del ruido.
-- La ventana debe estar visible en el escritorio activo: WebKit frena las páginas ocultas y falsea la CPU. El resumen descarta esas rondas. Mover el ratón sobre la ventana la redibuja y sube la CPU a ~2 %.
+- Cada ronda dura ~2 min por binario. `medir.py` arranca su propio sway sin pantalla y abre allí las ventanas: el escritorio queda libre, pero lo que hagas compite por la CPU y mueve los tiempos de arranque. Con `--escritorio` mide en el escritorio activo de Hyprland, como antes del 2026-10-18; entonces no uses el equipo. Las cifras de un entorno no se comparan con las del otro. Rondas: 1 para comprobar un cambio, 2 antes de un push que reúne varios cambios y 3 antes de sacar un release. Repite con una ronda más si una cifra se sale del ruido.
+- La ventana debe estar visible: WebKit frena las páginas ocultas y falsea la CPU. El resumen descarta esas rondas. En sway sin pantalla siempre lo está; en Hyprland, mover el ratón sobre la ventana la redibuja y sube la CPU a ~2 %.
 - Memoria en PSS, no RSS (el RSS cuenta doble).
 - La página manda en la memoria: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
 - El ruido supera a menudo el efecto: con diferencias de pocos ms, compara solo rondas alternadas. El arranque con `ondas.md` es bimodal con cualquier binario (~670 y ~725 ms).

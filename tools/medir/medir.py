@@ -5,10 +5,11 @@
     tools/medir/medir.py --resumen RESULTADOS.jsonl
 
 Con varios binarios alterna las rondas (A B A B …). Copia cada binario antes de
-medir: cargo lo sobrescribe al compilar. Durante la medida se abren ventanas de
-visor en el escritorio activo; no uses el equipo mientras tanto.
+medir: cargo lo sobrescribe al compilar. Las ventanas de visor se abren en un sway
+sin pantalla, así que el escritorio sigue libre; con --escritorio se abren en el
+escritorio activo de Hyprland y no hay que usar el equipo mientras tanto.
 """
-import argparse, json, os, shutil, signal, subprocess, sys, time
+import argparse, atexit, json, os, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -116,9 +117,45 @@ def cpu_ticks(pid):
     return total
 
 
+SWAY = WORK / "sway"
+headless = True
+
+
+def start_sway():
+    """A sway without a screen for the windows to measure. Its window counts as
+    shown, so WebKit does not slow the page down, and the desktop stays free."""
+    shutil.rmtree(SWAY, ignore_errors=True)
+    SWAY.mkdir(parents=True)
+    display = SWAY / "display"
+    (SWAY / "config").write_text(
+        "output HEADLESS-1 resolution 1920x1080\n"
+        "xwayland disable\n"
+        f"exec sh -c 'echo $WAYLAND_DISPLAY > {display}'\n")
+    sway_env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "DISPLAY")}
+    sway_env.update(WLR_BACKENDS="headless", WLR_LIBINPUT_NO_DEVICES="1", SWAYSOCK=str(SWAY / "ipc.sock"))
+    proc = subprocess.Popen(["sway", "-c", str(SWAY / "config")], env=sway_env,
+                            stdout=subprocess.DEVNULL, stderr=open(SWAY / "log", "w"))
+    atexit.register(proc.terminate)
+    deadline = time.time() + 10
+    while not (display.exists() and display.read_text().strip()):
+        assert time.time() < deadline and proc.poll() is None, f"sway no arrancó; mira {SWAY / 'log'}"
+        time.sleep(0.1)
+    env.update(WAYLAND_DISPLAY=display.read_text().strip(), SWAYSOCK=str(SWAY / "ipc.sock"))
+    env.pop("DISPLAY", None)
+
+
 def window(pid):
     """Address of the app's window and whether it is on the active workspace:
     WebKit slows hidden pages down, which would flatter the idle CPU."""
+    if headless:
+        tree = json.loads(subprocess.run(["swaymsg", "-t", "get_tree"], env=env, capture_output=True, text=True).stdout)
+        nodes = [tree]
+        while nodes:
+            n = nodes.pop()
+            if n.get("pid") == pid:
+                return n["id"], n["visible"]
+            nodes += n.get("nodes", []) + n.get("floating_nodes", [])
+        return None, False
     clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
     active = json.loads(subprocess.run(["hyprctl", "activeworkspace", "-j"], capture_output=True, text=True).stdout)["id"]
     for c in clients:
@@ -128,6 +165,12 @@ def window(pid):
 
 
 def key(address, mods, k):
+    if headless:
+        # The window has the focus: it is the only one. wtype's first key gets lost
+        # while sway takes its keymap, so a key nobody uses goes first.
+        subprocess.run(["wtype", "-P", "F24", "-p", "F24", "-s", "100", "-M", mods.lower(), "-P", k.lower(),
+                        "-p", k.lower(), "-m", mods.lower()], env=env, capture_output=True)
+        return
     for state in ("down", "up"):
         subprocess.run(["hyprctl", "dispatch",
                         f'hl.dsp.send_key_state({{ mods = "{mods}", key = "{k}", state = "{state}", window = "address:{address}" }})'],
@@ -247,12 +290,17 @@ def main():
     parser.add_argument("binarios", nargs="*")
     parser.add_argument("--rondas", type=int, default=1)
     parser.add_argument("--resumen", metavar="RESULTADOS")
+    parser.add_argument("--escritorio", action="store_true", help="medir en el escritorio de Hyprland, no en un sway sin pantalla")
     args = parser.parse_args()
     if args.resumen:
         return summary(args.resumen)
     if not args.binarios:
         parser.error("indica al menos un binario")
     binaries = [os.path.abspath(b) for b in args.binarios]
+    global headless
+    headless = not args.escritorio
+    if headless:
+        start_sway()
     prepare()
     out_path = WORK / time.strftime("resultados-%Y%m%d-%H%M.jsonl")
     print(f"Resultados en {out_path}", file=sys.stderr)
