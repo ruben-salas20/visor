@@ -134,7 +134,7 @@ Después pide a tu agente que use la herramienta `guide`. Esa herramienta devuel
 - `src/vault.rs`, `src/vault/`: acceso a la bóveda, anotaciones, Markdown y configuración.
 - `src/agent/`: terminal, servidor del socket y MCP. `help.txt` es el texto de `visor help`.
 - `src/page/`: JavaScript y CSS que se ejecutan dentro de las páginas.
-- `assets/`, `build.rs`: bibliotecas incluidas (KaTeX, highlight.js, Mermaid, CodeMirror), comprimidas con brotli al compilar.
+- `assets/`, `build.rs`: bibliotecas incluidas (KaTeX, highlight.js, Pele, CodeMirror), comprimidas con brotli al compilar.
 - `tools/`: generador del paquete de CodeMirror, scripts de medidas (`tools/medir/`) y los que hacen el GIF del README (`tools/video/`).
 
 ## Más documentación

@@ -62,9 +62,8 @@
 #editor .cm-mathsrc, #editor .cm-tablesrc { font-family: var(--mono); font-size: .9em; }
 #editor .cm-frontmatter { font-family: var(--mono); font-size: .875em; color: var(--muted); }
 .md-math-block { overflow-x: auto; padding: .4em 0; text-align: center; cursor: text; }
-.md-mermaid { padding: .4em 0; text-align: center; color: var(--muted); cursor: text; }
+.md-mermaid { padding: .4em 0; text-align: center; cursor: text; }
 .md-mermaid svg { max-width: 100%; height: auto; }
-.md-error { color: var(--red); text-align: left; }
 .md-image { padding: .3em 0; }
 .md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
 .md-table { padding: .3em 0; cursor: text; }

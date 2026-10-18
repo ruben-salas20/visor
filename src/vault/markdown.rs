@@ -1,5 +1,5 @@
 //! Turns a Markdown note into a full page: themed, with math, code highlighting,
-//! Mermaid diagrams and `[[wiki]]` links, plus the editor behind Ctrl+E.
+//! Pele diagrams (from ```mermaid blocks) and `[[wiki]]` links, plus the editor behind Ctrl+E.
 
 use crate::trf;
 use crate::vault::{
@@ -260,7 +260,7 @@ fn render(source: &str, rel: &str, root: &Path, scope: Scope) -> String {
         head += &format!("<script defer src=\"{assets}hljs/highlight.min.js\"></script>");
     }
     if mermaid {
-        head += &format!("<script defer src=\"{assets}mermaid/mermaid.min.js\"></script>");
+        head += &format!("<script defer src=\"{assets}pele/pele.global.js\"></script>");
     }
     let stem = Path::new(rel).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     let dir = rel.rsplit_once('/').map_or("", |(d, _)| d);

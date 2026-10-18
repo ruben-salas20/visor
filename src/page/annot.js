@@ -113,8 +113,7 @@
 
   // ---------- elements ----------
 
-  // Text a person can read: an inline <style> (Mermaid puts one first in each
-  // diagram) would make the snippet as unstable as the ids inside it.
+  // Text a person can read: the contents of <style> and <script> are not.
   function snippet(el) {
     let text = "";
     const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -124,8 +123,8 @@
     return cut(text.replace(/\s+/g, " ").trim(), 80);
   }
 
-  // Ids built from a timestamp, like Mermaid's "mermaid-1791323458942", change on
-  // every render, so they cannot find the element again.
+  // Ids built from a timestamp change on every render, so they cannot find the
+  // element again.
   const generated = (id) => /\d{10,}/.test(id);
 
   function describe(el) {
@@ -1014,7 +1013,8 @@
   }
 
   addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
+    // Pele's zoom takes Escape to reset a zoomed diagram, and says so: leave that one alone.
+    if (e.key !== "Escape" || e.defaultPrevented) return;
     if (picking) stopPicking();
     else if (pop) closePopSafely(closePop, ESCAPE_AGAIN);
     else if (panel) closePanel();

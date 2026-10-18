@@ -136,7 +136,7 @@ MARKDOWN NOTES
   - .md files appear in the tree next to the .html files and are shown
     rendered with the theme. They support tables, footnotes, task lists,
     alerts (> [!NOTE]), formulas ($...$ and $$...$$, KaTeX), syntax-
-    highlighted code and diagrams (```mermaid blocks).
+    highlighted code and diagrams (```mermaid blocks, drawn with Pele).
   - YAML front matter is shown as a property table above the text. Top-
     level keys with text, lists ([a, b] or lines starting with "- ") and
     multi-line text (> or |) are read; anything nested is shown as text.

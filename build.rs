@@ -1,6 +1,6 @@
-//! Packs `assets/` into the binary: KaTeX, highlight.js and Mermaid, so notes
+//! Packs `assets/` into the binary: KaTeX, highlight.js, Pele and more, so notes
 //! render offline. Text files are compressed here with Brotli and served that
-//! way; WebKit decodes them. Brotli shrinks Mermaid a quarter more than gzip.
+//! way; WebKit decodes them.
 //! WebKit only advertises gzip over plain HTTP, but decodes Brotli all the same.
 //! Fonts are already compressed and go in as they are.
 //! The note editor's own code lives in `src/page/` but is packed the same way, as

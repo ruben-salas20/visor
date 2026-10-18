@@ -165,7 +165,7 @@
   const LIBS = {
     katex: { ready: () => window.katex, files: ["katex/katex.min.css", "katex/katex.min.js"] },
     hljs: { ready: () => window.hljs, files: ["hljs/highlight.min.js"] },
-    mermaid: { ready: () => window.mermaid, files: ["mermaid/mermaid.min.js"] },
+    pele: { ready: () => window.pele, files: ["pele/pele.global.js"] },
   };
   const asked = new Set();
   // Returns the library if it is already there; otherwise starts loading it
@@ -335,9 +335,8 @@
     ignoreEvent() { return this.display; }
   }
 
-  const diagrams = new Map(); // source → SVG, so redraws do not render again
-  let diagramId = 0;
-  let mermaidReady = false;
+  // Pele's handle for each drawn diagram, so destroy() can stop it.
+  const handles = new WeakMap();
   class Diagram extends WidgetType {
     constructor(source) { super(); this.source = source; }
     eq(other) { return other.source === this.source; }
@@ -345,30 +344,13 @@
       const el = document.createElement("div");
       el.className = "md-mermaid";
       el.addEventListener("mousedown", (e) => reveal(view, el, e));
-      const svg = diagrams.get(this.source);
-      if (svg) {
-        el.innerHTML = svg;
-        return el;
-      }
-      el.textContent = tx("Dibujando el diagrama…", "Drawing the diagram…");
-      if (!mermaidReady) {
-        window.mermaid.initialize({ startOnLoad: false, theme: window.__visorNote.dark() ? "dark" : "default" });
-        mermaidReady = true;
-      }
-      window.mermaid.render("visor-diagram-" + ++diagramId, this.source).then(
-        ({ svg }) => {
-          diagrams.set(this.source, svg);
-          el.innerHTML = svg;
-          view.requestMeasure();
-        },
-        (error) => {
-          el.textContent = "Mermaid: " + error.message;
-          el.classList.add("md-error");
-        },
-      );
+      handles.set(el, window.__visorNote.diagram(el, this.source, { onRender: () => view.requestMeasure() }));
       return el;
     }
-    get estimatedHeight() { return diagrams.has(this.source) ? -1 : 200; }
+    destroy(dom) {
+      handles.get(dom)?.destroy();
+      handles.delete(dom);
+    }
     ignoreEvent() { return true; }
   }
 
@@ -582,7 +564,7 @@
       if (touches(state, active, b.from, b.to)) continue;
       let widget = null;
       if (b.kind === "table") widget = new Table(state, b.node);
-      else if (b.kind === "mermaid" && lib("mermaid")) {
+      else if (b.kind === "mermaid" && lib("pele")) {
         const closed = end.number > start.number && /^\s*(```|~~~)/.test(end.text);
         const last = closed ? end.number - 1 : end.number;
         const body = last > start.number ? state.doc.sliceString(start.to + 1, state.doc.line(last).to) : "";

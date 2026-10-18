@@ -19,12 +19,6 @@
     status.classList.toggle("error", error);
   };
 
-  // Dark theme: the mode visor sends, else the system's. Shared with editor.js.
-  const dark = () => {
-    const mode = getComputedStyle(document.documentElement).getPropertyValue("--visor-mode").trim();
-    return mode ? mode === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  };
-
   function render() {
     if (config.math && window.katex) {
       for (const el of view.querySelectorAll(".math")) {
@@ -34,15 +28,42 @@
     if (config.code && window.hljs) {
       for (const el of view.querySelectorAll("pre code[class*='language-']")) hljs.highlightElement(el);
     }
-    if (config.mermaid && window.mermaid) {
-      mermaid.initialize({ startOnLoad: false, theme: dark() ? "dark" : "default" });
-      mermaid.run({ querySelector: "pre.mermaid" }).catch((e) => console.error("Mermaid: " + e.message));
+    if (config.mermaid && window.pele) {
+      // The id prefix follows each diagram's place in the page, so it is the same on every load.
+      [...view.querySelectorAll("pre.mermaid")].forEach((el, i) => {
+        const text = el.textContent;
+        el.textContent = "";
+        diagram(el, text, { idPrefix: "d" + i + "-" });
+      });
     }
     const saved = sessionStorage.getItem(scrollKey);
     if (saved !== null) {
       sessionStorage.removeItem(scrollKey);
       place(JSON.parse(saved));
     }
+  }
+
+  // Pele draws a diagram into el at the width of the column. Zoom controls appear
+  // only when the diagram does not fit; their labels follow the page's language.
+  // Pele's error text is English and technical, so it goes to the console and the
+  // page gets a plain sentence.
+  function diagram(el, text, options = {}) {
+    return pele.mount(el, text, {
+      ...options,
+      zoom: { labels: { zoomIn: tr("Acercar", "Zoom in"), zoomOut: tr("Alejar", "Zoom out"), reset: tr("Restablecer el zoom", "Reset zoom") } },
+      onError: (e) => {
+        console.error("Diagrama: " + e.message);
+        el.classList.add("md-error");
+        el.textContent = diagramError(e);
+      },
+    });
+  }
+
+  // Pele gives a line only when it knows where the problem is (0 otherwise).
+  function diagramError(e) {
+    if (e.line > 0) return tr(`No se pudo dibujar el diagrama: hay un error en la línea ${e.line}, columna ${e.column}.`, `The diagram could not be drawn: there is an error on line ${e.line}, column ${e.column}.`);
+    if (e.code === "unsupported-diagram") return tr("No se pudo dibujar el diagrama: no se reconoce el tipo de diagrama.", "The diagram could not be drawn: the diagram type is not recognized.");
+    return tr("No se pudo dibujar el diagrama.", "The diagram could not be drawn.");
   }
 
   // Blocks carry their source lines (data-line, data-end) from markdown.rs.
@@ -246,7 +267,7 @@
     createFailed(error) {
       notify(tr(`No se pudo crear la nota. ${/[.!?]$/.test(error) ? error : error + "."}`, `Could not create the note. ${/[.!?]$/.test(error) ? error : error + "."}`));
     },
-    dark,
+    diagram,
     // Before visor hides the tab, which it may unload later: saves pending
     // text and returns the reading position for place().
     hide() {

@@ -48,7 +48,7 @@ El cambio de página y la pestaña nueva se miden de dos formas. `cambio_pagina_
 - Cada ronda dura ~2 min por binario. `medir.py` arranca su propio sway sin pantalla y abre allí las ventanas: el escritorio queda libre, pero lo que hagas compite por la CPU y mueve los tiempos de arranque. Con `--escritorio` mide en el escritorio activo de Hyprland, como antes del 2026-10-18; entonces no uses el equipo. Las cifras de un entorno no se comparan con las del otro. Rondas: 1 para comprobar un cambio, 2 antes de un push que reúne varios cambios y 3 antes de sacar un release. Repite con una ronda más si una cifra se sale del ruido.
 - La ventana debe estar visible: WebKit frena las páginas ocultas y falsea la CPU. El resumen descarta esas rondas. En sway sin pantalla siempre lo está; en Hyprland, mover el ratón sobre la ventana la redibuja y sube la CPU a ~2 %.
 - Memoria en PSS, no RSS (el RSS cuenta doble).
-- La página manda en la memoria: una nota con Mermaid y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario. Compara con la misma página.
+- La página manda en la memoria: una nota con diagramas y KaTeX ocupa ~100 MB más que una de un párrafo con el mismo binario (con Mermaid; con Pele, ~30–60 MB en sway). Compara con la misma página.
 - El ruido supera a menudo el efecto: con diferencias de pocos ms, compara solo rondas alternadas. El arranque con `ondas.md` es bimodal con cualquier binario (~670 y ~725 ms).
 - El perfil de energía manda: con el mismo binario, el arranque en frío va de ~220 ms (`performance`) a ~310 ms (`balanced`, enchufado), ~800 ms (batería) y ~1,1 s (`power-saver`). Compara solo en las mismas condiciones (`powerprofilesctl get`, enchufado o no).
 - El turbo también: tras arrancar con la batería baja y cargando, el firmware lo dejó desactivado y el arranque subió de ~214 a ~344 ms con `performance` (2026-10-12). Antes de medir, `cat /sys/devices/system/cpu/intel_pstate/no_turbo` debe dar `0`; si da `1`, actívalo con `echo 0 | sudo tee …/no_turbo`.
@@ -66,6 +66,32 @@ node tools/video/grabar.mjs && tools/video/demo.sh && tools/video/unir.sh   # GI
 Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromium del usuario), calentado por un primer arranque que no cuenta, y el orden se alterna entre rondas. El arranque es hasta que aparece la ventana, igual para las tres; no incluye dibujar la página. `demo.sh` abre ventanas flotantes unos 30 s por idioma y añade a Hyprland, hasta que recargue, una regla para la etiqueta `visordemo` (opacas, sin borde).
 
 ## Referencia
+
+### En sway sin pantalla
+
+2026-10-18, #40 (diagramas con Pele en vez de Mermaid), enchufado, perfil `performance`, medido con `medir.py` en sway sin pantalla. Dos rondas alternadas con el binario de `8bd1820` en la misma ejecución: intervalo de las dos rondas. No se compara con la tabla de Hyprland de abajo.
+
+| Medida | Pele | Antes (`8bd1820`, Mermaid) |
+|---|---|---|
+| Peso del binario | 5,21 MB | 6,18 MB |
+| Arranque en frío, nota mínima (`minima.md`) | 217–228 ms | 207–213 ms |
+| Arranque en frío, `estudio/física/ondas.md` (diagrama, KaTeX, código) | 420–432 ms | 684–717 ms |
+| Arranque en frío, HTML suelto | 202–245 ms | 205–214 ms |
+| Arranque en frío, PDF | 259–270 ms | 253–264 ms |
+| Cambio de página, dentro de la app | 7,8–8,9 ms | 7,2–7,7 ms |
+| Pestaña nueva, dentro de la app | 134–138 ms | 136–145 ms |
+| Memoria en reposo, nota mínima | 125–164 MB | 156–164 MB |
+| Memoria en reposo, `ondas.md` | 190 MB | 249–259 MB |
+| Memoria en reposo, HTML suelto | 145–148 MB | 147–148 MB |
+| Memoria en reposo, PDF | 210–239 MB | 227–237 MB |
+| Memoria con el editor abierto (nota mínima) | 145–176 MB | 168–174 MB |
+| CPU en reposo, nota mínima u `ondas.md` | 0,03 % | 0–0,07 % |
+| CPU en reposo, PDF | 0,1–0,13 % | 0,1–0,13 % |
+| Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
+
+Las páginas sin diagramas no cambian: sus diferencias están dentro del ruido entre rondas.
+
+### En Hyprland
 
 2026-10-17, commit `ff0322c` (#25, #37 y #27: visor como app predeterminada, PDF en el panel y visor completo de PDF.js con anotaciones), enchufado, perfil `performance`. Una ronda alternada con la referencia anterior (`5636bd8`) en la misma ejecución: valor de esa ronda. El binario de `5636bd8` abre el PDF en el visor de PDF.js que trae WebKit, sin anotaciones. Las filas sin columna «Antes» vienen de medidas anteriores y no se repitieron.
 
