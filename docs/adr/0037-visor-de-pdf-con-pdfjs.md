@@ -39,5 +39,5 @@ Primero se probó solo el componente `pdf_viewer.mjs`, con una barra propia (pá
 
 - Paquete con brotli (q11, lgwin 24, suma por archivo): 714 854 B. Con solo el componente eran 633 940 B.
 - Binario (`cargo build --release`): 5 434 960 B sin visor de PDF; 6 100 488 B con el componente; 6 179 320 B con el visor completo (+78 832 B).
-- Memoria y CPU: pendiente de medir con `tools/medir/medir.py` antes de aceptar el visor como definitivo (`docs/pruebas.md`).
+- Memoria y CPU (`tools/medir/medir.py`, una ronda alternada con `5636bd8`, 2026-10-17): con un PDF de 2 páginas, 304 MB y 240 ms de arranque, frente a 300 MB y 233 ms del visor que trae WebKit; CPU en reposo 0,17 % (0,2 % el de WebKit). Frente a una nota mínima de la misma ronda, ~+90 MB. Ver `docs/pruebas.md`.
 - Pruebas: `cargo test` (con las de `vault/pdf.rs`) y una carga del visor en Chromium sin ventana (2 páginas, capa de texto, eventos, zoom, `?file=` rechazado).

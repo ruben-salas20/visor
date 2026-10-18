@@ -57,31 +57,34 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ## Referencia
 
-2026-10-12, commit `5636bd8` (#26, #28 y #29: abrir con otra aplicación, ventana de atajos con Ctrl+K y Ctrl+1…9 para elegir pestaña), enchufado, perfil `performance`. Dos rondas solo con el binario nuevo; la columna «Antes» es la referencia anterior (`08e97d2`), medida horas antes. El valor del resumen de `medir.py` y, entre paréntesis, el rango. Las filas sin columna «Antes» vienen de medidas anteriores y no se repitieron.
+2026-10-17, commit `ff0322c` (#25, #37 y #27: visor como app predeterminada, PDF en el panel y visor completo de PDF.js con anotaciones), enchufado, perfil `performance`. Una ronda alternada con la referencia anterior (`5636bd8`) en la misma ejecución: valor de esa ronda. El binario de `5636bd8` abre el PDF en el visor de PDF.js que trae WebKit, sin anotaciones. Las filas sin columna «Antes» vienen de medidas anteriores y no se repitieron.
 
-| Medida | Valor | Antes (`08e97d2`) |
+| Medida | Valor | Antes (`5636bd8`) |
 |---|---|---|
-| Arranque en frío, nota mínima (`minima.md`) | 229 ms (223–229) | 229 ms (225–229) |
-| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 764 ms (733–764) | 762 ms (717–762) |
-| Arranque en frío, HTML suelto | 209 ms (208–209) | 260 ms (224–260); 207–220 ms al repetir |
-| Cambio de página, dentro de la app (con la CLI) | 9,3 ms (6,8–9,3); 35–86 ms | 11,2 ms (8,5–11,2); 37 ms |
-| Pestaña nueva, dentro de la app (con la CLI) | 146 ms (139–146); 173 ms | 145 ms (142–145); 176 ms |
-| Memoria en reposo, nota mínima | 150 MB (133–150) | 161 MB (159–161) |
-| Memoria en reposo, `ondas.md` | 246 MB (241–246) | 261 MB (259–261) |
-| Memoria en reposo, HTML suelto | 131 MB (123–131) | **142 MB** |
-| Memoria con el editor abierto (nota mínima) | 163 MB (149–163) | 177 MB |
-| CPU en reposo, nota mínima u `ondas.md` | 0–0,1 % | 0–0,07 % |
+| Arranque en frío, nota mínima (`minima.md`) | 196 ms | 208 ms |
+| Arranque en frío, `estudio/física/ondas.md` (Mermaid, KaTeX, código) | 637 ms | 634 ms |
+| Arranque en frío, HTML suelto | 187 ms | 178 ms |
+| Arranque en frío, PDF de 2 páginas (`ondas-apuntes.pdf`) | 240 ms | 233 ms (visor de WebKit) |
+| Cambio de página, dentro de la app (con la CLI) | 7,4 ms; 34 ms | 9,1 ms; 36 ms |
+| Pestaña nueva, dentro de la app (con la CLI) | 134 ms; 161 ms | 128 ms; 152 ms |
+| Memoria en reposo, nota mínima | 211 MB | 217 MB |
+| Memoria en reposo, `ondas.md` | 326 MB | 325 MB |
+| Memoria en reposo, HTML suelto | 200 MB | 199 MB |
+| Memoria en reposo, PDF | 304 MB | 300 MB (visor de WebKit) |
+| Memoria con el editor abierto (nota mínima) | 230 MB | 230 MB |
+| CPU en reposo, nota mínima u `ondas.md` | 0,03 % | 0,03–0,07 % |
+| CPU en reposo, PDF | 0,17 % | 0,2 % (visor de WebKit) |
 | Cada página viva extra (pestañas o vista dividida, máximo 3) | +60–65 MB con una nota, ~+90 MB con Three.js (2026-10-07) | |
 | Un dibujo de Excalidraw abierto, frente a una nota | ~+45 MB en lectura; en edición, 240 MB frente a 207 MB de una nota (ADR 0036) | |
 | Un dibujo con fórmulas LaTeX, frente a uno sin ellas | ~225 ms y ~170 KB la primera vez, ~70 ms al recargar; +2–5 MB (3 medidas, poco fiable) | |
 | Three.js (2000 nudos instanciados) | 60 fps | 60 fps |
-| Binario (`cargo build --release`, con `strip`) | 5 373 992 bytes | 5 361 712 bytes |
+| Binario (`cargo build --release`, con `strip`) | 6 179 320 bytes | 5 373 992 bytes |
 
-Los 12,3 KB del binario son el botón «Abrir con otra aplicación» (~4,8 KB) y la ventana de atajos con Ctrl+1…9 (~7,4 KB). La ventana de atajos no se crea hasta el primer Ctrl+K. La memoria sale 11–16 MB por debajo de la referencia anterior y la primera ronda dio 16 MB menos que la segunda con el mismo binario: es deriva, no un efecto del código (ver abajo). En la primera ronda, la CPU con `ondas.md` y los fps se descartaron por ventana oculta.
+Las diferencias entre los dos binarios están dentro del ruido. El visor de PDF de visor cuesta lo mismo que el que trae WebKit (+4 MB, +7 ms) y, frente a una nota mínima de la misma ronda, ~+90 MB y ~+45 ms. De los 805 KB del binario, ~744 KB son PDF.js (ADR 0037); el resto, el i18n (#34), #36 y #25.
+
+La deriva se vio dentro de la misma tarde: una ronda solo con `ff0322c`, diez minutos antes, dio 176 MB con la nota mínima, 277 MB con `ondas.md` y 258 MB con el PDF, ~35–45 MB menos que en la ronda alternada. En esa ronda, la pestaña nueva dio una vez 512 ms; repetida tres veces con la misma secuencia, 126–128 ms.
 
 **Coste conocido, aceptado: +11,4 MB con un HTML suelto.** Sale igual en todas las repeticiones (130 → 141,5 MB) y no aparece con notas de la bóveda. Lo causan los tres botones de navegación visibles en la fila de pestañas (#22, `b9cc9c9`): el commit anterior da 130 MB, y el mismo commit con los botones creados pero sin colocar en la fila, también. No depende del icono (con botones de texto sube igual), del tooltip ni de que estén desactivados, y no carga glycin. Crece el *heap* del proceso principal (+16,7 MB) y bajan los búferes `memfd:gdk-wayland` (−5,5 MB). No es un búfer extra por redibujar: pasar el ratón por la fila no cambia la cifra de antes ni la de después. Con una bóveda, el panel lateral ya paga ese coste y los botones no añaden nada. La causa exacta en GTK3 sigue sin identificar.
-
-La memoria absoluta es ~25 MB menor que en la referencia del 2026-10-11 con los dos binarios: es la deriva entre días descrita abajo, no un cambio del código.
 
 En la referencia anterior (`5e67e74`, tres rondas con `6399c0b`), las dos primeras rondas daban más memoria con la nota mínima (+3–9 MB) y más tiempo de pestaña nueva (+4–12 ms); la tercera dio menos memoria con el binario nuevo y acercó la pestaña nueva (141,5 frente a 145,1 ms). Los rangos se solapan: es ruido, aunque la pestaña nueva conviene vigilarla en la próxima medida. Los 48 KB del binario son el botón de actualizar y `visor update` (~17 KB), las imágenes pegadas (~17 KB), las fórmulas (~6 KB) y el resto de cambios.
 

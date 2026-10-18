@@ -193,6 +193,19 @@ def measure(binary):
     r["cpu_ondas_ticks"], r["cpu_ondas_pct"] = idle_cpu(pid)
     r["cpu_ondas_visible"] = visible and window(pid)[1]
 
+    # A PDF of the vault, in PDF.js's full viewer (ADR 0037). Binaries older
+    # than #37 do not open PDFs: their row leaves these empty.
+    try:
+        r["arranque_pdf_ms"], pid = cold(binary, VAULT / "estudio" / "física" / "ondas-apuntes.pdf")
+    except AssertionError:
+        r.update(arranque_pdf_ms=None, memoria_pdf_mb=None, cpu_pdf_ticks=None, cpu_pdf_pct=None, cpu_pdf_visible=False)
+    else:
+        time.sleep(10)
+        r["memoria_pdf_mb"] = pss_mb(pid)
+        visible = window(pid)[1]
+        r["cpu_pdf_ticks"], r["cpu_pdf_pct"] = idle_cpu(pid)
+        r["cpu_pdf_visible"] = visible and window(pid)[1]
+
     # An HTML page outside every vault.
     r["arranque_suelto_ms"], pid = cold(binary, LOOSE)
     time.sleep(10)
