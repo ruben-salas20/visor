@@ -21,7 +21,7 @@
   --pele-fg: var(--fg);
   --pele-muted: var(--muted);
   --pele-accent: var(--accent);
-  --pele-line: var(--line);
+  --pele-line: var(--muted);
   --pele-border: var(--line);
   --pele-surface: var(--soft);
   --pele-error: var(--red);

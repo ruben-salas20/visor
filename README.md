@@ -15,7 +15,7 @@ visor is built in Rust with tao, wry and WebKitGTK. It runs only on Linux with W
 
 ## Performance
 
-With a simple note or page, visor uses about half the memory of Obsidian or Chromium; with a heavy note (Mermaid, KaTeX, code), about a quarter less than Obsidian. Its window opens more than twice as fast.
+With a simple note or page, visor uses about half the memory of Obsidian or Chromium; with a heavy note (diagram, KaTeX, code), about a quarter less than Obsidian. Its window opens more than twice as fast.
 
 ![Key figures: visor against Obsidian and Chromium](docs/img/graficas/resumen.en.svg)
 

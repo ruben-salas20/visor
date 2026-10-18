@@ -15,7 +15,7 @@ visor está hecho en Rust con tao, wry y WebKitGTK. Funciona solo en Linux con W
 
 ## Rendimiento
 
-Con una nota o página sencilla, visor usa más o menos la mitad de memoria que Obsidian o Chromium; con una nota pesada (Mermaid, KaTeX, código), alrededor de una cuarta parte menos que Obsidian. Abre su ventana en menos de la mitad de tiempo.
+Con una nota o página sencilla, visor usa más o menos la mitad de memoria que Obsidian o Chromium; con una nota pesada (diagrama, KaTeX, código), alrededor de una cuarta parte menos que Obsidian. Abre su ventana en menos de la mitad de tiempo.
 
 ![Cifras clave: visor frente a Obsidian y Chromium](docs/img/graficas/resumen.es.svg)
 
