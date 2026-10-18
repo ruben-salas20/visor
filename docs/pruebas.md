@@ -15,10 +15,12 @@ Para que la ventana no aparezca en el escritorio del usuario, ábrela en un sway
 
 ```sh
 printf 'output HEADLESS-1 resolution 1920x1080\nxwayland disable\nexec sh -c "echo $WAYLAND_DISPLAY > %s/display"\n' $TMP > $TMP/sway.conf
-env -u WAYLAND_DISPLAY -u DISPLAY WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 SWAYSOCK=$TMP/sway.sock \
-  sway -c $TMP/sway.conf & echo $! > $TMP/sway.pid
-sleep 1; export WAYLAND_DISPLAY=$(cat $TMP/display) SWAYSOCK=$TMP/sway.sock   # antes de arrancar visor
+systemd-run --user --quiet --collect --unit=visor-prueba-sway -E WLR_BACKENDS=headless -E WLR_LIBINPUT_NO_DEVICES=1 \
+  -E SWAYSOCK=$TMP/sway.sock -E XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR sway -c $TMP/sway.conf   # ciérralo con systemctl --user stop visor-prueba-sway
+sleep 1; test -s $TMP/display && export WAYLAND_DISPLAY=$(cat $TMP/display) SWAYSOCK=$TMP/sway.sock   # antes de arrancar visor
 ```
+
+Lanzado como hijo de la shell de un agente, sway recibe SIGKILL a los pocos milisegundos (visto el 2026-10-18); como servicio de usuario, no. Si `$TMP/display` no existe, no sigas: visor iría a la pantalla del usuario.
 
 Cierra solo por PID: `pkill -f` con un patrón presente en tu propia orden mata tu shell, y con la ruta relativa alcanza la instancia del usuario.
 

@@ -131,14 +131,18 @@ def start_sway():
         "output HEADLESS-1 resolution 1920x1080\n"
         "xwayland disable\n"
         f"exec sh -c 'echo $WAYLAND_DISPLAY > {display}'\n")
-    sway_env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "DISPLAY")}
-    sway_env.update(WLR_BACKENDS="headless", WLR_LIBINPUT_NO_DEVICES="1", SWAYSOCK=str(SWAY / "ipc.sock"))
-    proc = subprocess.Popen(["sway", "-c", str(SWAY / "config")], env=sway_env,
-                            stdout=subprocess.DEVNULL, stderr=open(SWAY / "log", "w"))
-    atexit.register(proc.terminate)
+    # As a user service of its own: started as a child of some shells (an agent's),
+    # sway gets SIGKILL within milliseconds, even in its own scope.
+    unit = "visor-medir-sway"
+    subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
+    subprocess.run(["systemd-run", "--user", "--quiet", "--collect", f"--unit={unit}",
+                    "-E", "WLR_BACKENDS=headless", "-E", "WLR_LIBINPUT_NO_DEVICES=1",
+                    "-E", f"SWAYSOCK={SWAY / 'ipc.sock'}", "-E", f"XDG_RUNTIME_DIR={os.environ['XDG_RUNTIME_DIR']}",
+                    "sway", "-c", str(SWAY / "config")], check=True)
+    atexit.register(subprocess.run, ["systemctl", "--user", "stop", unit], capture_output=True)
     deadline = time.time() + 10
     while not (display.exists() and display.read_text().strip()):
-        assert time.time() < deadline and proc.poll() is None, f"sway no arrancó; mira {SWAY / 'log'}"
+        assert time.time() < deadline, f"sway no arrancó; mira journalctl --user -u {unit}"
         time.sleep(0.1)
     env.update(WAYLAND_DISPLAY=display.read_text().strip(), SWAYSOCK=str(SWAY / "ipc.sock"))
     env.pop("DISPLAY", None)
