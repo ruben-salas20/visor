@@ -23,11 +23,12 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 ## Ventana
 
 - **Ventana** (`App` en `app.rs`; `WinId`): cada ventana de visor, con su bóveda, sus lados y sus pestañas. Un solo proceso las abre todas (ADR 0039). Las órdenes de la CLI van a la **ventana con foco**, la última que usó la persona, salvo con `--window N`.
-- **Panel** (`sidebar`, `sidebar.rs`): árbol lateral de la bóveda, en GTK nativo.
-- **Lado** (`Side` en `tabs.rs`; widgets `Pane` en `panes.rs`; en la configuración, `panes` y `PaneState`): cada mitad de la vista dividida, con su fila de pestañas (atrás, adelante y recargar a la izquierda; botones de anotaciones a la derecha) y su barra. Las órdenes de la CLI actúan sobre el lado con el foco.
+- **Panel** (`sidebar`; área `files` del marco): árbol lateral de la bóveda.
+- **Lado** (`Side` en `tabs.rs`; área `sides` del marco; en la configuración, `panes` y `PaneState`): cada mitad de la vista dividida, con su fila de pestañas y su fila de dirección (atrás, adelante, recargar, la ruta y los botones de anotaciones). Las órdenes de la CLI actúan sobre el lado con el foco.
 - **Pestaña** (`Tab`): documento abierto en un lado. La **activa** es la visible de su lado.
 - **Pestaña viva** (`Tab.view` presente): tiene webview. Máximo 3 por ventana (`MAX_LIVE`). La **descargada** (sin `view`) se recarga al volver a ella.
-- **Barra** (`bar`, `bar.rs`): barra de direcciones, solo con la dirección; oculta hasta Ctrl+L, salvo que se fije (`bar_shown`).
+- **Barra** (`bar`; área `bar` del marco): la fila de dirección de cada lado. Escribir en ella (Ctrl+L) vuelve en la fase 1 del port (#35).
+- **Marco** (`frame`, `marco/`): la interfaz de la ventana, en HTML, en su propio webview. Dibuja y pide; Rust decide.
 - **Espacio de trabajo** (`workspace`): pestañas, división y lado con el foco de una bóveda (`workspaces` en la configuración).
 - **Posición de lectura** (`position`): línea y altura, o solo altura. Se guarda al ocultar una pestaña y se restaura al recargarla.
 
