@@ -3,7 +3,7 @@ use crate::trf;
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::windows::{WinId, Windows};
-use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
+use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, Routed, SidebarMsg, UserEvent};
 use crate::ui::address::{self, Engine, Plan};
 use crate::ui::bar::Bar;
 use crate::ui::find;
@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::platform::unix::WindowExtUnix;
 use tao::window::WindowBuilder;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
@@ -89,17 +89,17 @@ pub fn launch() -> i32 {
     };
     let mut claim = Some(claim);
 
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    let proxy = event_loop.create_proxy();
     // One window for now. The socket server already addresses windows by id.
     let win = Windows::new().open();
+    let event_loop = EventLoopBuilder::<Routed>::with_user_event().build();
+    let proxy = Proxy::new(win, event_loop.create_proxy());
     let mut state = Shared::with_saved_events();
     state.focused_window = Some(win);
     state.window_mut(win);
     let shared: SharedRef = Arc::new(Mutex::new(state));
     let agent_proxy = proxy.clone();
     crate::agent::server::spawn(listener, shared.clone(), move |window, request| {
-        let _ = agent_proxy.send_event(UserEvent::Agent(window, request));
+        agent_proxy.to(window).send(UserEvent::Agent(request));
     });
 
     let mut config = Config::load();
@@ -116,7 +116,7 @@ pub fn launch() -> i32 {
     let theme = Theme::load(None, config.theme.as_deref());
     let p = proxy.clone();
     std::thread::spawn(move || {
-        let _ = p.send_event(UserEvent::MonoFont(theme::monospace_font()));
+        p.send(UserEvent::MonoFont(theme::monospace_font()));
     });
     let window = WindowBuilder::new()
         .with_title("Visor")
@@ -174,7 +174,7 @@ pub fn launch() -> i32 {
     }
     paned.pack1(&sidebar.root, false, false);
     paned.pack2(&split, true, true);
-    let tabs = Tabs::new();
+    let tabs = Tabs::new_from(crate::ui::windows::first_view_id(win));
     let first = Pane::new(tabs.side(0).id(), &proxy);
     first.bar().set_visible(config.bar_shown);
     split.pack1(first.root(), true, false);
@@ -237,7 +237,10 @@ pub fn launch() -> i32 {
                 }
                 *flow = ControlFlow::Exit;
             }
-            Event::UserEvent(event) => app.handle(event),
+            Event::UserEvent(Routed { window, event }) => {
+                debug_assert_eq!(window, app.win, "an event reached the wrong window");
+                app.handle(event)
+            }
             _ => {}
         }
     })
@@ -248,7 +251,7 @@ pub fn launch() -> i32 {
 ///
 /// `in_drawing` is set while a drawing is in front: Ctrl+K then goes to the
 /// page, which uses it to add a link.
-fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEvent>, in_drawing: Rc<Cell<bool>>) {
+fn connect_shortcuts(window: &tao::window::Window, proxy: Proxy, in_drawing: Rc<Cell<bool>>) {
     use gtk::gdk::{ModifierType, keys::constants as key};
     window.gtk_window().connect_key_press_event(move |_, event| {
         let ctrl = event.state().contains(ModifierType::CONTROL_MASK);
@@ -298,7 +301,7 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
             _ if alt && k == key::Right => Action::Forward,
             _ => return gtk::glib::Propagation::Proceed,
         };
-        let _ = proxy.send_event(UserEvent::Action(action));
+        proxy.send(UserEvent::Action(action));
         gtk::glib::Propagation::Stop
     });
 }
@@ -372,7 +375,7 @@ struct App {
     shared: SharedRef,
     /// The window this app runs. Agents address it by id.
     win: WinId,
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: Proxy,
     config: Config,
     /// Changes in `config` not yet written, and whether a write is already scheduled.
     config_dirty: bool,
@@ -447,7 +450,7 @@ impl App {
         let proxy = self.proxy.clone();
         let asked = view.evaluate_script_with_callback(page_calls::note_find(), move |answer| {
             if find::native_wanted(&answer) {
-                let _ = proxy.send_event(UserEvent::Action(Action::FindNative));
+                proxy.send(UserEvent::Action(Action::FindNative));
             }
         });
         if asked.is_err() {
@@ -608,7 +611,7 @@ impl App {
                     {
                         let proxy = self.proxy.clone();
                         let _ = v.evaluate_script_with_callback(page_calls::hide(), move |json| {
-                            let _ = proxy.send_event(UserEvent::Position { view, json });
+                            proxy.send(UserEvent::Position { view, json });
                         });
                     }
                 }
@@ -893,7 +896,7 @@ impl App {
             self.save_scheduled = true;
             let proxy = self.proxy.clone();
             gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || {
-                let _ = proxy.send_event(UserEvent::SaveConfig);
+                proxy.send(UserEvent::SaveConfig);
             });
         }
     }
@@ -970,8 +973,7 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Agent(window, request) => {
-                debug_assert_eq!(window, self.win, "an agent order reached the wrong window");
+            UserEvent::Agent(request) => {
                 match request {
                     AgentRequest::Open { path, raw, place, loose, reply } => {
                         let _ = reply.send(self.open(path, &raw, place, loose));
@@ -1039,7 +1041,7 @@ impl App {
         std::thread::spawn(move || {
             let outcome = crate::update::run(true);
             let installed = matches!(outcome, crate::update::Outcome::Installed(_));
-            let _ = proxy.send_event(UserEvent::UpdateDone { message: outcome.message(), installed });
+            proxy.send(UserEvent::UpdateDone { message: outcome.message(), installed });
         });
     }
 
@@ -1060,7 +1062,7 @@ impl App {
             let (decided, proxy) = (decided.clone(), self.proxy.clone());
             gtk::glib::timeout_add_local_once(RESTART_WAIT, move || {
                 if !decided.swap(true, Ordering::SeqCst) {
-                    let _ = proxy.send_event(UserEvent::RestartChecked(RestartCheck::Unknown));
+                    proxy.send(UserEvent::RestartChecked(RestartCheck::Unknown));
                 }
             });
         }
@@ -1075,7 +1077,7 @@ impl App {
                     } else {
                         RestartCheck::Clear
                     };
-                    let _ = proxy.send_event(UserEvent::RestartChecked(check));
+                    proxy.send(UserEvent::RestartChecked(check));
                 }
             }
         };
@@ -1402,7 +1404,7 @@ impl App {
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new().set_title(tr("Abrir carpeta como bóveda", "Open folder as vault")).pick_folder();
             let picked = picked.and_then(|p| p.canonicalize().ok());
-            let _ = proxy.send_event(UserEvent::Picked(picked));
+            proxy.send(UserEvent::Picked(picked));
         });
     }
 

@@ -4,6 +4,7 @@
 use crate::session::AgentRequest;
 use crate::ui::windows::WinId;
 use std::path::PathBuf;
+use tao::event_loop::EventLoopProxy;
 
 /// What the person did in the panel. Paths are relative to the vault and
 /// unchecked: Rust validates each one before acting.
@@ -25,6 +26,41 @@ pub enum SidebarMsg {
     OpenFolders(Vec<String>),
 }
 
+/// An event and the window it is for.
+pub struct Routed {
+    pub window: WinId,
+    pub event: UserEvent,
+}
+
+/// Sends events to the loop on behalf of one window.
+#[derive(Clone)]
+pub struct Proxy {
+    window: WinId,
+    inner: EventLoopProxy<Routed>,
+}
+
+impl Proxy {
+    pub fn new(window: WinId, inner: EventLoopProxy<Routed>) -> Self {
+        Proxy { window, inner }
+    }
+
+    // Read once events are routed to the App of their window (#39, step 6).
+    #[allow(dead_code)]
+    pub fn window(&self) -> WinId {
+        self.window
+    }
+
+    /// The same loop, on behalf of another window.
+    pub fn to(&self, window: WinId) -> Proxy {
+        Proxy { window, inner: self.inner.clone() }
+    }
+
+    /// Ignores a closed loop, as every caller did with `let _ = send_event(..)`.
+    pub fn send(&self, event: UserEvent) {
+        let _ = self.inner.send_event(Routed { window: self.window, event });
+    }
+}
+
 pub enum UserEvent {
     Sidebar(SidebarMsg),
     /// A message from a page view, with the URL of the page that sent it.
@@ -34,7 +70,7 @@ pub enum UserEvent {
     /// A page view got the keyboard focus.
     Focused(u64),
     /// An order from the agent socket server, for the window it names.
-    Agent(WinId, AgentRequest),
+    Agent(AgentRequest),
     Picked(Option<PathBuf>),
     VaultChanged(Vec<PathBuf>),
     LooseChanged(Vec<PathBuf>),
