@@ -1,6 +1,6 @@
 # 0004. Iconos dibujados con cairo, ninguno del tema
 
-**Estado:** Aceptada · **Fecha:** 2026-10-09
+**Estado:** Aceptada · **Fecha:** 2026-10-09 · Sustituida por el [0040](0040-interfaz-en-html-y-winit-en-windows.md) cuando el marco en HTML reemplace a la interfaz GTK
 
 ## Contexto
 

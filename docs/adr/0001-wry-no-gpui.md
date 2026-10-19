@@ -1,6 +1,6 @@
 # 0001. wry en lugar de GPUI
 
-**Estado:** Aceptada
+**Estado:** Aceptada; ampliada por el [0040](0040-interfaz-en-html-y-winit-en-windows.md) (winit en Windows, interfaz en HTML)
 
 ## Decisión
 
