@@ -136,22 +136,6 @@ impl Theme {
         let [r, g, b] = rgb(&self.bg).unwrap_or([0, 0, 0]);
         (r, g, b, 255)
     }
-
-    /// `pct` percent of the text color over the background, like the sidebar's
-    /// `color-mix()` tones, which GTK's CSS lacks.
-    pub fn tone(&self, pct: f32) -> String {
-        mix(&self.bg, &self.fg, pct).unwrap_or_else(|| self.muted.clone())
-    }
-
-    pub fn accent_tone(&self, pct: f32) -> String {
-        mix(&self.bg, &self.accent, pct).unwrap_or_else(|| self.selection.clone())
-    }
-}
-
-fn mix(base: &str, over: &str, pct: f32) -> Option<String> {
-    let (a, b) = (rgb(base)?, rgb(over)?);
-    let channel = |i: usize| (a[i] as f32 * (100.0 - pct) / 100.0 + b[i] as f32 * pct / 100.0).round() as u8;
-    Some(format!("#{:02x}{:02x}{:02x}", channel(0), channel(1), channel(2)))
 }
 
 /// Reads the flat `key = "value"` lines of colors.toml.
@@ -214,11 +198,6 @@ mod tests {
         assert!(!Theme::from_text(CLARO, None).unwrap().dark);
         assert_eq!(Theme::from_text(OSCURO, None).unwrap().bg, "#121212");
         assert_eq!(Theme::from_text(CLARO, None).unwrap().bg, "#ffffff");
-    }
-
-    #[test]
-    fn mixes_colors() {
-        assert_eq!(mix("#000000", "#ffffff", 50.0).as_deref(), Some("#808080"));
     }
 
     #[test]

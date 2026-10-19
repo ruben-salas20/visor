@@ -26,7 +26,7 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct Dir {
     pub name: String,
     pub path: String,
@@ -34,7 +34,7 @@ pub struct Dir {
     pub files: Vec<File>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct File {
     /// The stem for pages, the whole file name for the rest.
     pub name: String,

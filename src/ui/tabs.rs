@@ -25,6 +25,8 @@ pub enum Effect {
     AddSide { id: u64 },
     /// Drops side `side`; the one left moves to the left.
     RemoveSide { side: usize },
+    // Phase 1, area B: a file dropped on the left half.
+    #[allow(dead_code)]
     SwapSides,
     /// Builds the view of a tab in `side`, hidden, and loads `target`.
     Create { side: usize, view: u64, target: String, fragment: String },
@@ -156,6 +158,7 @@ pub struct Navigated {
 
 /// What `loaded` found out about the tab.
 pub struct Loaded {
+    #[allow(dead_code)]
     pub side: usize,
     /// Reading position to put back in the reloaded page.
     pub restore: Option<String>,
@@ -251,6 +254,8 @@ impl Tabs {
     }
 
     /// Whether the strip of side `p` has to be drawn again, and marks it clean.
+    /// The frame compares whole snapshots instead; phase 1 may draw less with it.
+    #[allow(dead_code)]
     pub fn take_dirty(&mut self, p: usize) -> bool {
         std::mem::take(&mut self.sides[p].dirty)
     }
@@ -491,6 +496,7 @@ impl Tabs {
     }
 
     /// Swaps the two sides and focuses the left one.
+    #[allow(dead_code)]
     pub fn swap_sides(&mut self) -> Vec<Effect> {
         self.sides.swap(0, 1);
         self.focused = 0;

@@ -1,15 +1,21 @@
-//! What reaches the window's event loop: events from pages, the panel, the
+//! What reaches the window's event loop: events from pages, the frame, the
 //! agent server and the file watchers, and the actions the controls trigger.
 
 use crate::session::AgentRequest;
+use crate::ui::protocol::FrameMsg;
+use serde::Deserialize;
 use crate::ui::windows::WinId;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What the person did in the panel. Paths are relative to the vault and
-/// unchecked: Rust validates each one before acting.
+/// unchecked: Rust validates each one before acting. The frame sends these
+/// with `"area": "files"` (see `ui/protocol.rs`).
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SidebarMsg {
     PickVault,
+    /// Only a vault in the settings' list is opened.
     SwitchVault { path: PathBuf },
     RemoveVault { path: PathBuf },
     Open { path: String, tab: bool, beside: bool },
@@ -19,11 +25,8 @@ pub enum SidebarMsg {
     /// Opens a file visor cannot show with the program the system gives it.
     OpenElsewhere { path: String },
     Move { path: String, dir: String },
-    /// A file started being dragged; the pages can take it while it lasts.
-    DragStart { path: String },
-    DragEnd,
     /// The folders now open in the tree, to restore them next time.
-    OpenFolders(Vec<String>),
+    OpenFolders { folders: Vec<String> },
 }
 
 /// An event and the window it is for.
@@ -64,7 +67,8 @@ impl Proxy {
 }
 
 pub enum UserEvent {
-    Sidebar(SidebarMsg),
+    /// An order from the frame, already checked: see `protocol::accept_frame`.
+    Frame(FrameMsg),
     /// A message from a page view, with the URL of the page that sent it.
     Page { view: u64, url: String, body: String },
     Navigated { view: u64, url: String },
@@ -87,12 +91,6 @@ pub enum UserEvent {
     ResourceFailed { view: u64, uri: String, reason: LoadFailure },
     /// The reading position a page reported as its tab was hidden.
     Position { view: u64, json: String },
-    /// A file dragged from the sidebar was dropped on a side: on one half of
-    /// it (0 left, 1 right) when the window is not split, or on all of it.
-    Dropped { pane: u64, half: Option<usize> },
-    /// The zone of a side under a dragged file changed: 0 left half, 1 right
-    /// half, 2 the whole side, or none when the pointer left it.
-    DropHover { pane: u64, zone: Option<u8> },
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,
@@ -136,13 +134,17 @@ pub enum Action {
     Back,
     Forward,
     FocusAddress,
+    // Phase 1, area C: typing in the address.
+    #[allow(dead_code)]
     LeaveAddress,
     /// The address field lost focus; a hidden bar hides again.
+    #[allow(dead_code)]
     AddressDone,
     NewNote,
     ToggleEdit,
     PickElement,
     ToggleAnnotations,
+    #[allow(dead_code)]
     Go(String),
     NewTab,
     /// Closes the tab with this id, or the focused one.
@@ -153,21 +155,27 @@ pub enum Action {
     SelectNth(usize),
     SelectTab(u64),
     ToggleSplit,
-    /// Makes the pane with this id the one keys and agents act on.
-    FocusPane(u64),
     /// Moves the keyboard focus to the left (0) or right (1) side.
     FocusSide(usize),
+    // Phase 1, area E: the settings popover sends these.
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
+    #[allow(dead_code)]
     SetTheme(Option<String>),
     /// The language chosen in the settings: "es", "en", or `None` for the system's.
+    #[allow(dead_code)]
     SetLanguage(Option<String>),
+    #[allow(dead_code)]
     SetAutoUpdate(bool),
+    #[allow(dead_code)]
     SetShowOtherFiles(bool),
     /// The engine for text in the address field that is not an address.
+    #[allow(dead_code)]
     SetSearchEngine(crate::ui::address::Engine),
     /// Checks for a new version now and installs it if there is one.
+    #[allow(dead_code)]
     CheckUpdates,
     /// Restarts visor on the installed version, if no note has unsaved text.
+    #[allow(dead_code)]
     Restart,
     /// Shows the sidebar if hidden and opens its settings popover.
     Settings,

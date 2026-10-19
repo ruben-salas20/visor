@@ -23,6 +23,7 @@ use crate::ui::watch::watch;
 use crate::ui::windows::{Closed, WinId, Windows};
 use crate::vault;
 use crate::vault::config::{Config, WindowState, Workspace};
+use gtk::prelude::CssProviderExt;
 use notify::RecursiveMode;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -58,7 +59,7 @@ pub fn launch() -> i32 {
     });
 
     let mut config = Config::load();
-    let Some(crate::http::Started { port, loose_base }) = crate::http::start(config.port, shared.clone()) else {
+    let Some(crate::http::Started { port, loose_base, frame_base }) = crate::http::start(config.port, shared.clone()) else {
         eprintln!("{}", tr("No se pudo iniciar el servidor local.", "Could not start the local server."));
         return 1;
     };
@@ -81,14 +82,18 @@ pub fn launch() -> i32 {
     // (DocumentViewer frees ~700 MB after heavy sites, but CDN libraries then
     // reload slower and fail offline; the disk cache does not slow startup).
     let context = WebContext::new(None);
-    // Once for the screen, so every window takes the same styles.
+    // Once for the screen, so every window takes the same styles. GTK only
+    // draws the window now: the frame and the pages cover it.
     let styles = gtk::CssProvider::new();
+    // GTK3 repaints the window background under the pages on every frame of
+    // an animation; they cover it, so it would cost ~2% CPU for nothing.
+    let _ = styles.load_from_data(b"window.background { background: none; }");
     if let Some(screen) = gtk::gdk::Screen::default() {
         gtk::StyleContext::add_provider_for_screen(&screen, &styles, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
     let auto_update = config.auto_update != Some(false);
     let (states, focus) = if loose { (vec![WindowState::default()], 0) } else { config.restore_windows() };
-    let common: CommonRef = Rc::new(RefCell::new(Common::new(config, theme, context, styles, port, process.clone())));
+    let common: CommonRef = Rc::new(RefCell::new(Common::new(config, theme, context, port, frame_base, process.clone())));
 
     let mut visor = Visor {
         common,
@@ -206,7 +211,7 @@ impl Visor {
         app.restyle();
         let vault = state.vault.filter(|p| !loose && p.is_dir());
         app.show_vault_with(vault, workspace);
-        app.draw_strips();
+        app.sync_frame();
         app.present(token);
         self.by_tao.insert(app.tao_id(), w);
         self.apps.insert(w, app);
@@ -370,7 +375,7 @@ impl Visor {
                 trf!("No se pudo reiniciar: {error}.", "Could not restart: {error}.")
             }
         };
-        if let Some(app) = self.apps.get(&from) {
+        if let Some(app) = self.apps.get_mut(&from) {
             app.restart_failed(&failed);
         }
     }

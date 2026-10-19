@@ -49,9 +49,11 @@ pub fn note_find() -> &'static str {
 /// The page's own search (`find.js`), for the pages of the vault and loose
 /// files. `loaded` says whether the page answered before, with
 /// `window.__visorFind` in it: then the call goes straight to it and carries
-/// no script again.
+/// no script again. Phase 1, area D: the find bar calls these.
+#[allow(dead_code)]
 const FIND: &str = include_str!("../page/find.js");
 
+#[allow(dead_code)]
 fn find_call(call: &str, loaded: bool) -> String {
     if loaded {
         format!("JSON.stringify(window.__visorFind.{call})")
@@ -62,16 +64,19 @@ fn find_call(call: &str, loaded: bool) -> String {
 
 /// Searches the page for `text` and shows its first match. The answer is the
 /// JSON `{current, total}` that `find::parse_answer` reads.
+#[allow(dead_code)]
 pub fn find_search(text: &str, match_case: bool, whole_word: bool, loaded: bool) -> String {
     find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)), loaded)
 }
 
 /// Shows the next match (`forward`) or the previous one, wrapping around.
+#[allow(dead_code)]
 pub fn find_step(forward: bool, loaded: bool) -> String {
     find_call(if forward { "next()" } else { "previous()" }, loaded)
 }
 
 /// Removes the highlights of the page's search.
+#[allow(dead_code)]
 pub fn find_clear(loaded: bool) -> String {
     find_call("clear()", loaded)
 }
@@ -150,7 +155,8 @@ pub fn theme_changed(dark: bool) -> String {
 
 /// Frosted glass over a page to mark where a dragged file would land: a half
 /// (0 left, 1 right), the whole page (any other zone), or nothing (`None`).
-/// `accent` is a CSS colour from the theme.
+/// `accent` is a CSS colour from the theme. Phase 1: dragging from the panel.
+#[allow(dead_code)]
 pub fn frost(zone: Option<u8>, accent: &str) -> String {
     let (left, right) = match zone {
         Some(0) => ("8px", "calc(50% + 4px)"),

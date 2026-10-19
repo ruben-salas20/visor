@@ -1,5 +1,6 @@
 //! Serves each open vault on a loopback address of its own (127.0.0.1, .3,
-//! .4…), and pages opened on their own on 127.0.0.2, over plain HTTP.
+//! .4…), pages opened on their own on 127.0.0.2, and the frame (the window's
+//! interface, `assets/marco/`) on 127.0.0.255, over plain HTTP.
 //! WebKitGTK only plays video and offers Media Source to network origins,
 //! not to custom schemes.
 
@@ -22,7 +23,15 @@ pub struct Started {
     pub port: u16,
     /// URL prefix of loose pages, on an origin of their own.
     pub loose_base: String,
+    /// URL prefix of the frame, on an origin no page shares.
+    pub frame_base: String,
 }
+
+/// The frame's address: vaults take 127.0.0.1 and 3 to 254 (`Config::origin_for`), loose pages .2.
+const FRAME_ADDRESS: &str = "127.0.0.255";
+
+/// Where the frame's files are among the bundled assets.
+const FRAME_ASSETS: &str = "marco/";
 
 /// What one origin serves. Each vault gets an origin of its own, on its own
 /// loopback address and with its own secret, so a page of one vault can read
@@ -31,6 +40,8 @@ pub struct Started {
 enum Realm {
     Vault(Arc<Vault>),
     Loose,
+    /// Only the frame's own files.
+    Frame,
 }
 
 /// Starts the origin of loose pages. The preferred port is reused so pages
@@ -42,8 +53,13 @@ pub fn start(preferred_port: Option<u16>, shared: SharedRef) -> Option<Started> 
     // path they cannot read the pages.
     let prefix = format!("/{}/", secret()?);
     let loose_base = format!("http://127.0.0.2:{port}{prefix}");
-    serve(loose, Realm::Loose, format!("127.0.0.2:{port}"), prefix, shared);
-    Some(Started { port, loose_base })
+    serve(loose, Realm::Loose, format!("127.0.0.2:{port}"), prefix, shared.clone());
+    let frame = listen(FRAME_ADDRESS, Some(port))?;
+    let frame_port = port_of(&frame)?;
+    let frame_prefix = format!("/{}/", secret()?);
+    let frame_base = format!("http://{FRAME_ADDRESS}:{frame_port}{frame_prefix}");
+    serve(frame, Realm::Frame, format!("{FRAME_ADDRESS}:{frame_port}"), frame_prefix, shared);
+    Some(Started { port, loose_base, frame_base })
 }
 
 /// Starts the origin of the vault at `root`, on `127.0.0.<host>` and the
@@ -129,8 +145,15 @@ fn handle(request: Request, realm: &Realm, shared: &SharedRef, prefix: &str, hos
         let _ = request.respond(text(404, tr("No encontrado", "Not found")));
         return;
     };
-    // Both origins serve the bundled libraries: a loose note's page loads them from its own origin.
-    if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS) {
+    if let Realm::Frame = realm {
+        serve_asset(request, &format!("{FRAME_ASSETS}{rel}"));
+        return;
+    }
+    // Both page origins serve the bundled libraries: a loose note's page loads them from its own origin.
+    // The frame's files are the frame's alone.
+    if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS)
+        && !name.starts_with(FRAME_ASSETS)
+    {
         serve_asset(request, name);
         return;
     }
@@ -141,6 +164,7 @@ fn handle(request: Request, realm: &Realm, shared: &SharedRef, prefix: &str, hos
         return;
     }
     let Realm::Vault(vault) = realm else {
+        // Only the loose origin is left: the frame's was answered above.
         let allowed = shared.lock().unwrap().loose_folders();
         let range = value("Range");
         match vault::loose_file(Path::new(&rel), &allowed) {

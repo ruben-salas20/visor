@@ -22,7 +22,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent.parent  # raíz del worktree
 
-PORTABLE_UI = ["action", "address", "page_calls", "tabs", "watch", "windows"]
+PORTABLE_UI = ["action", "address", "page_calls", "protocol", "tabs", "watch", "windows"]
+# Modules with a folder of submodules (`ui/protocol/`).
+PORTABLE_DIRS = ["protocol"]
 CONTROL_UI = PORTABLE_UI + ["page_view"]
 UI_DEPS = {"cairo-rs", "gtk", "rfd", "tao", "webkit2gtk", "wry"}
 
@@ -80,6 +82,8 @@ def main() -> int:
     modules = CONTROL_UI if control else PORTABLE_UI
     for name in modules:
         shutil.copy2(SRC / "src" / "ui" / f"{name}.rs", ui_dir / f"{name}.rs")
+        if name in PORTABLE_DIRS:
+            shutil.copytree(SRC / "src" / "ui" / name, ui_dir / name)
     ui_mod = ["//! Subconjunto portátil de la interfaz, para la prueba W1 (copia generada)."]
     ui_mod += [f"pub mod {name};" for name in sorted(modules)]
     (dest / "src" / "ui.rs").write_text("\n".join(ui_mod) + "\n", encoding="utf-8")

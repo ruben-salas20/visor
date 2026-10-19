@@ -1,5 +1,4 @@
-//! What every window shares: the settings, the theme, the one web context and
-//! the app-wide CSS. A window reaches it through `CommonRef`. How to borrow it
+//! What every window shares: the settings, the theme and the one web context. A window reaches it through `CommonRef`. How to borrow it
 //! safely is described in `ui/visor.rs`.
 
 use crate::i18n::tr;
@@ -34,9 +33,10 @@ pub struct Common {
     pub mono: Option<String>,
     pub background: (u8, u8, u8, u8),
     pub context: WebContext,
-    pub styles: gtk::CssProvider,
     /// The port of every origin of the local server.
     port: u16,
+    /// Where the frame is served: its origin and secret prefix.
+    pub frame_base: String,
     /// Every vault opened since the start, each with its own origin, by the
     /// path it was opened with. Two windows on one vault share it.
     vaults: HashMap<PathBuf, Arc<Vault>>,
@@ -44,7 +44,7 @@ pub struct Common {
 
 impl Common {
     /// `saver` sends to the process (window 0).
-    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, styles: gtk::CssProvider, port: u16, saver: Proxy) -> Self {
+    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, port: u16, frame_base: String, saver: Proxy) -> Self {
         let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
         Common {
             config,
@@ -55,8 +55,8 @@ impl Common {
             mono: None,
             background,
             context,
-            styles,
             port,
+            frame_base,
             vaults: HashMap::new(),
         }
     }
