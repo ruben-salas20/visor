@@ -1,5 +1,6 @@
 // Area C, the address row of a side: back, forward, reload, where the page
 // is, the address field (Ctrl+L) and the annotation buttons.
+import { tr } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChevronRight, Crosshair, ListTree, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -77,13 +78,13 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
   }
   return (
     <div className={cn('flex h-[26px] shrink-0 items-center gap-0.5 border-b px-1.5', !focused && 'opacity-75')}>
-      <button className={cn(icon, !address.back && 'opacity-40')} title="Atrás (Alt+←)" onClick={() => post({ area: 'bar', type: 'back', side })}>
+      <button className={cn(icon, !address.back && 'opacity-40')} title={tr('Atrás (Alt+←)', 'Back (Alt+←)')} onClick={() => post({ area: 'bar', type: 'back', side })}>
         <ArrowLeft className="size-3.5" />
       </button>
-      <button className={cn(icon, !address.forward && 'opacity-40')} title="Adelante (Alt+→)" onClick={() => post({ area: 'bar', type: 'forward', side })}>
+      <button className={cn(icon, !address.forward && 'opacity-40')} title={tr('Adelante (Alt+→)', 'Forward (Alt+→)')} onClick={() => post({ area: 'bar', type: 'forward', side })}>
         <ArrowRight className="size-3.5" />
       </button>
-      <button className={icon} title="Recargar (Ctrl+R)" onClick={() => post({ area: 'bar', type: 'reload', side })}>
+      <button className={icon} title={tr('Recargar (Ctrl+R)', 'Reload (Ctrl+R)')} onClick={() => post({ area: 'bar', type: 'reload', side })}>
         <RotateCw className="size-3.5" />
       </button>
       {typing ? (
@@ -91,9 +92,9 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
           key={edit}
           autoFocus
           spellCheck={false}
-          aria-label="Dirección"
+          aria-label={tr('Dirección', 'Address')}
           aria-invalid={marked}
-          placeholder="Ruta, dirección web o búsqueda (Ctrl+L)"
+          placeholder={tr('Ruta, dirección web o búsqueda (Ctrl+L)', 'Path, web address or search (Ctrl+L)')}
           value={text}
           onChange={(e) => {
             setText(e.target.value)
@@ -123,7 +124,7 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
       ) : (
         <div
           className="flex min-w-0 flex-1 cursor-text"
-          title="Escribe una dirección (Ctrl+L)"
+          title={tr('Escribe una dirección (Ctrl+L)', 'Type an address (Ctrl+L)')}
           onClick={() => {
             setText(address.target)
             setMarked(false)
@@ -135,10 +136,10 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
       )}
       {address.annotations && (
         <>
-          <button className={icon} title="Anotar un elemento (Ctrl+Shift+A)" onClick={() => post({ area: 'bar', type: 'pick_element', side })}>
+          <button className={icon} title={tr('Anotar un elemento (Ctrl+Shift+A)', 'Annotate an element (Ctrl+Shift+A)')} onClick={() => post({ area: 'bar', type: 'pick_element', side })}>
             <Crosshair className="size-3.5" />
           </button>
-          <button className={icon} title="Anotaciones de la página (Ctrl+Shift+L)" onClick={() => post({ area: 'bar', type: 'toggle_annotations', side })}>
+          <button className={icon} title={tr('Anotaciones de la página (Ctrl+Shift+L)', 'Page annotations (Ctrl+Shift+L)')} onClick={() => post({ area: 'bar', type: 'toggle_annotations', side })}>
             <ListTree className="size-3.5" />
           </button>
         </>

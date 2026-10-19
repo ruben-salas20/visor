@@ -31,6 +31,7 @@ impl App {
             kind: kind_of(self.tabs.focused_side().tab().target()),
             zoom: self.cfg(|c| c.zoom.unwrap_or(1.0)),
             version: env!("CARGO_PKG_VERSION"),
+            lang: crate::i18n::lang().code(),
             update: self.update_message.clone(),
             update_busy: self.update_busy,
             update_restart: self.update_restart,

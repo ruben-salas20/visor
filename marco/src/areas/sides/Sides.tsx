@@ -2,6 +2,7 @@
 // hole where Rust puts its pages. Between two sides, the divider. The drop
 // zones over the pages and page fullscreen are Rust's (src/ui/host.rs): the
 // pages lie over the frame, so the frame never sees what passes over them.
+import { tr } from '@/i18n'
 import { Plus, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AddressRow } from '@/areas/bar/AddressRow'
@@ -47,7 +48,7 @@ function TabRow({ side, focused }: { side: SideState; focused: boolean }) {
             <div
               key={t.id}
               data-active={active || undefined}
-              title={t.target || 'Nueva pestaña'}
+              title={t.target || tr('Nueva pestaña', 'New tab')}
               onClick={() => post({ area: 'sides', type: 'select', tab: t.id })}
               // Without this, the middle button starts WebKit's autoscroll.
               onMouseDown={(e) => e.button === 1 && e.preventDefault()}
@@ -61,7 +62,7 @@ function TabRow({ side, focused }: { side: SideState; focused: boolean }) {
               <KindIcon kind={t.kind} className={cn('size-3 shrink-0', active && focused ? 'text-primary' : 'opacity-70')} />
               <span className={cn('min-w-0 flex-1 truncate', !focused && 'opacity-80')}>{t.label}</span>
               <button
-                title="Cerrar pestaña (Ctrl+W)"
+                title={tr('Cerrar pestaña (Ctrl+W)', 'Close tab (Ctrl+W)')}
                 onClick={(e) => {
                   e.stopPropagation()
                   post({ area: 'sides', type: 'close', tab: t.id })
@@ -75,7 +76,7 @@ function TabRow({ side, focused }: { side: SideState; focused: boolean }) {
         })}
       </div>
       <div className="flex min-w-[30px] flex-1 items-center border-b pl-1">
-        <button className={icon} title="Nueva pestaña (Ctrl+T)" onClick={() => post({ area: 'sides', type: 'new', side: side.id })}>
+        <button className={icon} title={tr('Nueva pestaña (Ctrl+T)', 'New tab (Ctrl+T)')} onClick={() => post({ area: 'sides', type: 'new', side: side.id })}>
           <Plus className="size-3.5" />
         </button>
       </div>
@@ -118,7 +119,7 @@ function Divider({ main, onMove }: { main: React.RefObject<HTMLElement | null>; 
     <div
       role="separator"
       aria-orientation="vertical"
-      title="Arrastra para cambiar el ancho de los lados"
+      title={tr('Arrastra para cambiar el ancho de los lados', 'Drag to change the width of the sides')}
       className="group relative w-[5px] shrink-0 cursor-col-resize touch-none bg-background"
       onPointerDown={(e) => {
         if (e.button !== 0) return

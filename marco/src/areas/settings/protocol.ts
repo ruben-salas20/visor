@@ -23,6 +23,8 @@ export type Status = {
   /** 1 for 100 %. */
   zoom: number
   version: string
+  /** The interface language in use: the frame's texts follow it. */
+  lang: 'es' | 'en'
   /** The last result of an update check or a restart, if any. */
   update: string | null
   update_busy: boolean

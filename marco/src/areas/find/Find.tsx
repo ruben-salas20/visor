@@ -1,5 +1,6 @@
 // Area D: the find bar (Ctrl+F). It lies over the focused side's page, and
 // Sides loads it only while it is open. The counter and the search are Rust's.
+import { tr } from '@/i18n'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -60,8 +61,8 @@ export default function Find() {
           ref={field}
           autoFocus
           spellCheck={false}
-          aria-label="Texto a buscar"
-          placeholder="Buscar en la página"
+          aria-label={tr('Texto a buscar', 'Text to find')}
+          placeholder={tr('Buscar en la página', 'Find in page')}
           value={text}
           onChange={(e) => {
             setText(e.target.value)
@@ -82,7 +83,7 @@ export default function Find() {
       </div>
       <button
         className={cn(step, 'h-6')}
-        title="Anterior (Mayús+Enter)"
+        title={tr('Anterior (Mayús+Enter)', 'Previous (Shift+Enter)')}
         disabled={!found}
         onClick={() => post({ area: 'find', type: 'step', forward: false })}
       >
@@ -90,7 +91,7 @@ export default function Find() {
       </button>
       <button
         className={cn(step, 'h-6')}
-        title="Siguiente (Enter)"
+        title={tr('Siguiente (Enter)', 'Next (Enter)')}
         disabled={!found}
         onClick={() => post({ area: 'find', type: 'step', forward: true })}
       >
@@ -106,7 +107,7 @@ export default function Find() {
             search({ match_case: e.target.checked })
           }}
         />
-        Mayúsculas
+        {tr('Mayúsculas', 'Match case')}
       </label>
       <label className={check}>
         <input
@@ -118,9 +119,9 @@ export default function Find() {
             search({ whole_word: e.target.checked })
           }}
         />
-        Palabra completa
+        {tr('Palabra completa', 'Whole word')}
       </label>
-      <button className={cn(step, 'h-6 text-muted-foreground')} title="Cerrar (Esc)" onClick={close}>
+      <button className={cn(step, 'h-6 text-muted-foreground')} title={tr('Cerrar (Esc)', 'Close (Esc)')} onClick={close}>
         <X className="size-4" />
       </button>
     </div>
