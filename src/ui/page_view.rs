@@ -65,6 +65,7 @@ pub fn build_page(
     context: &mut WebContext,
     background: (u8, u8, u8, u8),
     proxy: EventLoopProxy<UserEvent>,
+    vault_base: &str,
     id: u64,
 ) -> wry::Result<(WebView, Document)> {
     // A key only visor's scripts in the main frame know: wry injects them there
@@ -82,7 +83,7 @@ pub fn build_page(
         .with_background_color(background)
         .with_initialization_script(
             BRIDGE
-                .replace("__VISOR_BASE__", vault::base())
+                .replace("__VISOR_BASE__", vault_base)
                 .replace("__VISOR_LOOSE_BASE__", vault::loose_base())
                 .replace("__VISOR_KEY__", &key)
                 .replace("__VISOR_LANG__", crate::i18n::lang().code()),
@@ -90,7 +91,7 @@ pub fn build_page(
         // One script: annot.js takes the quote helpers off window before any page script runs.
         .with_initialization_script(format!(
             "{ANNOT_QUOTE}\n{}",
-            ANNOT.replace("__VISOR_BASE__", vault::base()).replace("__VISOR_LANG__", crate::i18n::lang().code())
+            ANNOT.replace("__VISOR_BASE__", vault_base).replace("__VISOR_LANG__", crate::i18n::lang().code())
         ))
         .with_ipc_handler(move |request: Request<String>| {
             let url = sender.borrow().clone();

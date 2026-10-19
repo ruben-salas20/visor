@@ -11,9 +11,9 @@ const STYLE: &str = include_str!("../page/pdf.css");
 
 /// The page that shows the PDF at `rel`: the full viewer of PDF.js, loaded only
 /// here and from the vault's own address. `pdf.js` puts its markup in the body.
-pub fn page(rel: &str) -> String {
-    let assets = format!("{}{ASSETS}pdfjs/", vault::base());
-    let document = format!("{}?raw", vault::url(rel));
+pub fn page(rel: &str, vault: &vault::Vault) -> String {
+    let assets = format!("{}{ASSETS}pdfjs/", vault.base());
+    let document = format!("{}?raw", vault.url(rel));
     let title = Path::new(rel).file_name().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     let lang = crate::i18n::lang().code();
     // A `<` in a file name must not end the script tag.
@@ -59,6 +59,9 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// The base the tests give their vaults: the global one is unset in tests.
+    const TEST_BASE: &str = "http://127.0.0.1:1/s/";
+
     /// A folder of the test's own, removed at the end.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("visor-{name}-{}", std::process::id()));
@@ -71,7 +74,7 @@ mod tests {
     fn a_pdf_of_the_vault_is_the_file_shown() {
         let dir = scratch("pdf-boveda");
         fs::write(dir.join("libro.pdf"), b"%PDF-1.4").unwrap();
-        let v = vault::Vault::open(&dir);
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
         let (_, path) = v.page_at("libro.pdf").unwrap();
         assert_eq!(pdf_file(path).unwrap().file_name().unwrap(), "libro.pdf");
         let _ = fs::remove_dir_all(&dir);
@@ -82,9 +85,9 @@ mod tests {
         let dir = scratch("pdf-abrir-fuera");
         fs::write(dir.join("libro.pdf"), b"%PDF-1.4").unwrap();
         fs::write(dir.join("nota.html"), "<p>x</p>").unwrap();
-        let v = vault::Vault::open(&dir);
-        assert!(file_for(&v, &vault::url("libro.pdf")).is_ok());
-        assert!(file_for(&v, &vault::url("nota.html")).is_err());
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
+        assert!(file_for(&v, &v.url("libro.pdf")).is_ok());
+        assert!(file_for(&v, &v.url("nota.html")).is_err());
         assert!(file_for(&v, "https://example.com/libro.pdf").is_err());
         assert!(file_for(&v, "http://127.0.0.2:1/s/libro.pdf").is_err());
         let _ = fs::remove_dir_all(&dir);
@@ -94,7 +97,7 @@ mod tests {
     fn a_page_that_is_not_a_pdf_is_refused() {
         let dir = scratch("pdf-no-pdf");
         fs::write(dir.join("nota.html"), "<p>x</p>").unwrap();
-        let v = vault::Vault::open(&dir);
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
         let (_, path) = v.page_at("nota.html").unwrap();
         assert!(pdf_file(path).is_err());
         let _ = fs::remove_dir_all(&dir);
@@ -109,7 +112,7 @@ mod tests {
         fs::write(dir.join(".oculto/x.pdf"), b"%PDF-1.4").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside.join("secreto.pdf"), dir.join("enlace.pdf")).unwrap();
-        let v = vault::Vault::open(&dir);
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
         assert!(v.page_at(".oculto/x.pdf").is_err());
         assert!(v.page_at(&outside.join("secreto.pdf").to_string_lossy()).is_err());
         #[cfg(unix)]
@@ -120,17 +123,23 @@ mod tests {
 
     #[test]
     fn the_page_loads_the_viewer_and_reads_the_bytes_with_raw() {
-        let html = page("libro.pdf");
-        assert!(html.contains(&format!("\"document\":\"{}?raw\"", vault::url("libro.pdf"))));
+        let dir = scratch("pdf-page");
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
+        let html = page("libro.pdf", &v);
+        assert!(html.contains(&format!("\"document\":\"{}?raw\"", v.url("libro.pdf"))));
         assert!(html.contains("__visor__/pdfjs/"));
         assert!(!html.contains("cdn.") && !html.contains("unpkg.com") && !html.contains("jsdelivr"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_name_cannot_close_the_script_tag() {
         // Two script tags of the page itself, and none from the name.
-        let html = page("</script><b>x.pdf");
+        let dir = scratch("pdf-script");
+        let v = vault::Vault::open_at(&dir, TEST_BASE.into());
+        let html = page("</script><b>x.pdf", &v);
         assert_eq!(html.matches("</script>").count(), 2);
         assert!(!html.contains("<b>x"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

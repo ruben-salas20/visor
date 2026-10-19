@@ -172,7 +172,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         // `![[image]]` in the editor: the image file, wherever it is in the vault.
         if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
-            let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), &vault) {
                 Some(url) => text(302, "").with_header(header("Location", &url)),
                 None => text(404, tr("No existe", "Does not exist")),
             };
@@ -181,7 +181,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         }
         if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
-            let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), &vault) {
                 Some(url) => text(200, &url),
                 None => text(404, tr("No existe", "Does not exist")),
             };
@@ -195,9 +195,9 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
             (source, "text/plain; charset=utf-8")
         } else if vault::is_drawing(&path) {
-            (crate::vault::drawing::page(&vault.rel(&path)), "text/html; charset=utf-8")
+            (crate::vault::drawing::page(&vault.rel(&path), &vault), "text/html; charset=utf-8")
         } else {
-            (crate::vault::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
+            (crate::vault::markdown::page(&source, &vault.rel(&path), &vault), "text/html; charset=utf-8")
         };
         let response = Response::from_string(body)
             .with_header(header("Content-Type", mime))
@@ -208,7 +208,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     // A PDF opens in its viewer page, which reads the bytes back with `?raw`
     // (through `serve_file`, so PDF.js can ask for ranges).
     if vault::is_pdf(&path) && !query.split('&').any(|q| q == "raw") {
-        let response = Response::from_string(crate::vault::pdf::page(&vault.rel(&path)))
+        let response = Response::from_string(crate::vault::pdf::page(&vault.rel(&path), &vault))
             .with_header(header("Content-Type", "text/html; charset=utf-8"))
             .with_header(header("Cache-Control", "no-store"));
         let _ = request.respond(response);

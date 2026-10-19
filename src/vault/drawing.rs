@@ -22,8 +22,8 @@ fn obsidian(name: &str) -> bool {
 }
 
 /// The page of the drawing at `rel`. Excalidraw loads only here, never in a note.
-pub fn page(rel: &str) -> String {
-    let assets = format!("{}{ASSETS}", vault::base());
+pub fn page(rel: &str, vault: &vault::Vault) -> String {
+    let assets = format!("{}{ASSETS}", vault.base());
     let kind = if obsidian(rel) { "md" } else { "json" };
     let config = json!({ "kind": kind }).to_string();
     let fonts = json!(format!("{assets}excalidraw/")).to_string();
@@ -189,17 +189,26 @@ mod tests {
 
     #[test]
     fn the_page_loads_excalidraw_only_for_drawings() {
-        let md = super::page("a/b.excalidraw.md");
+        let dir = std::env::temp_dir().join(format!("visor-dibujo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault::Vault::open(&dir);
+        let md = super::page("a/b.excalidraw.md", &v);
         assert!(md.contains("excalidraw/excalidraw.min.js"));
         assert!(md.contains(r#"{"kind":"md"}"#));
         assert!(md.contains("window.EXCALIDRAW_ASSET_PATH"));
         assert!(md.contains("<title>b.excalidraw</title>"));
-        assert!(super::page("c.excalidraw").contains(r#"{"kind":"json"}"#));
+        assert!(super::page("c.excalidraw", &v).contains(r#"{"kind":"json"}"#));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_name_cannot_close_the_script_tag() {
-        let page = super::page("x</script><script>alert(1)//.excalidraw");
+        let dir = std::env::temp_dir().join(format!("visor-dibujo-script-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault::Vault::open(&dir);
+        let page = super::page("x</script><script>alert(1)//.excalidraw", &v);
         assert!(!page.contains("</script><script>alert"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

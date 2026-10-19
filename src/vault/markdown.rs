@@ -3,7 +3,7 @@
 
 use crate::trf;
 use crate::vault::{
-    self,
+    self, Vault,
     front_matter::{self, Value},
 };
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
@@ -21,7 +21,7 @@ pub const ASSETS: &str = "__visor__/";
 /// the loose origin; links to missing notes are not offered for creation there.
 #[derive(Clone, Copy)]
 enum Scope<'a> {
-    Vault,
+    Vault(&'a Vault),
     /// The loose folder, as an absolute path.
     Loose(&'a str),
 }
@@ -30,8 +30,8 @@ impl Scope<'_> {
     /// URL of the file at `rel`, which is relative to the vault or to the loose folder.
     fn url(self, rel: &str) -> String {
         match self {
-            Scope::Vault => vault::url(rel),
-            Scope::Loose(folder) => vault::url(&format!("{folder}/{rel}")),
+            Scope::Vault(vault) => vault.url(rel),
+            Scope::Loose(folder) => vault::loose_url(&format!("{folder}/{rel}")),
         }
     }
 }
@@ -57,8 +57,8 @@ pub(crate) fn options() -> Options {
 /// last 1-based source lines), so the editor can open where
 /// the reader was, and checkboxes carry `data-task` (byte offset of their `[ ]`),
 /// so a click can tick exactly that task in the file.
-pub fn page(source: &str, rel: &str, root: &Path) -> String {
-    render(source, rel, root, Scope::Vault)
+pub fn page(source: &str, rel: &str, vault: &Vault) -> String {
+    render(source, rel, vault.root(), Scope::Vault(vault))
 }
 
 /// Renders a note opened on its own. `rel` is its path inside `folder`, and only
@@ -246,7 +246,7 @@ fn render(source: &str, rel: &str, root: &Path, scope: Scope) -> String {
     }
 
     let origin = match scope {
-        Scope::Vault => vault::base(),
+        Scope::Vault(vault) => vault.base(),
         Scope::Loose(_) => vault::loose_base(),
     };
     let assets = format!("{origin}{ASSETS}");
@@ -397,8 +397,8 @@ fn is_local_pdf_link(dest: &str) -> bool {
 
 /// URL of the image that `![[name]]` in the note at `rel` shows: found by name
 /// anywhere in the vault, like `[[links]]`, preferring the note's own folder.
-pub fn embed_url(name: &str, rel: &str, root: &Path) -> Option<String> {
-    embed_in(name, rel, &Index::new(root), Scope::Vault)
+pub fn embed_url(name: &str, rel: &str, vault: &Vault) -> Option<String> {
+    embed_in(name, rel, &Index::new(vault.root()), Scope::Vault(vault))
 }
 
 fn embed_in(name: &str, rel: &str, index: &Index, scope: Scope) -> Option<String> {
@@ -411,8 +411,8 @@ fn embed_in(name: &str, rel: &str, index: &Index, scope: Scope) -> Option<String
 
 /// URL of the `[[target]]` written in the note at `rel`, for the editor, which
 /// sees links as they are typed. `None` if no page matches.
-pub fn wiki_url(target: &str, rel: &str, root: &Path) -> Option<String> {
-    wiki_target(target, rel, Index::new(root).links(), Scope::Vault)
+pub fn wiki_url(target: &str, rel: &str, vault: &Vault) -> Option<String> {
+    wiki_target(target, rel, Index::new(vault.root()).links(), Scope::Vault(vault))
 }
 
 /// [`wiki_url`] for a loose note: `rel` is its path inside `folder`, the only folder searched.
@@ -522,46 +522,48 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// A vault on the test origin, for the calls that take one.
+    fn vault_at(root: &Path) -> Vault {
+        Vault::open_at(root, "http://127.0.0.1:1/s/".into())
+    }
+
     #[test]
     fn wiki_links_and_images_found_by_name() {
-        vault::set_base("http://127.0.0.1:1/s/".into());
         let root = std::env::temp_dir().join(format!("visor-embed-{}", std::process::id()));
         fs::create_dir_all(root.join("img")).unwrap();
         fs::write(root.join("img/foto.png"), "").unwrap();
         fs::write(root.join("img/nota.md"), "").unwrap();
-        let html = page("![[foto.png]] ![[nota]] [[nota]] [[otra]]\n", "x.md", &root);
+        let html = page("![[foto.png]] ![[nota]] [[nota]] [[otra]]\n", "x.md", &vault_at(&root));
         assert!(html.contains("src=\"http://127.0.0.1:1/s/img/foto.png\""), "{html}");
         assert!(html.contains("href=\"http://127.0.0.1:1/s/img/nota.md\""), "{html}");
         assert!(html.contains("href=\"#visor-new:otra\""), "{html}");
-        assert_eq!(embed_url("nota", "x.md", &root), None, "only images");
+        assert_eq!(embed_url("nota", "x.md", &vault_at(&root)), None, "only images");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn wiki_url_finds_a_pdf() {
-        vault::set_base("http://127.0.0.1:1/s/".into());
         let root = std::env::temp_dir().join(format!("visor-pdf-link-{}", std::process::id()));
         fs::create_dir_all(root.join("libros")).unwrap();
         fs::write(root.join("libros/archivo.pdf"), "").unwrap();
         fs::write(root.join("nota.md"), "").unwrap();
-        assert_eq!(wiki_url("archivo.pdf", "nota.md", &root).unwrap(), "http://127.0.0.1:1/s/libros/archivo.pdf");
-        assert_eq!(wiki_url("libros/archivo.pdf", "nota.md", &root).unwrap(), "http://127.0.0.1:1/s/libros/archivo.pdf");
-        let html = page("[[archivo.pdf]] [texto](archivo.pdf) [otro](libros/archivo.pdf)\n", "nota.md", &root);
+        assert_eq!(wiki_url("archivo.pdf", "nota.md", &vault_at(&root)).unwrap(), "http://127.0.0.1:1/s/libros/archivo.pdf");
+        assert_eq!(wiki_url("libros/archivo.pdf", "nota.md", &vault_at(&root)).unwrap(), "http://127.0.0.1:1/s/libros/archivo.pdf");
+        let html = page("[[archivo.pdf]] [texto](archivo.pdf) [otro](libros/archivo.pdf)\n", "nota.md", &vault_at(&root));
         assert_eq!(html.matches("href=\"http://127.0.0.1:1/s/libros/archivo.pdf\"").count(), 3, "{html}");
         assert!(!html.contains("href=\"#visor-new"), "{html}");
-        assert_eq!(embed_url("archivo.pdf", "nota.md", &root), None, "a PDF is not embedded");
+        assert_eq!(embed_url("archivo.pdf", "nota.md", &vault_at(&root)), None, "a PDF is not embedded");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn missing_pdf_does_not_resolve() {
-        vault::set_base("http://127.0.0.1:1/s/".into());
         let root = std::env::temp_dir().join(format!("visor-pdf-missing-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("archivo.pdf"), "").unwrap();
-        assert_eq!(wiki_url("falta.pdf", "nota.md", &root), None);
-        assert_eq!(wiki_url("archivo", "nota.md", &root), None, "[[name]] does not name a PDF");
-        let html = page("[[falta.pdf]] [t](falta.pdf)\n", "nota.md", &root);
+        assert_eq!(wiki_url("falta.pdf", "nota.md", &vault_at(&root)), None);
+        assert_eq!(wiki_url("archivo", "nota.md", &vault_at(&root)), None, "[[name]] does not name a PDF");
+        let html = page("[[falta.pdf]] [t](falta.pdf)\n", "nota.md", &vault_at(&root));
         assert!(!html.contains("href=\"#visor-new"), "no «Crear la nota» for a PDF: {html}");
         assert!(html.contains("href=\"#\""), "{html}");
         assert!(html.contains("href=\"falta.pdf\""), "a plain link stays as written: {html}");
@@ -575,7 +577,7 @@ mod tests {
 
     #[test]
     fn blocks_carry_their_line() {
-        let html = page("# Título\n\nUno\ndos\n\n- a\n- b\n\n```\n- [ ] no\n```\n", "a.md", Path::new("/nonexistent"));
+        let html = page("# Título\n\nUno\ndos\n\n- a\n- b\n\n```\n- [ ] no\n```\n", "a.md", &vault_at(Path::new("/nonexistent")));
         assert!(html.contains("<h1 data-line=\"1\" id=\"título\">"), "{html}");
         assert!(html.contains("<p data-line=\"3\" data-end=\"4\">Uno"), "{html}");
         assert!(html.contains("<ul data-line=\"6\" data-end=\"7\">"), "{html}");
@@ -587,7 +589,7 @@ mod tests {
     #[test]
     fn tasks_toggle_by_offset() {
         let source = "- [ ] uno\n- [x] dos\n\n```\n- [ ] código\n```\n";
-        let html = page(source, "a.md", Path::new("/nonexistent"));
+        let html = page(source, "a.md", &vault_at(Path::new("/nonexistent")));
         assert!(html.contains("<input type=\"checkbox\" data-task=\"2\">"), "{html}");
         assert!(html.contains("<input type=\"checkbox\" data-task=\"12\" checked>"), "{html}");
         assert_eq!(toggle_task(source, 2, true).unwrap(), source.replacen("[ ] uno", "[x] uno", 1));
@@ -601,7 +603,7 @@ mod tests {
     #[test]
     fn front_matter_is_a_table_and_keeps_lines() {
         let source = "---\nname: orquestar-issues\ndescription: Revisa los issues. Úsala cuando pidan trabajar issues.\n---\n\n# Título\n\nTexto\n";
-        let html = page(source, "SKILL.md", Path::new("/nonexistent"));
+        let html = page(source, "SKILL.md", &vault_at(Path::new("/nonexistent")));
         assert!(html.contains("<table class=\"properties\" data-line=\"1\" data-end=\"4\"><tbody>"), "{html}");
         assert!(html.contains("<th>name</th><td>orquestar-issues</td>"), "{html}");
         assert!(html.contains("<h1 data-line=\"6\" id=\"título\">"), "{html}");
@@ -610,7 +612,7 @@ mod tests {
 
     #[test]
     fn front_matter_values_are_escaped() {
-        let html = page("---\ntitle: <script>alert(1)</script>\n---\n", "a.md", Path::new("/nonexistent"));
+        let html = page("---\ntitle: <script>alert(1)</script>\n---\n", "a.md", &vault_at(Path::new("/nonexistent")));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"), "{html}");
         assert!(!html.contains("<script>alert(1)"), "{html}");
     }
@@ -618,7 +620,7 @@ mod tests {
     #[test]
     fn front_matter_lang_sets_the_document_language() {
         let page_lang = |source: &str| {
-            let html = page(source, "a.md", Path::new("/nonexistent"));
+            let html = page(source, "a.md", &vault_at(Path::new("/nonexistent")));
             html.split("<html lang=\"").nth(1).and_then(|r| r.split('"').next()).unwrap().to_string()
         };
         assert_eq!(page_lang("---\nlang: en-GB\n---\n\nText\n"), "en-GB");
@@ -632,7 +634,7 @@ mod tests {
 
     #[test]
     fn malformed_front_matter_is_shown_raw() {
-        let html = page("---\nname: x\nesto no es clave\n---\n\nTexto\n", "a.md", Path::new("/nonexistent"));
+        let html = page("---\nname: x\nesto no es clave\n---\n\nTexto\n", "a.md", &vault_at(Path::new("/nonexistent")));
         assert!(
             html.contains("<pre class=\"properties\" data-line=\"1\" data-end=\"4\"><code>name: x\nesto no es clave"),
             "{html}"
@@ -642,20 +644,20 @@ mod tests {
 
     #[test]
     fn wiki_prefers_same_folder_and_markdown() {
-        vault::set_base("http://127.0.0.1:1/s/".into());
+        let vault = vault_at(Path::new("/nonexistent"));
         let pages: Vec<String> = ["fisica/ondas.html", "fisica/ondas.md", "historia/ondas.md", "roma.html"]
             .map(String::from)
             .into();
-        assert_eq!(wiki_target("ondas", "fisica/x.md", &pages, Scope::Vault).unwrap(), "http://127.0.0.1:1/s/fisica/ondas.md");
-        assert_eq!(wiki_target("ondas", "historia/y.md", &pages, Scope::Vault).unwrap(), "http://127.0.0.1:1/s/historia/ondas.md");
-        assert_eq!(wiki_target("Roma#El Senado", "a.md", &pages, Scope::Vault).unwrap(), "http://127.0.0.1:1/s/roma.html#el-senado");
-        assert_eq!(wiki_target("historia/ondas", "a.md", &pages, Scope::Vault).unwrap(), "http://127.0.0.1:1/s/historia/ondas.md");
-        assert!(wiki_target("no existe", "a.md", &pages, Scope::Vault).is_none());
+        assert_eq!(wiki_target("ondas", "fisica/x.md", &pages, Scope::Vault(&vault)).unwrap(), "http://127.0.0.1:1/s/fisica/ondas.md");
+        assert_eq!(wiki_target("ondas", "historia/y.md", &pages, Scope::Vault(&vault)).unwrap(), "http://127.0.0.1:1/s/historia/ondas.md");
+        assert_eq!(wiki_target("Roma#El Senado", "a.md", &pages, Scope::Vault(&vault)).unwrap(), "http://127.0.0.1:1/s/roma.html#el-senado");
+        assert_eq!(wiki_target("historia/ondas", "a.md", &pages, Scope::Vault(&vault)).unwrap(), "http://127.0.0.1:1/s/historia/ondas.md");
+        assert!(wiki_target("no existe", "a.md", &pages, Scope::Vault(&vault)).is_none());
         let pages = vec!["árbol.md".to_string()];
-        assert!(wiki_target("Árbol", "x.md", &pages, Scope::Vault).is_some(), "capitals with accents");
+        assert!(wiki_target("Árbol", "x.md", &pages, Scope::Vault(&vault)).is_some(), "capitals with accents");
         let decomposed = vec!["pra\u{301}ctica.md".to_string()];
-        assert!(wiki_target("práctica", "x.md", &decomposed, Scope::Vault).is_some(), "NFC name finds an NFD file");
-        assert!(wiki_target("pra\u{301}ctica", "x.md", &decomposed, Scope::Vault).is_some(), "NFD name too");
+        assert!(wiki_target("práctica", "x.md", &decomposed, Scope::Vault(&vault)).is_some(), "NFC name finds an NFD file");
+        assert!(wiki_target("pra\u{301}ctica", "x.md", &decomposed, Scope::Vault(&vault)).is_some(), "NFD name too");
     }
 
     #[test]
@@ -678,7 +680,6 @@ mod tests {
 
     #[test]
     fn loose_notes_reach_only_their_folder() {
-        vault::set_base("http://127.0.0.1:1/s/".into());
         vault::set_loose_base("http://127.0.0.2:1/s/".into());
         let dir = std::env::temp_dir().join(format!("visor-loose-links-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -692,17 +693,17 @@ mod tests {
         let source = "![[foto.png]] [[otra]] [[secreto]] [[afuera]] [[nueva]]\n\n- [ ] tarea\n";
         let html = loose_page(source, "x.md", &folder);
         let folder_text = folder.to_string_lossy();
-        assert!(html.contains(&vault::url(&format!("{folder_text}/img/foto.png"))), "image by name: {html}");
-        assert!(html.contains(&vault::url(&format!("{folder_text}/sub/otra.md"))), "subfolders: {html}");
+        assert!(html.contains(&vault::loose_url(&format!("{folder_text}/img/foto.png"))), "image by name: {html}");
+        assert!(html.contains(&vault::loose_url(&format!("{folder_text}/sub/otra.md"))), "subfolders: {html}");
         assert!(!html.contains("secreto.md"), "hidden folder: {html}");
         assert!(!html.contains("afuera.md"), "outside the folder: {html}");
         assert!(!html.contains("href=\"#visor-new:"), "no creation link from a loose note: {html}");
         assert!(html.contains("href=\"#\""), "a missing note goes nowhere: {html}");
         assert!(!html.contains("127.0.0.1"), "never on the vault origin: {html}");
         assert!(html.contains("data-task=\"") && !html.contains(" disabled"), "checkboxes can be ticked: {html}");
-        assert_eq!(loose_wiki_url("otra", "x.md", &folder), Some(vault::url(&format!("{folder_text}/sub/otra.md"))));
+        assert_eq!(loose_wiki_url("otra", "x.md", &folder), Some(vault::loose_url(&format!("{folder_text}/sub/otra.md"))));
         assert_eq!(loose_wiki_url("afuera", "x.md", &folder), None, "the editor's links stay in the folder too");
-        assert_eq!(loose_embed_url("foto.png", "x.md", &folder), Some(vault::url(&format!("{folder_text}/img/foto.png"))));
+        assert_eq!(loose_embed_url("foto.png", "x.md", &folder), Some(vault::loose_url(&format!("{folder_text}/img/foto.png"))));
         fs::remove_dir_all(dir).unwrap();
     }
 }

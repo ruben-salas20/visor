@@ -297,8 +297,8 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: EventLoopProxy<UserEve
 }
 
 /// Whether agents may read the document a view committed.
-fn readable(document: &Document) -> Result<(), String> {
-    if vault::agent_may_read(&document.borrow()) {
+fn readable(vault: Option<&Vault>, document: &Document) -> Result<(), String> {
+    if vault::agent_may_read(&document.borrow(), vault) {
         Ok(())
     } else {
         Err(tr("Solo se puede leer una página de la bóveda o un archivo suelto, no una web.", "Only a page in the vault or a loose file can be read, not a website.").into())
@@ -380,6 +380,16 @@ impl App {
         self.shared.lock().unwrap().vault.clone()
     }
 
+    /// The URL prefix of the open vault's pages. With no vault open, the default base.
+    fn vault_base(&self) -> String {
+        self.vault().map_or_else(|| vault::base().to_string(), |v| v.base().to_string())
+    }
+
+    /// The vault path, or the loose absolute path, that a visor address names.
+    fn rel_of(&self, url: &str) -> Option<String> {
+        self.vault().and_then(|v| v.rel_from_url(url)).or_else(|| vault::loose_rel_from_url(url))
+    }
+
     fn open_vault(&self) -> Result<Arc<Vault>, String> {
         self.vault().ok_or_else(|| tr("No hay ninguna bóveda abierta", "No vault is open").into())
     }
@@ -415,7 +425,7 @@ impl App {
         let Some(id) = self.tabs.focused_view() else { return };
         let Some(view) = self.view_of(id) else { return };
         let engine = match self.documents.get(&id) {
-            Some(document) if vault::agent_may_read(&document.borrow()) => find::Engine::Page,
+            Some(document) if vault::agent_may_read(&document.borrow(), self.vault().as_deref()) => find::Engine::Page,
             _ => find::Engine::WebKit,
         };
         self.pane().find().open(id, &view.webview(), engine);
@@ -609,7 +619,8 @@ impl App {
 
     /// Builds the hidden view of a tab. False if the system could not.
     fn create_view(&mut self, side: usize, id: u64, target: &str, fragment: &str) -> bool {
-        let built = build_page(self.panes[side].views(), &mut self.context, self.background, self.proxy.clone(), id);
+        let vault_base = self.vault_base();
+        let built = build_page(self.panes[side].views(), &mut self.context, self.background, self.proxy.clone(), &vault_base, id);
         let view = match built {
             Ok((v, document)) => {
                 self.documents.insert(id, document);
@@ -666,9 +677,11 @@ impl App {
                     shared.loose.push(dir.to_path_buf());
                 }
             }
-            let _ = view.load_url(&format!("{}{fragment}", vault::url(target)));
+            let _ = view.load_url(&format!("{}{fragment}", vault::loose_url(target)));
+        } else if let Some(vault) = self.vault() {
+            let _ = view.load_url(&format!("{}{fragment}", vault.url(target)));
         } else {
-            let _ = view.load_url(&format!("{}{fragment}", vault::url(target)));
+            let _ = view.load_html(&empty_page(self.empty_message(), true));
         }
     }
 
@@ -841,7 +854,8 @@ impl App {
             LoadFailure::Network => tr("error de red", "network error").to_string(),
             LoadFailure::Status(status) => trf!("respondió {status}", "responded {status}"),
         };
-        let own = [vault::base(), vault::loose_base()].into_iter().find(|base| !base.is_empty() && uri.starts_with(base));
+        let vault_base = self.vault_base();
+        let own = [vault_base.as_str(), vault::loose_base()].into_iter().find(|base| !base.is_empty() && uri.starts_with(base));
         // visor's own scripts ask for things that are often missing: annot.js for
         // the page's annotation file, which exists once it has notes, and the
         // editor for where a `[[link]]` leads, which may be a note not yet written.
@@ -906,7 +920,7 @@ impl App {
     fn focused_is_drawing(&self) -> bool {
         let Some(id) = self.tabs.focused_view() else { return false };
         self.documents.get(&id).is_some_and(|document| {
-            vault::rel_from_url(&document.borrow()).is_some_and(|rel| vault::is_drawing(Path::new(&rel)))
+            self.rel_of(&document.borrow()).is_some_and(|rel| vault::is_drawing(Path::new(&rel)))
         })
     }
 
@@ -1249,7 +1263,7 @@ impl App {
     fn open_tab(&mut self, view: u64, url: &str, background: bool) {
         let Some((p, _)) = self.tabs.locate(view) else { return };
         let (address, fragment) = url.split_once('#').map_or((url, ""), |(a, f)| (a, f));
-        let target = vault::rel_from_url(address).unwrap_or_else(|| url.to_string());
+        let target = self.rel_of(address).unwrap_or_else(|| url.to_string());
         let fragment = if target == url || fragment.is_empty() { String::new() } else { format!("#{fragment}") };
         if background {
             if self.tabs.open_background(view, target, fragment) {
@@ -1333,7 +1347,7 @@ impl App {
     fn navigated(&mut self, view: u64, url: String) {
         // A search ends with the page it ran in: the next page may be a website.
         self.find_forget_all(view);
-        let file = vault::rel_from_url(&url);
+        let file = self.rel_of(&url);
         let target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
         let Some(nav) = self.tabs.navigated(view, target) else { return };
         let focused_active = nav.active && nav.side == self.tabs.focused();
@@ -1490,7 +1504,7 @@ impl App {
     /// A website could otherwise feed instructions to the agents that read them.
     fn on_page(&mut self, view: u64, url: &str, msg: PageMsg) {
         // Loose pages may log and send events too, but have no vault to write to.
-        let access = vault::access(url);
+        let access = vault::access(url, self.vault().as_deref());
         let local = access != Access::None;
         let trusted = access == Access::Trusted;
         // A loose note may write its own file, and nothing else: `note_path` checks which.
@@ -1532,7 +1546,7 @@ impl App {
             PageMsg::AnnotSave { annotation } if trusted => {
                 match self.with_page_annotations(url, |root, page| annot::upsert(root, page, &annotation)) {
                     Ok(true) => {
-                        let file = vault::rel_from_url(url).unwrap_or_default();
+                        let file = self.rel_of(url).unwrap_or_default();
                         let (id, text) = (annotation["id"].as_str().unwrap_or_default(), annotation["comment"].as_str().unwrap_or_default());
                         self.note_annotation(&file, id, "comment", text);
                     }
@@ -1550,7 +1564,7 @@ impl App {
                 }
             }
             PageMsg::AnnotReply { id, text } if trusted => {
-                let file = vault::rel_from_url(url).unwrap_or_default();
+                let file = self.rel_of(url).unwrap_or_default();
                 match self.with_page_annotations(url, |root, page| annot::person_reply(root, page, &id, &text)) {
                     Ok(()) => self.note_annotation(&file, &id, "reply", &text),
                     // The page took the message as sent; it takes it back and shows why.
@@ -1570,7 +1584,7 @@ impl App {
             }
             PageMsg::OpenPdfElsewhere if trusted => {
                 // The file comes from the view's address, checked as a vault PDF, never from the message.
-                let name = vault::rel_from_url(url).unwrap_or_default();
+                let name = self.rel_of(url).unwrap_or_default();
                 let file = self.open_vault().and_then(|v| vault::pdf::file_for(&v, url));
                 match file {
                     Ok(file) => {
@@ -1613,7 +1627,7 @@ impl App {
     /// an HTML page in the vault cannot overwrite files through this.
     /// The note a page loaded from `url` may write: one of the vault, or a loose note's own file.
     fn note_path(&mut self, url: &str) -> Result<PathBuf, String> {
-        if vault::access(url) == Access::Local {
+        if vault::access(url, self.vault().as_deref()) == Access::Local {
             return vault::loose_note(url, &self.shared.lock().unwrap().loose);
         }
         Ok(self.open_vault()?.note(url)?.1)
@@ -1780,7 +1794,7 @@ impl App {
         let (Some(view), Some(document)) = (self.view_of(id), self.documents.get(&id)) else {
             return Err(tr("No hay nada abierto.", "Nothing is open.").into());
         };
-        readable(document)?;
+        readable(self.vault().as_deref(), document)?;
         Ok((view, document.clone()))
     }
 
@@ -1794,12 +1808,14 @@ impl App {
                 return;
             }
         };
-        let script = page_calls::eval(code, [vault::base(), vault::loose_base()]);
+        let vault_base = self.vault_base();
+        let script = page_calls::eval(code, [&vault_base, vault::loose_base()]);
         // run_javascript, not evaluate_javascript: the latter needs the v2_40 feature,
         // which visor does not enable (Cargo.toml asks for v2_38).
+        let vault_now = self.vault();
         view.webview().run_javascript(&script, None::<&gtk::gio::Cancellable>, move |result| {
             // A website committed meanwhile would have answered: its words must not reach the agent.
-            let answer = readable(&document)
+            let answer = readable(vault_now.as_deref(), &document)
                 .and_then(|()| result.map_err(|e| e.to_string()))
                 .and_then(|r| r.js_value().map(|v| v.to_string()).ok_or_else(|| tr("La página no devolvió nada.", "The page returned nothing.").to_string()))
                 .and_then(|raw| page_calls::eval_answer(&raw));
@@ -1816,8 +1832,9 @@ impl App {
                 return;
             }
         };
+        let vault_now = self.vault();
         view.webview().snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gtk::gio::Cancellable>, move |result| {
-            let answer = readable(&document)
+            let answer = readable(vault_now.as_deref(), &document)
                 .and_then(|()| result.map_err(|e| e.to_string()))
                 .and_then(|surface| save_png(&surface, &path));
             let _ = reply.send(answer);
@@ -1844,7 +1861,7 @@ impl App {
             .live()
             .filter_map(|(id, target)| {
                 let view = self.view_of(id)?;
-                Some((id, vault::rel_from_url(&view.url().unwrap_or_default()), target))
+                Some((id, self.rel_of(&view.url().unwrap_or_default()), target))
             })
             .collect()
     }
