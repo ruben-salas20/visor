@@ -91,4 +91,19 @@ mod tests {
         let msg: Msg = serde_json::from_str(r#"{"type":"set_theme","choice":null}"#).unwrap();
         assert_eq!(msg, Msg::SetTheme { choice: None });
     }
+
+    /// The list of shortcuts lives in the frame; each key must be named in `help.txt`.
+    #[test]
+    fn every_shortcut_is_named_in_help() {
+        const HELP: &str = include_str!("../../agent/help.txt");
+        const SHORTCUTS: &str = include_str!("../../../marco/src/areas/settings/Shortcuts.tsx");
+        let mut checked = 0;
+        for line in SHORTCUTS.lines().map(str::trim).filter(|l| l.starts_with("['")) {
+            // The TSX source escapes a backslash as `\\`.
+            let key = line[2..].split('\'').next().unwrap_or_default().replace("\\\\", "\\");
+            assert!(HELP.contains(&key), "agent/help.txt no nombra el atajo {key}");
+            checked += 1;
+        }
+        assert!(checked > 20, "Shortcuts.tsx tiene {checked} atajos: no se leyó la lista");
+    }
 }
