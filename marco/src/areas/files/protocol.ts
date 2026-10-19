@@ -5,9 +5,31 @@ export type FileKind = 'page' | 'image' | 'pdf' | 'other'
 
 export type File = { name: string; path: string; kind: FileKind }
 
-export type Dir = { name: string; path: string; dirs: Dir[]; files: File[] }
+export type Dir = {
+  name: string
+  path: string
+  /** How many files it lists, counting its subfolders. */
+  count: number
+  /** What the folder says when it lists nothing. */
+  empty: string | null
+  dirs: Dir[]
+  files: File[]
+}
 
-export type Tree = { root: Dir | null }
+export type Tree = {
+  /** The vault's whole path: when it changes, `open` is restored. */
+  vault: string | null
+  root: Dir | null
+  /** The folders the person left open in this vault. */
+  open: string[]
+}
+
+export type VaultItem = { path: string; name: string; current: boolean }
+
+/** The field that asks for the name of a new note or folder. */
+export type Form = { dir: string; folder: boolean; error: string | null; id: number }
+
+export type Notice = { id: number; text: string; error: boolean; elsewhere: string | null }
 
 export type FilesState = {
   /** Hidden for a loose page started alone, and by Ctrl+B. */
@@ -15,6 +37,13 @@ export type FilesState = {
   vault: string | null
   /** The file on the focused side. */
   current: string | null
+  vaults: VaultItem[]
+  form: Form | null
+  notice: Notice | null
+  /** In CSS pixels; none until the person drags the edge. */
+  width: number | null
+  /** Whether files visor does not open are listed. */
+  show_other: boolean
 }
 
 /** Paths are vault-relative; Rust checks each one. */
@@ -29,3 +58,10 @@ export type FilesMsg =
   | { type: 'open_elsewhere'; path: string }
   | { type: 'move'; path: string; dir: string }
   | { type: 'open_folders'; folders: string[] }
+  /** Without `dir`, next to the file on the focused side. */
+  | { type: 'ask_name'; dir: string | null; folder: boolean }
+  | { type: 'cancel_name' }
+  | { type: 'drag_start'; path: string }
+  | { type: 'drag_end' }
+  | { type: 'width'; width: number }
+  | { type: 'show_other'; on: boolean }

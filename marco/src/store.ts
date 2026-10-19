@@ -18,8 +18,8 @@ export type Store = {
 }
 
 let state: Store = {
-  tree: { root: null },
-  files: { shown: true, vault: null, current: null },
+  tree: { vault: null, root: null, open: [] },
+  files: { shown: true, vault: null, current: null, vaults: [], form: null, notice: null, width: null, show_other: true },
   sides: { sides: [], focused: 0 },
   bar: { sides: [] },
   status: { vault: null, kind: 'empty', zoom: 1, version: '', update: null },
