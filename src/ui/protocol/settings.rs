@@ -104,7 +104,7 @@ mod tests {
             prefs: Prefs {
                 theme: None,
                 language: None,
-                search_engine: "duckduckgo".into(),
+                search_engine: "duckduckgo",
                 engines: Vec::new(),
                 auto_update: true,
                 show_other: true,
