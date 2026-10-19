@@ -12,6 +12,7 @@ pub fn managed(exe: &Path) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn package_paths_are_managed_and_hand_installed_ones_are_not() {
         assert!(managed(Path::new("/usr/bin/visor")));

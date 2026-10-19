@@ -320,6 +320,7 @@ mod tests {
         assert!(refusal(false, "x86_64", build).unwrap().contains("target"));
         assert!(refusal(false, "aarch64", installed).unwrap().contains("x86_64"));
         assert!(refusal(true, "x86_64", installed).unwrap().contains("VISOR_NO_UPDATE"));
+        #[cfg(target_os = "linux")]
         assert!(refusal(false, "x86_64", Path::new("/usr/bin/visor")).unwrap().contains("paquete"));
     }
 
