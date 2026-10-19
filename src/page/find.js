@@ -2,8 +2,8 @@
 // documents, whose root is `document.documentElement`). WebKit's find cannot
 // say which match is current, so the page searches its text itself and marks
 // the matches with CSS Custom Highlights. Injected by `ui/page_calls.rs` on
-// the first search. `foldChar`, `foldRuns`, `locate` and `findAll` take no
-// DOM: tests in tools/find/test.
+// the first search. `foldChar`, `foldRuns`, `locate`, `findAll`, `centered`
+// and `nearest` take no DOM: tests in tools/find/test.
 (() => {
   "use strict";
 
@@ -12,6 +12,8 @@
   const WORD_CHAR = /[\p{L}\p{N}]/u;
   const MARKS = /\p{M}/gu;
   const SVG_NS = "http://www.w3.org/2000/svg";
+  // Values of `overflow` that let the person scroll the box.
+  const SCROLLS = new Set(["auto", "scroll", "overlay"]);
 
   // Accents and case are ignored, as WebKit does: "camión" finds "CAMION".
   // Folding one code point may give several characters, and all of them come
@@ -86,6 +88,21 @@
     return found;
   }
 
+  // How far to scroll a box that sees `size` pixels from `from` on, so that the
+  // stretch from `start` to `end` stands in its middle. A stretch longer than
+  // the box is placed with its start at the start.
+  function centered(start, end, from, size) {
+    const length = end - start;
+    return start - from - (length < size ? (size - length) / 2 : 0);
+  }
+
+  // The same, but scrolling only as little as brings the stretch into sight.
+  function nearest(start, end, from, size) {
+    if (start < from || end - start > size) return start - from;
+    if (end > from + size) return end - from - size;
+    return 0;
+  }
+
   function rangeFor(folded, [start, end]) {
     const first = locate(folded.nodes, start);
     const last = locate(folded.nodes, end - 1);
@@ -113,15 +130,36 @@
     // Scrolled by the box of the match itself, not by the one of the element
     // that holds it: with the element, a match at the end of a <pre> taller
     // than the window could stay out of sight while the counter said «5 de 12».
+    // The boxes that scroll on their own (a <main> with `overflow: auto`, a
+    // wide <pre>) go first, from the inside out; the window, last.
+    const start = range.startContainer;
+    let element = start.nodeType === Node.ELEMENT_NODE ? start : start.parentElement;
+    for (; element && element !== document.scrollingElement; element = element.parentElement) {
+      const box = range.getBoundingClientRect();
+      if (!box.width && !box.height) break;
+      const style = getComputedStyle(element);
+      const port = element.getBoundingClientRect();
+      const top = port.top + element.clientTop;
+      const left = port.left + element.clientLeft;
+      const down = SCROLLS.has(style.overflowY) && element.scrollHeight > element.clientHeight;
+      const across = SCROLLS.has(style.overflowX) && element.scrollWidth > element.clientWidth;
+      if (down || across) {
+        // "instant": a page with `scroll-behavior: smooth` would still be on
+        // its way when the next box out measures where the match is.
+        element.scrollBy({
+          top: down ? centered(box.top, box.bottom, top, element.clientHeight) : 0,
+          left: across ? nearest(box.left, box.right, left, element.clientWidth) : 0,
+          behavior: "instant",
+        });
+      }
+    }
     const box = range.getBoundingClientRect();
     if (box.width || box.height) {
-      const height = window.innerHeight;
-      // A match taller than the window is placed with its top edge at the top.
-      const gap = box.height < height ? (height - box.height) / 2 : 0;
-      let left = window.scrollX;
-      if (box.left < 0) left += box.left;
-      else if (box.right > window.innerWidth) left += box.right - window.innerWidth;
-      window.scrollTo({ top: window.scrollY + box.top - gap, left, behavior: "instant" });
+      window.scrollTo({
+        top: window.scrollY + centered(box.top, box.bottom, 0, window.innerHeight),
+        left: window.scrollX + nearest(box.left, box.right, 0, window.innerWidth),
+        behavior: "instant",
+      });
     }
     paint();
   }
@@ -279,9 +317,11 @@
     },
   };
 
-  if (typeof module !== "undefined") {
+  // Asked by `document`, not by `module`: an element with id="module" makes a
+  // global `module` in the page.
+  if (typeof document === "undefined") {
     // Node tests: only the DOM-free engine.
-    module.exports = { foldChar, foldRuns, locate, findAll };
+    module.exports = { foldChar, foldRuns, locate, findAll, centered, nearest };
   } else {
     // One walk per change of the page: any change of tree or attributes
     // throws the folded text away.

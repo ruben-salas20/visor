@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { foldChar, foldRuns, locate, findAll } = createRequire(import.meta.url)(
+const { foldChar, foldRuns, locate, findAll, centered, nearest } = createRequire(import.meta.url)(
   join(here, "..", "..", "..", "src", "page", "find.js")
 );
 
@@ -108,4 +108,21 @@ test("a whole word does not end inside another", () => {
 test("past the limit one more match is counted, not every one", () => {
   // The loop looks for one past the limit, to know there are more.
   assert.equal(findAll("aa".repeat(1001), "aa", false).length, 1001);
+});
+
+test("a match is centered in the box that scrolls", () => {
+  // A box of 1000 px from y=100; a 20 px match at y=2000 ends up at 590.
+  assert.equal(centered(2000, 2020, 100, 1000), 1410);
+  // Already centered: nothing to scroll.
+  assert.equal(centered(590, 610, 100, 1000), 0);
+  // Taller than the box: its top edge goes to the top.
+  assert.equal(centered(2000, 3500, 100, 1000), 1900);
+});
+
+test("sideways, only as much as brings the match into sight", () => {
+  assert.equal(nearest(50, 80, 0, 500), 0);
+  assert.equal(nearest(600, 650, 0, 500), 150);
+  assert.equal(nearest(-40, -10, 0, 500), -40);
+  // Wider than the box: its start goes to the start.
+  assert.equal(nearest(100, 800, 0, 500), 100);
 });
