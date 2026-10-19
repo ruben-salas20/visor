@@ -429,8 +429,17 @@ mod tests {
         fs::write(&exe, b"vieja").unwrap();
         fs::write(&tmp, b"nueva").unwrap();
         fs::write(old_copy(&exe), b"anterior").unwrap();
-        // Opened without delete sharing, as a running program keeps its file.
-        let held = fs::File::open(old_copy(&exe)).unwrap();
+        // Read sharing only: a running program keeps its file this way.
+        // File::open would also share deletes, and then the copy could be removed.
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x1;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .open(old_copy(&exe))
+                .unwrap()
+        };
         assert!(put_in_place(&tmp, &exe).is_err());
         remove_old_copy(&exe);
         assert!(old_copy(&exe).exists());
