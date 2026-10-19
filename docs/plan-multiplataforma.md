@@ -1,12 +1,12 @@
 # Plan de investigación: visor para cualquier persona, en Linux y Windows
 
-Fecha: 2026-10-16. Sale del [informe](informe-multiplataforma.md) y de seis investigaciones en paralelo. Este documento está escrito para que una sesión nueva pueda retomarlo sin el historial de la conversación.
+Fecha: 2026-10-16; actualizado el 2026-10-19. Sale del [informe](informe-multiplataforma.md) y de seis investigaciones en paralelo. Este documento está escrito para que una sesión nueva pueda retomarlo sin el historial de la conversación.
 
 ## Cómo se usa este plan
 
 **No es un plan de construcción.** Es una lista de experimentos pequeños, cada uno con una hipótesis, un criterio de éxito y un criterio de fracaso. Hasta que un experimento no pasa, no se escribe código de producción. Cada resultado se anota en el registro de descartes (apartado final), y lo descartado no se vuelve a discutir sin datos nuevos.
 
-**Lo investigado hasta ahora salió de leer código, documentación y páginas de paquetes. Nada se ha probado en Windows ni en otras distros.** Marcas: [V] verificado leyendo; [S] supuesto, a probar. Los informes de los agentes no se han contrastado uno a uno: trata sus cifras como pistas, sobre todo las versiones de glibc por distro (de memoria) y la política de Homebrew (resúmenes de buscador).
+**Al principio todo salió de leer código, documentación y páginas de paquetes. Desde el 2026-10-16 hay resultados de CI en Windows y en otras distros (apartado «Resultados»).** Marcas: [V] verificado leyendo; [S] supuesto, a probar. Los informes de los agentes no se han contrastado uno a uno: trata sus cifras como pistas, sobre todo las versiones de glibc por distro (de memoria) y la política de Homebrew (resúmenes de buscador).
 
 Reglas del proyecto que se mantienen:
 
@@ -19,11 +19,11 @@ Reglas del proyecto que se mantienen:
 
 ## Para la sesión nueva (empieza aquí)
 
-- **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`. Se actualizó con `main` (`e82420d`) el 2026-10-16. Si `main` ha avanzado, `git rebase main` antes de empezar.
+- **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`, ya subida a GitHub. Se fusionó con `main` el 2026-10-19, después de las varias ventanas (#39). Si `main` ha avanzado, `git merge main` (no `rebase`: la rama ya está publicada).
 - **Qué leer:** `AGENTS.md`, `CONTEXT.md`, `docs/informe-multiplataforma.md`, este plan y `docs/pruebas.md`. El ADR 0001 (por qué wry y no GPUI) y los 0002, 0003, 0033 y 0035 son los que más se tocan.
-- **Estado:** solo hay documentos. No hay código nuevo, ni `spikes/`, ni `.github/`.
-- **Siguiente paso:** crear `spikes/` y `.github/workflows/` (primero L1 y W1; ver abajo), y pedir permiso al usuario antes de subir la rama.
-- **No hacer sin permiso explícito del usuario:** subir ramas a GitHub (el repositorio es público), tocar `main`, instalar nada con `sudo`, cambiar ADR. Los commits en la rama del worktree sí se hacen al aprobar algo.
+- **Estado (2026-10-19):** L1, L2, W1, W2 y W3 hechos; resultados en «Resultados» y decisiones en «Decisiones del usuario». G1 y G3 decididas; G2 (qué interfaz) sigue abierta.
+- **Siguiente paso:** dividir la construcción en tareas (ver «Siguiente fase»), y después W4, W5, W6, U1 y U2.
+- **Permisos:** subir la rama del worktree y lanzar su CI está autorizado. **Sin permiso explícito:** tocar `main`, instalar nada con `sudo`, cambiar ADR, comentar en el issue 35 (el repositorio es público) y abrir visor en el escritorio del usuario o medir rendimiento.
 - **Probar en esta máquina:** el usuario suele tener visor abierto. Aislar siempre con `VISOR_SOCKET` y `XDG_*` propios (ver `docs/pruebas.md`) y cerrar por PID.
 - **Idioma:** textos de interfaz en español; commits y títulos de PR en inglés; comentarios del código en inglés y solo para el porqué (`AGENTS.md`, `CONTRIBUTING.md`).
 
@@ -41,6 +41,19 @@ Reglas del proyecto que se mantienen:
 - **Windows.** wry da el webview, pero no `Committed`, captura, fallos de recursos ni pantalla completa [V, código de wry 0.57]. WebView2 los tiene por su API COM, accesible con `WebViewExtWindows::webview()`. La implementación de wry de `PageLoadEvent::Started` lee `Source()` y no sirve para la frontera de confianza, que prohíbe `webview.uri()` [V].
 - **Interfaz.** Sin GTK en Windows hay que rehacer panel, pestañas, barra y divisores: `app.rs` ~1.785 líneas, `sidebar.rs` ~1.516 y más. Candidatas vivas: A (interfaz en HTML en un webview propio) y B (toolkit de Rust con webviews hijos).
 - **Código.** El inventario completo está en este plan; lo nuevo respecto al informe es: el secreto de las URL sale de `/dev/urandom` (`http.rs:92`), `is_loose` usa `starts_with('/')` (`vault.rs:87`), `canonicalize` en Windows devuelve `\\?\C:\…`, no se validan nombres reservados de Windows, y se lee `LANG` en `i18n.rs`. `std::os::unix` aparece en 6 archivos de producción (`vault.rs`, `update.rs`, `agent/{socket,server,cli}.rs`, `ui/app.rs`). Ya son portables: `ui/tabs.rs`, `ui/watch.rs`, `ui/page_calls.rs`, `ui/action.rs`, `session.rs` y la capa de datos.
+
+## Resultados
+
+Ejecuciones de CI en la rama del worktree. Los prototipos están en `spikes/` y sus flujos en `.github/workflows/`.
+
+| Experimento | Resultado | Ejecución |
+|---|---|---|
+| L1, compilar en Debian 12 | Compila. El binario exige glibc **2.34** (antes 2.39) sin cambiar el código. | 38943483244 |
+| L2, `visor status` por distro | Funciona en Ubuntu 22.04 y 24.04, Debian 12 y 13, Fedora 42 y 43, Arch y openSUSE Tumbleweed. Falla en AlmaLinux 9 (no hay WebKitGTK 4.1) y en Alpine (musl). Solo se probó `status`. | 38944249549 |
+| L3, X11 | En el portátil del usuario, con `GDK_BACKEND=x11` bajo XWayland (2026-10-16 y 2026-10-17): nota con fórmulas y diagrama, HTML, PDF, dibujo, pestañas y vista dividida, sin errores. **Falta un escritorio X11 real (Linux Mint):** fondo translúcido, escala y teclado y ratón. | Manual |
+| W1, compilar en Windows sin la interfaz | Repetido tras #39, igual que antes: 21 errores (4 de interfaz y 17 de `std::os::unix`); 18 tras rellenar las costuras y quitar los `use` de Unix. Todos están en `agent/{socket,server,cli}.rs`, `vault.rs` y `update.rs`: socket Unix, `dev`/`ino`, `from_mode` y `process_group`. Costuras con la interfaz: la papelera de GTK (`vault/files.rs:56`), `tao` en `ui/action.rs` y `ui::page_view` en `tabs.rs` y `address.rs`. `desktop.rs` (#25) compila, pero solo tiene sentido en Linux. | 39238287661 |
+| W2, varios webviews en WebView2 | Con winit: N=1, 97 MB privados y 6 procesos; N=5, 194 MB y 10 procesos; N=10, 321 MB y 15 procesos. Unos **25 MB por webview extra**. Redimensionar funciona. Un entorno compartido no ahorra nada. **Con tao, el bucle se bloqueó** con varios webviews hijos: 2 de 10 en el ejemplo de wry portado a tao, siempre en nuestro prototipo; con winit, 0 de 10. | 38949242448, 38949714000 |
+| W3, `Committed` por `NavigationId` | 14 de 14 casos correctos: redirección, `pushState`, fragmento, error de red, navegación solapada, iframe externo, carga pendiente y atrás. | 38945354780 |
 
 ## Puertas de decisión
 
@@ -129,6 +142,14 @@ Cada prototipo es un proyecto Rust independiente en `spikes/` más un flujo de t
 
 **Criterio para G2:** se elige A salvo que B ahorre más de ~50 MB y funcione en Wayland con arrastre y lector de pantalla sin parches. Después se repite W2 en CI con la interfaz elegida.
 
+## Siguiente fase (propuesta, sin aprobar)
+
+La construcción se reparte en tareas paralelas, una rama por tarea, solo donde los archivos no se cruzan:
+
+1. **En serie, primero:** definir las costuras que separan lo común de lo propio de cada plataforma: canal del CLI (`agent/socket.rs`), identidad de archivo (`dev`/`ino` en `vault.rs`), papelera, proceso de la ventana (`ui/action.rs`). Sin esto, las ramas paralelas chocan en los mismos archivos.
+2. **En paralelo, después:** canal del CLI en Windows (W5, tubería con nombre), rutas y nombres reservados de Windows (`vault.rs`, `paths.rs`), `update.rs` y `getrandom`, empaquetado en CI (Flatpak, `.deb` si se aprueba, `.exe`) y W4.
+3. **Bloqueado por G2:** la interfaz de Windows (y la compartida, si se elige A). Es la parte grande y no se reparte hasta decidir G2.
+
 ## Experimentos diferidos (Mac)
 
 **M1.** Cuando se retome: probar en el ejecutor de macOS (gratis en repositorios públicos) si `127.0.0.2` se puede abrir, el aviso de Gatekeeper sin firma y la compilación para x86_64 y aarch64. Hasta entonces, evitar decisiones que cierren la puerta: no depender de `127.0.0.2`, concentrar las rutas en `paths.rs`, captura tras una interfaz por plataforma.
@@ -149,12 +170,21 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 4. **W7** con el usuario.
 5. Solo entonces, un plan de construcción nuevo, basado en lo que quede vivo.
 
+## Decisiones del usuario
+
+- **2026-10-16:** sube la rama del worktree y lanza su CI.
+- **2026-10-19:**
+  - **G1 pasa con winit.** Windows sigue adelante. La ventana de Windows usa winit en lugar de tao, por el bloqueo de W2. Linux sigue con tao y GTK. Hay que actualizar el ADR 0001 (con consulta).
+  - **G3: RHEL, Alma y Rocky 9 y Alpine quedan fuera.** Son un nicho muy específico.
+  - **Formatos:** `.exe` en Windows; Flatpak y AppImage en Linux. Se propuso añadir `.deb` y está pendiente de respuesta (ver abajo).
+  - **Linux Mint:** probar en un escritorio X11 real. Si no se consigue, publicar con un aviso de que no está probado en Mint e invitar a colaborar con esa prueba.
+  - **La construcción se reparte en tareas paralelas,** con subagentes, cada uno en su rama.
+
 ## Decisiones pendientes del usuario
 
-1. Permiso para subir la rama `worktree-port-multiplataforma` a GitHub (el CI la necesita).
-2. ¿Instalador, zip portable o ambos en Windows?
-3. ¿Se acepta dejar fuera RHEL/Alma/Rocky 9 y Alpine por ahora?
-4. ¿Flatpak sí o después?
+1. **G2:** qué interfaz compartida (A, HTML; B, egui o slint). Hace falta U1 y U2.
+2. **Windows:** ¿`.exe` instalador, `.exe` suelto (portable) o ambos?
+3. **Linux:** ¿se añade `.deb`? ¿Se mantiene AppImage pese a su registro de descarte (abajo)?
 
 ## Registro de descartes
 
@@ -163,12 +193,14 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 | GPUI | Descartada | Sin webviews en Wayland nativo: `build_as_child` solo X11 en wry 0.57; gpui-kit PR 3395; el crate `gpui` oficial es 0.2.2 de oct. 2025 y el ecosistema usa instantáneas semanales [V] |
 | Tauri 2 como base | Descartada | Su multiwebview (`add_child`) sigue tras la feature `unstable` [V]. Se puede usar su empaquetador sin migrar [S] |
 | Opción D (GTK en Linux + interfaz aparte en Windows) | Descartada salvo que G2 falle | Dos bases de UI: mantenimiento muy alto |
-| AppImage | Descartada por ahora | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
+| AppImage | En revisión (el usuario la quiere, 2026-10-19) | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
 | Snap | Descartada | Confinamiento parecido a Flatpak, poca adopción fuera de Ubuntu [S] |
 | Mac | Aplazada | Sin cuenta de Apple de pago |
 | Firma de código en Windows | Descartada por ahora | El usuario no pagará; se acepta SmartScreen. SignPath Foundation es gratis para código abierto y se puede retomar si cambia la decisión [S] |
-| RHEL/Alma/Rocky 9, Alpine | Sin solución prevista | RHEL 9 no trae WebKitGTK 4.1; Alpine usa musl [páginas de paquetes] |
+| RHEL/Alma/Rocky 9, Alpine | Descartadas (usuario, 2026-10-19) | L2: AlmaLinux 9 no trae WebKitGTK 4.1; Alpine usa musl [V] |
+| tao en Windows | Descartado (usuario, 2026-10-19) | W2: el bucle se bloquea con varios webviews hijos; winit no [V] |
 | Opción A (interfaz en HTML) | Viva | Pendiente de U1 |
 | Opción B (egui/slint) | Viva, poco probable | Sin ejemplos con wry en Wayland [V]; pendiente de U2 |
-| Windows | Viva, condicionada a G1 | Pendiente de W3 |
-| Flatpak | Viva, dudosa | Pendiente de L5 |
+| Windows | Viva | W3: 14 de 14; G1 pasa con winit |
+| Flatpak | Elegida, a probar | Pendiente de L5 (socket del CLI dentro del sandbox) |
+| `.deb` | Propuesta | Pendiente del usuario |
