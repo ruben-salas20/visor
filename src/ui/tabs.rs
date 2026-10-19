@@ -496,7 +496,6 @@ impl Tabs {
     }
 
     /// Swaps the two sides and focuses the left one.
-    #[allow(dead_code)]
     pub fn swap_sides(&mut self) -> Vec<Effect> {
         self.sides.swap(0, 1);
         self.focused = 0;
@@ -504,6 +503,26 @@ impl Tabs {
             side.dirty = true;
         }
         vec![Effect::SwapSides]
+    }
+
+    /// Opens a file dropped on side `p`. Split, it goes to a new tab of that
+    /// side. Not split, the window splits and the file takes the half it was
+    /// dropped on (`half`, 0 left or 1 right), the other half keeping what it had.
+    pub fn drop_file(&mut self, target: String, p: usize, half: Option<usize>) -> Vec<Effect> {
+        if p >= self.sides.len() {
+            return Vec::new();
+        }
+        if self.sides.len() == 2 {
+            self.set_focus(p);
+            return self.open(target, Place::NewTab, "");
+        }
+        self.set_focus(0);
+        let mut fx = self.open(target, Place::Beside, "");
+        // The new side is added on the right.
+        if half == Some(0) {
+            fx.extend(self.swap_sides());
+        }
+        fx
     }
 
     /// Focuses side `p`. False when it already had the focus.
@@ -1314,6 +1333,30 @@ mod tests {
         let fx = tabs.swap_sides();
         assert_eq!(fx, [Effect::SwapSides]);
         assert_eq!((targets(&tabs, 0), tabs.focused()), (vec!["b"], 0));
+    }
+
+    #[test]
+    fn a_dropped_file_takes_the_half_it_fell_on() {
+        let mut tabs = build(vec![side(&["a"], 0)], 0);
+        tabs.drop_file("n".into(), 0, Some(1));
+        assert_eq!((targets(&tabs, 0), targets(&tabs, 1), tabs.focused()), (vec!["a"], vec!["n"], 1));
+        check(&tabs);
+
+        let mut tabs = build(vec![side(&["a"], 0)], 0);
+        let fx = tabs.drop_file("n".into(), 0, Some(0));
+        assert_eq!(fx.last(), Some(&Effect::SwapSides));
+        assert_eq!((targets(&tabs, 0), targets(&tabs, 1), tabs.focused()), (vec!["n"], vec!["a"], 0));
+        check(&tabs);
+    }
+
+    #[test]
+    fn a_file_dropped_on_a_split_window_opens_in_a_new_tab_of_that_side() {
+        let mut tabs = build(vec![side(&["a"], 0), side(&["b"], 0)], 0);
+        let fx = tabs.drop_file("n".into(), 1, None);
+        assert!(!fx.iter().any(|e| matches!(e, Effect::AddSide { .. } | Effect::SwapSides)));
+        assert_eq!((targets(&tabs, 0), targets(&tabs, 1), tabs.focused()), (vec!["a"], vec!["b", "n"], 1));
+        assert!(tabs.drop_file("m".into(), 2, None).is_empty(), "a side that is gone");
+        check(&tabs);
     }
 
     #[test]
