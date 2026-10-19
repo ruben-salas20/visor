@@ -319,7 +319,8 @@ TYPICAL AGENT WORKFLOW
 UPDATES
   visor checks for a new version at startup, at most once a day, and
   installs it by itself for the next start. It can be turned off in Settings
-  (Ctrl+,). A binary built with cargo is not touched.
+  (Ctrl+,). A binary built with cargo is not touched, and one installed by
+  a package (.deb or Flatpak) is updated by that package.
 
 SEARCH FROM THE BAR
   What is typed in the bar (Ctrl+L) that is not a URL, a vault path or a

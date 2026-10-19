@@ -117,7 +117,10 @@ pub fn launch() -> i32 {
         crate::update::spawn();
     }
     // Lets the system offer visor for .md and .html; a write only when the binary moved.
-    if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe()) {
+    // A package brings its own entry.
+    if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe())
+        && !crate::package::managed(&exe)
+    {
         std::thread::spawn(move || {
             let _ = crate::desktop::write_if_changed(&icon, crate::desktop::ICON);
             let _ = crate::desktop::refresh(&exe, &file);

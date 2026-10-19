@@ -2,6 +2,7 @@ mod agent;
 mod desktop;
 mod http;
 mod i18n;
+mod package;
 mod paths;
 mod platform;
 mod session;

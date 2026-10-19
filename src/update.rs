@@ -162,6 +162,9 @@ fn refusal(no_update: bool, arch: &str, exe: &Path) -> Option<String> {
     if arch != "x86_64" {
         return Some(tr("Las versiones publicadas son solo para Linux x86_64.", "Published versions are for Linux x86_64 only.").into());
     }
+    if crate::package::managed(exe) {
+        return Some(tr("Esta copia de visor la actualiza su paquete (apt o Flatpak).", "This copy of visor is updated by its package (apt or Flatpak).").into());
+    }
     // A cargo build must never be replaced by a release.
     if exe.components().any(|c| c.as_os_str() == "target") {
         return Some(tr("Esta copia está en target/ (compilación de desarrollo) y no se reemplaza.", "This copy is in target/ (development build) and is not replaced.").into());
@@ -239,6 +242,7 @@ mod tests {
         assert!(refusal(false, "x86_64", build).unwrap().contains("target/"));
         assert!(refusal(false, "aarch64", installed).unwrap().contains("x86_64"));
         assert!(refusal(true, "x86_64", installed).unwrap().contains("VISOR_NO_UPDATE"));
+        assert!(refusal(false, "x86_64", Path::new("/usr/bin/visor")).unwrap().contains("paquete"));
     }
 
     #[test]

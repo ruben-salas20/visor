@@ -6,7 +6,12 @@ pub fn socket() -> PathBuf {
         return PathBuf::from(path);
     }
     match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir).join("visor.sock"),
+        // Each `flatpak run` gets its own runtime folder; only app/<id> is shared
+        // between them, and with the host.
+        Some(dir) => match std::env::var_os("FLATPAK_ID") {
+            Some(id) => PathBuf::from(dir).join("app").join(id).join("visor.sock"),
+            None => PathBuf::from(dir).join("visor.sock"),
+        },
         None => std::env::temp_dir().join(format!(
             "visor-{}.sock",
             std::env::var("USER").unwrap_or_default()
