@@ -209,8 +209,8 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 
 ## Decisiones pendientes del usuario
 
-1. Por dónde seguir: U1 en Windows (CI), fase 1 (costuras) o ADR 0001 y 0004.
-2. Los cambios concretos de los ADR 0001 y 0004, cuando se propongan.
+1. Dependencias de la fase 2, solo para Windows: `windows-sys` (ya llega a `Cargo.lock` por otras bibliotecas), `getrandom` para el secreto y `sha2` para comprobar la descarga de `update.rs` (en lugar de leer la salida de `certutil`).
+2. Los cambios concretos de los ADR 0001 y 0004, cuando se propongan (mejor después de U1 en Windows).
 
 ## Registro de descartes
 
