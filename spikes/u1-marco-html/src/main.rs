@@ -149,8 +149,11 @@ fn texto<'a>(m: &'a Value, campo: &str) -> Result<&'a str, String> {
 
 /// Mensajes del marco. Solo el webview del marco puede enviarlos.
 static INICIO: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+/// `--abrir RUTA`: opens RUTA on both sides once the frame is ready (for measuring against visor).
+static ABRIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// With U1_TIEMPOS=<file>, appends `<event> <ms since start>` once per event, for tools/medir-like rounds.
+/// With U1_TIEMPOS=<file>, appends `<event> <ms since main> <unix ms>` once per event; the unix time lets
+/// the measuring script count from the moment it spawned the process.
 fn marcar_tiempo(evento: &str) {
     use std::sync::Mutex;
     static VISTOS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -163,7 +166,8 @@ fn marcar_tiempo(evento: &str) {
     let ms = INICIO.get().map_or(0.0, |t| t.elapsed().as_secs_f64() * 1000.0);
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(ruta) {
         use std::io::Write;
-        let _ = writeln!(f, "{evento} {ms:.1}");
+        let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        let _ = writeln!(f, "{evento} {ms:.1} {unix:.1}");
     }
 }
 
@@ -182,6 +186,10 @@ fn mensaje_marco(est: &RefCell<Estado>, vis: &RefCell<Vistas>, cuerpo: &str) {
             "listo" => {
                 marcar_tiempo("listo");
                 e.listo = true;
+                if let Some(ruta) = ABRIR.get() {
+                    abrir_en(&mut e, 0, ruta)?;
+                    abrir_en(&mut e, 1, ruta)?;
+                }
                 return Ok(());
             }
             "recolocar" => {
@@ -268,6 +276,7 @@ fn mensaje_pagina(est: &RefCell<Estado>, vis: &RefCell<Vistas>, lado: usize, cue
         let mut e = est.borrow_mut();
         match accion.as_str() {
             "cargada" => {
+                marcar_tiempo(&format!("pagina{lado}"));
                 let ruta = texto(&m, "ruta")?.to_string();
                 if e.arbol.contains(&ruta) {
                     e.cargadas.push((lado, ruta));
@@ -371,6 +380,9 @@ fn generar_boveda(raiz: &Path) -> std::io::Result<Vec<String>> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     INICIO.get_or_init(std::time::Instant::now);
     let args: Vec<String> = std::env::args().collect();
+    if let Some(ruta) = args.iter().position(|a| a == "--abrir").and_then(|i| args.get(i + 1)) {
+        let _ = ABRIR.set(ruta.clone());
+    }
     let salida_prueba = args.iter().position(|a| a == "--prueba").and_then(|i| args.get(i + 1)).cloned();
     let raiz: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
     let arbol = generar_boveda(&raiz)?;
@@ -420,6 +432,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         otro => return Err(format!("--marco acepta simple, react o svelte, no {otro}").into()),
     };
     let url_marco = format!("http://127.0.0.1:{puerto}/{ruta_marco}");
+    // One context for every view, as visor does: separate contexts start a network process each.
+    let mut contexto = wry::WebContext::new(None);
     // The built frames live in their own folder and may navigate inside it; the simple one is a single file.
     let prefijo_marco = match ruta_marco.rsplit_once('/') {
         Some((dir, _)) => format!("http://127.0.0.1:{puerto}/{dir}/"),
@@ -427,7 +441,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let est_m = estado.clone();
     let vis_m = vistas.clone();
-    let marco = WebViewBuilder::new()
+    let marco = WebViewBuilder::new_with_web_context(&mut contexto)
         .with_url(&url_marco)
         .with_navigation_handler({
             let prefijo = prefijo_marco.clone();
@@ -442,7 +456,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let vis_p = vistas.clone();
         let prefijo_boveda = format!("http://127.0.0.1:{puerto}/boveda/");
         let prefijo_hostil = format!("http://127.0.0.1:{puerto}/hostil.html");
-        let pagina = WebViewBuilder::new()
+        let pagina = WebViewBuilder::new_with_web_context(&mut contexto)
             .with_url("about:blank")
             .with_bounds(caja(0.0, 0.0, 1.0, 1.0))
             .with_navigation_handler(move |url: String| {
