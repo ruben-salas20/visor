@@ -95,7 +95,7 @@ fn serve_asset(request: Request, name: &str) {
 /// 32 random hex digits.
 pub fn secret() -> Option<String> {
     let mut bytes = [0u8; 16];
-    File::open("/dev/urandom").ok()?.read_exact(&mut bytes).ok()?;
+    crate::platform::random(&mut bytes).ok()?;
     Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 

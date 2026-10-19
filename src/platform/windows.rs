@@ -9,6 +9,10 @@ pub fn file_id(_path: &Path) -> Option<FileId> {
     todo!("Windows: file identity")
 }
 
+pub fn random(bytes: &mut [u8]) -> io::Result<()> {
+    getrandom::fill(bytes).map_err(io::Error::other)
+}
+
 /// Windows runs any .exe; there is no permission to give.
 pub fn make_executable(_path: &Path) -> io::Result<()> {
     Ok(())
