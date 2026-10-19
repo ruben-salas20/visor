@@ -96,7 +96,11 @@ fn bombear(ms: u64) {
 fn bombear_una_vez() {
     unsafe {
         let mut msg = MSG::default();
-        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+        // Capped: while a winit callback is running, winit buffers WM_PAINT without validating
+        // the window, so Windows keeps generating it and an uncapped loop never ends.
+        let mut n = 0;
+        while n < 64 && PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            n += 1;
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
