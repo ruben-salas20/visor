@@ -1,11 +1,11 @@
+use crate::agent::channel;
 use crate::agent::command::{Command, Request, Target};
 use crate::i18n::tr;
 use crate::paths;
+use crate::platform;
 use crate::vault::{self, config};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,7 @@ pub(crate) fn call(request: &Request) -> Value {
 }
 
 fn send(request: &Request) -> Option<Value> {
-    let mut stream = UnixStream::connect(paths::socket()).ok()?;
+    let mut stream = channel::connect(&paths::socket()).ok()?;
     writeln!(stream, "{}", request.to_wire()).ok()?;
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).ok()?;
@@ -64,12 +64,7 @@ fn start(loose: bool) -> bool {
     if loose {
         process.env("VISOR_LOOSE", "1");
     }
-    let spawned = process
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn();
+    let spawned = platform::detach(process.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())).spawn();
     if spawned.is_err() {
         return false;
     }

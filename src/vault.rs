@@ -12,6 +12,7 @@ pub mod pdf;
 mod walk_tests;
 
 use crate::i18n::tr;
+use crate::platform::{FileId, file_id};
 use crate::trf;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -19,7 +20,6 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
@@ -80,6 +80,11 @@ pub fn is_markdown(path: &Path) -> bool {
 pub fn is_drawing(path: &Path) -> bool {
     let name = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     name.ends_with(".excalidraw.md") || name.ends_with(".excalidraw")
+}
+
+/// A website's address, as opposed to a path in the vault.
+pub fn is_web(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
 }
 
 pub fn is_html(path: &Path) -> bool {
@@ -158,14 +163,14 @@ fn scan(walk: &mut Walk, root: &Path, dir: &Path) -> Option<Dir> {
 /// and a link to a folder outside `limit` is not followed.
 pub struct Walk {
     limit: PathBuf,
-    seen: HashSet<(u64, u64)>,
+    seen: HashSet<FileId>,
 }
 
 impl Walk {
     /// Walks from `start`, inside the vault at `root`.
     pub fn new(root: &Path, start: &Path) -> Self {
         let limit = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        let seen = fs::metadata(start).map(|m| (m.dev(), m.ino())).into_iter().collect();
+        let seen = file_id(start).into_iter().collect();
         Walk { limit, seen }
     }
 
@@ -209,7 +214,7 @@ impl Walk {
 
     /// False if this real folder was already entered.
     fn enter(&mut self, dir: &Path) -> bool {
-        fs::metadata(dir).is_ok_and(|m| self.seen.insert((m.dev(), m.ino())))
+        file_id(dir).is_some_and(|id| self.seen.insert(id))
     }
 }
 

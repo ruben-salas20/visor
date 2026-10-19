@@ -9,7 +9,7 @@
 //! by one tab only, and the visible tabs of the sides are always live.
 
 use crate::session::Place;
-use crate::ui::page_view::is_web;
+use crate::vault::is_web;
 use crate::vault::config::{PaneState, Workspace};
 use serde_json::{Value, json};
 

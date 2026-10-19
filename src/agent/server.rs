@@ -1,11 +1,11 @@
 use crate::i18n::tr;
 use crate::session::{LOADED, Place, AgentRequest, SharedRef, real_path};
 use crate::trf;
+use crate::agent::channel::{Listener, Stream};
 use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Page, Request, Target};
 use crate::ui::windows::WinId;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,7 +14,7 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
 /// `send` hands a request to the window it is for.
-pub fn spawn(listener: UnixListener, shared: SharedRef, send: impl Fn(WinId, AgentRequest) + Send + Sync + 'static) {
+pub fn spawn(listener: Listener, shared: SharedRef, send: impl Fn(WinId, AgentRequest) + Send + Sync + 'static) {
     let send: Arc<dyn Fn(WinId, AgentRequest) + Send + Sync> = Arc::new(send);
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -24,7 +24,7 @@ pub fn spawn(listener: UnixListener, shared: SharedRef, send: impl Fn(WinId, Age
     });
 }
 
-fn handle(stream: UnixStream, shared: &SharedRef, send: &dyn Fn(WinId, AgentRequest)) {
+fn handle(stream: Stream, shared: &SharedRef, send: &dyn Fn(WinId, AgentRequest)) {
     let mut line = String::new();
     if BufReader::new(&stream).read_line(&mut line).is_err() {
         return;

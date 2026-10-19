@@ -2,9 +2,9 @@
 //! ever removes its own.
 
 use crate::i18n::tr;
+use crate::platform::{FileId, file_id};
 use crate::trf;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -24,7 +24,7 @@ pub enum ClaimError {
 /// identity of the socket file, to tell it from a later one.
 pub struct Claim {
     path: PathBuf,
-    id: (u64, u64),
+    id: FileId,
     _lock: File,
 }
 
@@ -69,14 +69,14 @@ pub fn claim(path: &Path) -> Result<(UnixListener, Claim), ClaimError> {
     let _ = fs::remove_file(path);
     let failed = |e: std::io::Error| ClaimError::Failed(trf!("No se pudo crear {}: {e}", "Could not create {}: {e}", path.display()));
     let listener = UnixListener::bind(path).map_err(failed)?;
-    let meta = fs::metadata(path).map_err(failed)?;
-    Ok((listener, Claim { path: path.to_path_buf(), id: (meta.dev(), meta.ino()), _lock: lock }))
+    let id = file_id(path).ok_or_else(|| failed(std::io::ErrorKind::NotFound.into()))?;
+    Ok((listener, Claim { path: path.to_path_buf(), id, _lock: lock }))
 }
 
 impl Claim {
     /// Removes the socket, unless it is no longer the one this claim bound.
     pub fn release(self) {
-        let ours = fs::metadata(&self.path).is_ok_and(|m| (m.dev(), m.ino()) == self.id);
+        let ours = file_id(&self.path) == Some(self.id);
         if ours {
             let _ = fs::remove_file(&self.path);
         }

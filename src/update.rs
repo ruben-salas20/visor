@@ -5,7 +5,6 @@ use crate::i18n::tr;
 use crate::trf;
 use serde::Deserialize;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -194,7 +193,7 @@ fn install(url: &str, sha256: &str, tmp: &Path, exe: &Path) -> Result<(), String
     if !out.status.success() || !same {
         return Err(mismatch.into());
     }
-    fs::set_permissions(tmp, fs::Permissions::from_mode(0o755))
+    crate::platform::make_executable(tmp)
         .and_then(|()| fs::rename(tmp, exe))
         .map_err(|e| trf!("No se pudo reemplazar visor: {}.", "Could not replace visor: {}.", e))
 }
@@ -290,6 +289,7 @@ mod tests {
         let sha = String::from_utf8(out.stdout).unwrap().split_whitespace().next().unwrap().to_string();
         assert!(install(&url, &sha, &tmp, &exe).is_ok());
         assert_eq!(fs::read(&exe).unwrap(), b"nueva");
+        use std::os::unix::fs::PermissionsExt;
         assert_eq!(fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o755);
         let _ = fs::remove_dir_all(&dir);
     }

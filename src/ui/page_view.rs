@@ -3,7 +3,7 @@
 
 use crate::i18n::tr;
 use crate::ui::action::{Action, LoadFailure, Proxy, UserEvent};
-use crate::vault;
+use crate::vault::{self, is_web};
 use gtk::prelude::*;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -28,10 +28,6 @@ fn accept(body: &str, key: &str, document: &str) -> Option<String> {
         _ => return None,
     }
     Some(msg.to_string())
-}
-
-pub fn is_web(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
 }
 
 /// The host of a website's address, the only part of it that reaches the

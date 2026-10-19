@@ -4,7 +4,7 @@
 use crate::session::AgentRequest;
 use crate::ui::windows::WinId;
 use std::path::PathBuf;
-use tao::event_loop::EventLoopProxy;
+use std::sync::Arc;
 
 /// What the person did in the panel. Paths are relative to the vault and
 /// unchecked: Rust validates each one before acting.
@@ -32,15 +32,20 @@ pub struct Routed {
     pub event: UserEvent,
 }
 
+/// Hands an event to the loop. A closed loop drops it, as every caller did
+/// with `let _ = send_event(..)`. A function, so this file does not depend on
+/// the window library (tao on Linux, winit on Windows).
+pub type Send = Arc<dyn Fn(Routed) + std::marker::Send + Sync>;
+
 /// Sends events to the loop on behalf of one window.
 #[derive(Clone)]
 pub struct Proxy {
     window: WinId,
-    inner: EventLoopProxy<Routed>,
+    inner: Send,
 }
 
 impl Proxy {
-    pub fn new(window: WinId, inner: EventLoopProxy<Routed>) -> Self {
+    pub fn new(window: WinId, inner: Send) -> Self {
         Proxy { window, inner }
     }
 
@@ -53,9 +58,8 @@ impl Proxy {
         Proxy { window, inner: self.inner.clone() }
     }
 
-    /// Ignores a closed loop, as every caller did with `let _ = send_event(..)`.
     pub fn send(&self, event: UserEvent) {
-        let _ = self.inner.send_event(Routed { window: self.window, event });
+        (self.inner)(Routed { window: self.window, event });
     }
 }
 

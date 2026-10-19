@@ -7,6 +7,8 @@ on:
   push:
     branches: [worktree-port-multiplataforma]
     paths:
+      - "src/**"
+      - "Cargo.toml"
       - "spikes/w1-check/**"
       - ".github/workflows/windows-check.yml"
 
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   w1:
-    name: cargo check sin interfaz (tres pasadas)
+    name: cargo check sin interfaz
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:
@@ -36,8 +38,8 @@ jobs:
           rustc -V
           cargo -V
 
-          # Cada pasada es una copia distinta; cargo puede fallar (son los resultados),
-          # pero prepare.py y classify.py deben funcionar, o el paso falla.
+          # cargo puede fallar (es el resultado), pero prepare.py y classify.py
+          # deben funcionar, o el paso falla.
           pasada() {
             local nombre="$1" titulo="$2"
             shift 2
@@ -49,9 +51,7 @@ jobs:
             { echo "## Pasada $nombre: $titulo"; echo; cat "$out/$nombre-informe.md"; } >> "$out/resumen.md"
           }
 
-          pasada 1-base "sin interfaz, sin relleno"
-          pasada 2-costuras "costuras de interfaz rellenas" --stub-seams
-          pasada 3-sin-imports-unix "costuras rellenas y sin imports std::os::unix" --stub-seams --drop-unix-imports
+          pasada sin-interfaz "sin interfaz, con las costuras de src/platform/"
 
           cat "$out/resumen.md" >> "$GITHUB_STEP_SUMMARY"
 

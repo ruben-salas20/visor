@@ -2,6 +2,7 @@
 //! live apart from it, so they go wherever the page goes.
 
 use crate::i18n::tr;
+use crate::platform;
 use crate::trf;
 use crate::vault::annot;
 use std::fs;
@@ -53,12 +54,11 @@ pub fn move_to(vault: &Vault, rel: &str, dir: &str) -> Result<Option<String>, St
 
 /// Sends `rel` and its annotations to the desktop trash, where they can be restored.
 pub fn trash(vault: &Vault, rel: &str) -> Result<(), String> {
-    use gtk::gio::{Cancellable, File, prelude::FileExt};
     let path = vault.entry(rel)?;
     let notes = annotations(vault.root(), rel, path.is_dir());
-    File::for_path(&path).trash(Cancellable::NONE).map_err(|e| trf!("No se pudo mover a la papelera: {e}", "Could not move to the trash: {e}"))?;
+    platform::trash(&path).map_err(|e| trf!("No se pudo mover a la papelera: {e}", "Could not move to the trash: {e}"))?;
     if notes.exists() {
-        let _ = File::for_path(&notes).trash(Cancellable::NONE);
+        let _ = platform::trash(&notes);
     }
     Ok(())
 }

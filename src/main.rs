@@ -3,6 +3,7 @@ mod desktop;
 mod http;
 mod i18n;
 mod paths;
+mod platform;
 mod session;
 mod update;
 mod ui;

@@ -6,6 +6,7 @@ pub mod tools;
 
 use crate::i18n::tr;
 use crate::trf;
+use crate::vault::is_web;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -99,10 +100,6 @@ const WIRE_NAMES: [&str; 13] = [
 /// Orders that do not act on a window: events and the update are the whole
 /// process's, and guide is fixed text. They refuse `--window` and `window`.
 pub const WINDOWLESS: [&str; 3] = ["events", "update", "guide"];
-
-fn is_web(text: &str) -> bool {
-    text.starts_with("http://") || text.starts_with("https://")
-}
 
 /// The error for a socket field that is missing or of the wrong kind.
 fn invalid_field(field: &str) -> String {

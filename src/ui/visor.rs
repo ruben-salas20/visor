@@ -10,12 +10,12 @@
 //! copy the value into a local and end the borrow before the call.
 
 use crate::agent::command::{Command, Request};
-use crate::agent::socket::{Claim, ClaimError, claim};
+use crate::agent::channel::{Claim, ClaimError, claim};
 use crate::i18n::tr;
 use crate::paths;
 use crate::session::{AgentRequest, LOADED, Shared, SharedRef};
 use crate::trf;
-use crate::ui::action::{Proxy, Routed, UserEvent};
+use crate::ui::action::{self, Proxy, Routed, UserEvent};
 use crate::ui::app::App;
 use crate::ui::common::{Common, CommonRef, Settings};
 use crate::ui::theme::{self, Theme};
@@ -26,11 +26,10 @@ use crate::vault::config::{Config, WindowState, Workspace};
 use notify::RecursiveMode;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::os::unix::process::CommandExt;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
+use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopWindowTarget};
 use wry::WebContext;
 
 pub fn launch() -> i32 {
@@ -48,7 +47,10 @@ pub fn launch() -> i32 {
 
     let event_loop = EventLoopBuilder::<Routed>::with_user_event().build();
     let loop_proxy = event_loop.create_proxy();
-    let process = Proxy::new(0, loop_proxy.clone());
+    let send: action::Send = Arc::new(move |routed| {
+        let _ = loop_proxy.send_event(routed);
+    });
+    let process = Proxy::new(0, send.clone());
     let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
     let agent_proxy = process.clone();
     crate::agent::server::spawn(listener, shared.clone(), move |window, request| {
@@ -94,7 +96,7 @@ pub fn launch() -> i32 {
         windows: Windows::new(),
         apps: HashMap::new(),
         by_tao: HashMap::new(),
-        loop_proxy,
+        send,
         claim: Some(claim),
         loose,
     };
@@ -178,7 +180,7 @@ struct Visor {
     windows: Windows,
     apps: HashMap<WinId, App>,
     by_tao: HashMap<tao::window::WindowId, WinId>,
-    loop_proxy: EventLoopProxy<Routed>,
+    send: action::Send,
     claim: Option<Claim>,
     /// Started for a loose page; see `save_windows`.
     loose: bool,
@@ -194,7 +196,7 @@ impl Visor {
             shared.window_mut(w);
             shared.focused_window = Some(w);
         }
-        let proxy = Proxy::new(w, self.loop_proxy.clone());
+        let proxy = Proxy::new(w, self.send.clone());
         let mut app = App::new(target, proxy, self.shared.clone(), self.common.clone(), &state, loose);
         app.restyle();
         let vault = state.vault.filter(|p| !loose && p.is_dir());
@@ -359,7 +361,7 @@ impl Visor {
         let failed = match crate::update::running_exe() {
             None => tr("No se pudo reiniciar: no se encuentra visor.", "Could not restart: visor not found.").to_string(),
             Some(exe) => {
-                let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env_remove("VISOR_LOOSE").exec();
+                let error = crate::platform::restart(std::process::Command::new(exe).args(std::env::args_os().skip(1)).env_remove("VISOR_LOOSE"));
                 trf!("No se pudo reiniciar: {error}.", "Could not restart: {error}.")
             }
         };

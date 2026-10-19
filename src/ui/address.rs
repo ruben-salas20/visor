@@ -1,7 +1,7 @@
 //! What the address field does with the text typed in it. No GTK and no disk:
 //! the caller resolves the vault path and passes it in.
 
-use crate::ui::page_view::is_web;
+use crate::vault::is_web;
 use crate::vault;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
