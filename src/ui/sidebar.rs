@@ -2,7 +2,7 @@
 //! its own (~65–100 MB) to list files. See docs/adr/0003.
 use crate::i18n::tr;
 use crate::trf;
-use crate::ui::action::{Action, SidebarMsg, UserEvent};
+use crate::ui::action::{Action, Proxy, SidebarMsg, UserEvent};
 use crate::ui::address::Engine;
 use crate::ui::icons::{draw_chevron, draw_chevron_bold, draw_gear, draw_new_folder, draw_pdf, draw_plus, drawn_icon, icon_button};
 use crate::ui::theme::Theme;
@@ -16,7 +16,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
-use tao::event_loop::EventLoopProxy;
 
 const NAME: u32 = 0;
 const PATH: u32 = 1;
@@ -196,11 +195,11 @@ pub struct Sidebar {
     notice_text: gtk::Label,
     notice_open: gtk::Button,
     state: Rc<RefCell<State>>,
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: Proxy,
 }
 
 impl Sidebar {
-    pub fn new(proxy: &EventLoopProxy<UserEvent>) -> Sidebar {
+    pub fn new(proxy: &Proxy) -> Sidebar {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.style_context().add_class("visor-sidebar");
 
@@ -439,7 +438,7 @@ impl Sidebar {
     }
 
     fn send(&self, msg: SidebarMsg) {
-        let _ = self.proxy.send_event(UserEvent::Sidebar(msg));
+        self.proxy.send(UserEvent::Sidebar(msg));
     }
 
     pub fn set_language_pending(&self, pending: bool) {
@@ -1166,7 +1165,7 @@ type ChoiceButtons = Vec<(Option<&'static str>, gtk::ToggleButton)>;
 fn choice_row(
     choices: &[(Option<&'static str>, &'static str)],
     syncing: &Rc<Cell<bool>>,
-    proxy: &EventLoopProxy<UserEvent>,
+    proxy: &Proxy,
     action: fn(Option<String>) -> Action,
 ) -> (gtk::Box, ChoiceButtons) {
     let buttons: ChoiceButtons = choices
@@ -1195,7 +1194,7 @@ fn choice_row(
                 other.set_active(false);
             }
             syncing.set(false);
-            let _ = proxy.send_event(UserEvent::Action(action(choice.map(String::from))));
+            proxy.send(UserEvent::Action(action(choice.map(String::from))));
         });
     }
     (row, buttons)
@@ -1212,7 +1211,7 @@ struct UpdateBox {
 }
 
 impl UpdateBox {
-    fn new(proxy: &EventLoopProxy<UserEvent>) -> UpdateBox {
+    fn new(proxy: &Proxy) -> UpdateBox {
         let area = gtk::Box::new(gtk::Orientation::Vertical, 4);
         let check = gtk::Button::with_label(tr("Buscar actualización ahora", "Check for update now"));
         check.set_tooltip_text(Some(tr("Las copias compiladas en target/ no se reemplazan.", "Compiled copies in target/ are not replaced.")));
@@ -1225,11 +1224,11 @@ impl UpdateBox {
         restart.set_no_show_all(true);
         let p = proxy.clone();
         check.connect_clicked(move |_| {
-            let _ = p.send_event(UserEvent::Action(Action::CheckUpdates));
+            p.send(UserEvent::Action(Action::CheckUpdates));
         });
         let p = proxy.clone();
         restart.connect_clicked(move |_| {
-            let _ = p.send_event(UserEvent::Action(Action::Restart));
+            p.send(UserEvent::Action(Action::Restart));
         });
         area.pack_start(&check, false, false, 0);
         area.pack_start(&result, false, false, 0);
@@ -1256,7 +1255,7 @@ impl UpdateBox {
 /// update check. Its controls send actions; `Sidebar::set_settings` fills them in silently.
 fn settings_popover(
     gear: &gtk::MenuButton,
-    proxy: &EventLoopProxy<UserEvent>,
+    proxy: &Proxy,
     syncing: &Rc<Cell<bool>>,
     update: &UpdateBox,
 ) -> (gtk::Popover, ChoiceButtons, ChoiceButtons, gtk::Box, gtk::Label, gtk::CheckButton, gtk::CheckButton, gtk::ComboBoxText) {
@@ -1289,7 +1288,7 @@ fn settings_popover(
     let restart = gtk::Button::with_label(tr("Reiniciar ahora", "Restart now"));
     let p = proxy.clone();
     restart.connect_clicked(move |_| {
-        let _ = p.send_event(UserEvent::Action(Action::Restart));
+        p.send(UserEvent::Action(Action::Restart));
     });
     language_restart.pack_start(&pending, true, true, 0);
     language_restart.pack_start(&restart, false, false, 0);
@@ -1313,22 +1312,22 @@ fn settings_popover(
     zoom_row.pack_start(&bigger, false, false, 0);
     let p = proxy.clone();
     smaller.connect_clicked(move |_| {
-        let _ = p.send_event(UserEvent::Action(Action::Zoom(-1)));
+        p.send(UserEvent::Action(Action::Zoom(-1)));
     });
     let p = proxy.clone();
     reset.connect_clicked(move |_| {
-        let _ = p.send_event(UserEvent::Action(Action::Zoom(0)));
+        p.send(UserEvent::Action(Action::Zoom(0)));
     });
     let p = proxy.clone();
     bigger.connect_clicked(move |_| {
-        let _ = p.send_event(UserEvent::Action(Action::Zoom(1)));
+        p.send(UserEvent::Action(Action::Zoom(1)));
     });
 
     let auto_update = gtk::CheckButton::with_label(tr("Buscar e instalar actualizaciones", "Check for and install updates"));
     let (syncing_flag, p) = (syncing.clone(), proxy.clone());
     auto_update.connect_toggled(move |c| {
         if !syncing_flag.get() {
-            let _ = p.send_event(UserEvent::Action(Action::SetAutoUpdate(c.is_active())));
+            p.send(UserEvent::Action(Action::SetAutoUpdate(c.is_active())));
         }
     });
 
@@ -1336,7 +1335,7 @@ fn settings_popover(
     let (syncing_flag, p) = (syncing.clone(), proxy.clone());
     show_other.connect_toggled(move |c| {
         if !syncing_flag.get() {
-            let _ = p.send_event(UserEvent::Action(Action::SetShowOtherFiles(c.is_active())));
+            p.send(UserEvent::Action(Action::SetShowOtherFiles(c.is_active())));
         }
     });
 
@@ -1348,7 +1347,7 @@ fn settings_popover(
     search_engine.connect_changed(move |c| {
         if !syncing_flag.get() {
             let engine = Engine::from_id(c.active_id().as_deref());
-            let _ = p.send_event(UserEvent::Action(Action::SetSearchEngine(engine)));
+            p.send(UserEvent::Action(Action::SetSearchEngine(engine)));
         }
     });
     let search_note = gtk::Label::new(Some(tr("Lo escrito en la barra que no sea una dirección se envía al buscador.", "What you type in the bar that is not an address goes to the search engine.")));

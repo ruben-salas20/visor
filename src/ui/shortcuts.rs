@@ -22,6 +22,7 @@ pub const SHORTCUTS: &[(&str, (&str, &str))] = &[
     ("Ctrl+Shift+L", ("lista de anotaciones de la página", "list of the page's annotations")),
     ("Ctrl+T", ("pestaña nueva, con el cursor en la barra", "new tab, with the cursor in the bar")),
     ("Ctrl+W", ("cerrar la pestaña", "close the tab")),
+    ("Ctrl+Q", ("cerrar todas las ventanas; se vuelven a abrir la próxima vez", "close every window; they open again next time")),
     ("Ctrl+Tab", ("pestaña siguiente", "next tab")),
     ("Ctrl+Shift+Tab", ("pestaña anterior", "previous tab")),
     ("Ctrl+1 … Ctrl+8", ("pestaña número N del lado con foco", "tab number N on the focused side")),

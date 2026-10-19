@@ -34,9 +34,29 @@ pub struct Config {
     /// `"es"` or `"en"`; `None` follows the system's `LANG`. Read at startup, so a change applies on restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Every open window, reopened at startup.
+    pub windows: Vec<WindowState>,
+    /// Index in `windows` of the window that had focus.
+    pub focused_window: usize,
+    /// Last octet of the loopback host each vault is served on, so a vault keeps
+    /// its origin and the storage of its pages. 1 is the vault that was `current`
+    /// when origins began; 2 is reserved for loose pages.
+    pub origins: HashMap<PathBuf, u8>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+/// One open window, as it is restored at startup.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct WindowState {
+    pub vault: Option<PathBuf>,
+    pub workspace: Workspace,
+    /// Logical size of the window.
+    pub size: Option<(u32, u32)>,
+    pub sidebar_width: Option<i32>,
+    pub split_ratio: Option<f64>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Workspace {
     /// One entry per side, left first.
@@ -44,7 +64,7 @@ pub struct Workspace {
     pub focused: usize,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct PaneState {
     /// What each tab shows: a vault path, a web address, or empty.
@@ -166,6 +186,55 @@ impl Config {
             .max_by_key(|v| v.components().count())
             .cloned()
     }
+
+    /// The windows to open at startup, and which one gets focus. A config from
+    /// before several windows has no `windows`: its `current` vault becomes the
+    /// one window.
+    pub fn restore_windows(&self) -> (Vec<WindowState>, usize) {
+        if self.windows.is_empty() {
+            let vault = self.current.clone().filter(|c| c.is_dir());
+            let workspace = vault.as_ref().and_then(|c| self.workspaces.get(c)).cloned().unwrap_or_default();
+            let window = WindowState {
+                vault,
+                workspace,
+                size: None,
+                sidebar_width: self.sidebar_width,
+                split_ratio: self.split_ratio,
+            };
+            return (vec![window], 0);
+        }
+        let windows = self
+            .windows
+            .iter()
+            .map(|w| {
+                let mut w = w.clone();
+                // A vault that was moved or deleted reopens as an empty window.
+                if w.vault.as_ref().is_some_and(|v| !v.is_dir()) {
+                    w.vault = None;
+                }
+                w
+            })
+            .collect();
+        (windows, self.focused_window.min(self.windows.len() - 1))
+    }
+
+    /// The loopback host octet of `vault`, given to it the first time it is asked.
+    /// Octets 1 and 2 are not handed out: 1 belongs to the old `current` vault and 2 to loose pages.
+    /// The caller saves the config.
+    pub fn origin_for(&mut self, vault: &Path) -> Option<u8> {
+        // Configs from before origins were stored: the vault that was served on 127.0.0.1 keeps it.
+        if self.origins.is_empty()
+            && let Some(current) = &self.current
+        {
+            self.origins.insert(current.clone(), 1);
+        }
+        if let Some(&octet) = self.origins.get(vault) {
+            return Some(octet);
+        }
+        let free = (3..=254u8).find(|o| !self.origins.values().any(|used| used == o))?;
+        self.origins.insert(vault.to_path_buf(), free);
+        Some(free)
+    }
 }
 
 #[cfg(test)]
@@ -253,5 +322,133 @@ mod tests {
         config.save_to(&dir.join("config.json"));
         assert!(!dir.join("config.json").exists());
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn config_without_windows_loads_with_none() {
+        let dir = std::env::temp_dir().join(format!("visor-config-windows-old-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, r#"{"vaults": ["/a"], "current": "/a", "bar_shown": true}"#).unwrap();
+        let loaded = Config::load_from(&path);
+        assert!(loaded.windows.is_empty());
+        assert_eq!(loaded.focused_window, 0);
+        assert!(loaded.origins.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn restore_windows_migrates_the_current_vault() {
+        let vault = std::env::temp_dir().join(format!("visor-config-restore-old-{}", std::process::id()));
+        fs::create_dir_all(&vault).unwrap();
+        let workspace = Workspace { panes: vec![PaneState { tabs: vec!["x.md".into()], active: 0 }], focused: 0 };
+        let mut config = Config::default();
+        config.add(&vault);
+        config.workspaces.insert(vault.clone(), workspace.clone());
+        config.sidebar_width = Some(260);
+        config.split_ratio = Some(0.4);
+        let (windows, focus) = config.restore_windows();
+        assert_eq!(focus, 0);
+        assert_eq!(
+            windows,
+            [WindowState {
+                vault: Some(vault.clone()),
+                workspace,
+                size: None,
+                sidebar_width: Some(260),
+                split_ratio: Some(0.4),
+            }]
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn restore_windows_migration_drops_a_missing_current_vault() {
+        let config = Config { current: Some(PathBuf::from("/no/existe/visor-config-test")), ..Default::default() };
+        let (windows, focus) = config.restore_windows();
+        assert_eq!(focus, 0);
+        assert_eq!(windows.len(), 1);
+        assert!(windows[0].vault.is_none());
+    }
+
+    #[test]
+    fn restore_windows_uses_saved_windows_and_clamps_focus() {
+        let a = std::env::temp_dir().join(format!("visor-config-restore-a-{}", std::process::id()));
+        let b = std::env::temp_dir().join(format!("visor-config-restore-b-{}", std::process::id()));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        let gone = PathBuf::from("/no/existe/visor-config-gone");
+        let mut config = Config {
+            windows: vec![
+                WindowState { vault: Some(a.clone()), size: Some((1200, 800)), ..Default::default() },
+                WindowState { vault: Some(gone.clone()), sidebar_width: Some(300), ..Default::default() },
+                WindowState { vault: Some(b.clone()), ..Default::default() },
+            ],
+            focused_window: 1,
+            ..Default::default()
+        };
+        let (windows, focus) = config.restore_windows();
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].vault.as_ref(), Some(&a));
+        assert_eq!(windows[0].size, Some((1200, 800)));
+        // A missing vault is dropped, but the window and the rest of its state stay.
+        assert!(windows[1].vault.is_none());
+        assert_eq!(windows[1].sidebar_width, Some(300));
+        assert_eq!(windows[2].vault.as_ref(), Some(&b));
+        assert_eq!(focus, 1);
+
+        config.focused_window = 99;
+        assert_eq!(config.restore_windows().1, 2);
+        fs::remove_dir_all(a).unwrap();
+        fs::remove_dir_all(b).unwrap();
+    }
+
+    #[test]
+    fn origin_for_keeps_the_old_current_on_127_0_0_1_and_never_uses_1_or_2() {
+        let mut config = Config { current: Some(PathBuf::from("/vaults/a")), ..Default::default() };
+        assert_eq!(config.origin_for(Path::new("/vaults/a")), Some(1));
+        assert_eq!(config.origin_for(Path::new("/vaults/b")), Some(3));
+        assert_eq!(config.origin_for(Path::new("/vaults/c")), Some(4));
+        // Asking again gives the same answer and does not take a new octet.
+        assert_eq!(config.origin_for(Path::new("/vaults/b")), Some(3));
+        assert_eq!(config.origin_for(Path::new("/vaults/a")), Some(1));
+        assert_eq!(config.origins.len(), 3);
+    }
+
+    #[test]
+    fn origin_for_returns_none_when_all_octets_are_taken() {
+        let mut config = Config::default();
+        for octet in 3..=254u8 {
+            config.origins.insert(PathBuf::from(format!("/vaults/{octet}")), octet);
+        }
+        assert_eq!(config.origin_for(Path::new("/vaults/nueva")), None);
+        assert!(!config.origins.contains_key(Path::new("/vaults/nueva")));
+        // A vault that already has an octet still gets it.
+        assert_eq!(config.origin_for(Path::new("/vaults/254")), Some(254));
+    }
+
+    #[test]
+    fn windows_and_origins_survive_a_round_trip() {
+        let dir = std::env::temp_dir().join(format!("visor-config-windows-rt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("config.json");
+        let mut config = Config {
+            windows: vec![WindowState {
+                vault: Some(PathBuf::from("/a")),
+                workspace: Workspace { panes: vec![PaneState { tabs: vec!["n.md".into()], active: 0 }], focused: 0 },
+                size: Some((900, 700)),
+                sidebar_width: Some(250),
+                split_ratio: Some(0.55),
+            }],
+            ..Default::default()
+        };
+        config.origins.insert(PathBuf::from("/a"), 1);
+        config.save_to(&path);
+        let loaded = Config::load_from(&path);
+        assert_eq!(loaded.windows, config.windows);
+        assert_eq!(loaded.focused_window, 0);
+        assert_eq!(loaded.origins, config.origins);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

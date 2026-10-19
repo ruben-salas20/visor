@@ -5,7 +5,8 @@ Excalidraw drawings) in a tree and renders the one you pick. If a
 file changes on disk, the view updates by itself.
 
 USE
-  visor                      Opens the app.
+  visor                      Opens the app. If it is already open, opens
+                             another window on the vault of the focused one.
   visor open <path|URL> [--tab | --beside] [--loose]
                              Opens a folder as a vault, shows a file or
                              loads a web page (http or https). Starts the
@@ -41,8 +42,10 @@ USE
                              loading), "errors" (errors in its console),
                              "sides" (tabs of each side: "list" from left
                              to right, and "active"), "focused" (the side
-                             with focus) and "last_event_id" (for
-                             events --after).
+                             with focus), "window" (the window it describes),
+                             "windows" (every open window: its "window",
+                             whether it is "focused" and its "vault") and
+                             "last_event_id" (for events --after).
   visor reload               Reloads the current page. Returns the same
                              as open.
   visor console [--errors] [--clear]
@@ -69,7 +72,8 @@ USE
                              annotations. With no options, the last 20
                              (1000 are kept, also after a restart). With
                              --wait, waits up to SEC seconds (maximum 600)
-                             for a new one to arrive.
+                             for a new one to arrive. Each event has
+                             "window": the number of the window it came from.
   visor notes [path|--all]   Annotations of the open page, of another
                              page or of the whole vault (a path and --all
                              cannot be combined). For the open page,
@@ -93,6 +97,18 @@ Every command answers in JSON. "ok": false means an error, and the
 command exits with code 1. <path> can be relative to the current folder
 or to the open vault.
 
+WINDOWS
+  visor can have several windows, each with its own vault and tabs (two
+  windows may show the same vault). `visor status` lists them in
+  "windows". Window numbers start at 1 and are never reused.
+  --window N (before or right after the command name, not after eval)
+  sends the command to window N. Without it, the command goes to the
+  focused window (the last one the person used), and `open <path>` goes
+  to a window that already shows the vault of that path, if one does.
+  events and update belong to the whole app and do not take --window.
+  Ctrl+Q closes every window and visor opens them all again next time;
+  closing a window while others stay open forgets it.
+
 MCP
   Register the server with: claude mcp add visor -- visor mcp
   Each tool is equivalent to a command. Arguments:
@@ -108,6 +124,8 @@ MCP
       notes_reply  id, text
       update       checks for a new version and installs it; does not restart
       guide        returns this text
+  Every tool but events, update and guide also takes window (a number,
+  as in --window).
 
 TABS AND SIDES
   The window can be split into two sides, each with its own tabs.

@@ -10,7 +10,7 @@ mod vault;
 
 use agent::{cli, mcp};
 use i18n::tr;
-use ui::app;
+use ui::visor;
 use vault::config::Config;
 
 fn main() {
@@ -22,13 +22,13 @@ fn main() {
         std::process::exit(1);
     };
     let code = match args.first().map(String::as_str) {
-        None => app::launch(),
+        None => visor::launch(),
         Some("help" | "--help" | "-h") => {
             print!("{}", include_str!("agent/help.txt"));
             0
         }
         Some("mcp") => mcp::run(),
-        _ if from_launcher(&args) => app::launch(),
+        _ if from_launcher(&args) => visor::launch(),
         Some(_) => cli::run(&args),
     };
     std::process::exit(code);

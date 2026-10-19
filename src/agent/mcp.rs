@@ -1,7 +1,7 @@
 //! Model Context Protocol server over stdio. Each tool is one `visor` order,
 //! sent to the app through the same socket the CLI uses.
 use crate::agent::cli;
-use crate::agent::command::{Command, tools};
+use crate::agent::command::{Command, Request, tools};
 use crate::i18n::tr;
 use crate::trf;
 use serde_json::{Value, json};
@@ -77,12 +77,12 @@ fn initialize(params: &Value) -> Value {
 fn call_tool(params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or_default();
     let args = if params["arguments"].is_null() { json!({}) } else { params["arguments"].clone() };
-    let command = match Command::from_mcp(name, &args) {
-        Ok(Command::Guide) => return text(GUIDE, false),
-        Ok(command) => command,
+    let request = match Request::from_mcp(name, &args) {
+        Ok(Request { command: Command::Guide, .. }) => return text(GUIDE, false),
+        Ok(request) => request,
         Err(e) => return text(&e, true),
     };
-    let response = cli::call(&command);
+    let response = cli::call(&request);
     text(&serde_json::to_string_pretty(&response).unwrap_or_default(), response["ok"] != true)
 }
 

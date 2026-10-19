@@ -1,13 +1,12 @@
 //! File watching: the watchers themselves, and the decision of what a batch
 //! of changes means for the pages on screen. See docs/adr/0021.
 
-use crate::ui::action::UserEvent;
+use crate::ui::action::{Proxy, UserEvent};
 use crate::vault::{self, annot};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use tao::event_loop::EventLoopProxy;
 
 /// A batch goes out at the latest this long after its first change, even if
 /// changes keep coming, so a process that writes nonstop cannot starve the window.
@@ -21,7 +20,7 @@ pub fn watch(
     path: &Path,
     mode: RecursiveMode,
     settle_ms: u64,
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: Proxy,
     wrap: fn(Vec<PathBuf>) -> UserEvent,
 ) -> Option<RecommendedWatcher> {
     let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
@@ -38,7 +37,7 @@ pub fn watch(
     std::thread::spawn(move || {
         while let Ok(first) = rx.recv() {
             let batch = collect_batch(&rx, first, Duration::from_millis(settle_ms), MAX_WAIT, MAX_PATHS);
-            let _ = proxy.send_event(wrap(batch));
+            proxy.send(wrap(batch));
         }
     });
     Some(watcher)
@@ -79,7 +78,7 @@ pub struct LooseWatchers(Vec<(PathBuf, RecommendedWatcher)>);
 
 impl LooseWatchers {
     /// Watches exactly `dirs`: new folders start, the ones no tab needs stop.
-    pub fn sync(&mut self, dirs: &[PathBuf], proxy: &EventLoopProxy<UserEvent>) {
+    pub fn sync(&mut self, dirs: &[PathBuf], proxy: &Proxy) {
         self.0.retain(|(dir, _)| dirs.contains(dir));
         for dir in dirs {
             if self.0.iter().any(|(d, _)| d == dir) {

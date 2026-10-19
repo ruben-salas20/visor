@@ -1,11 +1,12 @@
-//! Serves the open vault on 127.0.0.1, and pages opened on their own on
-//! 127.0.0.2, over plain HTTP. WebKitGTK only plays video and offers Media
-//! Source to network origins, not to custom schemes.
+//! Serves each open vault on a loopback address of its own (127.0.0.1, .3,
+//! .4…), and pages opened on their own on 127.0.0.2, over plain HTTP.
+//! WebKitGTK only plays video and offers Media Source to network origins,
+//! not to custom schemes.
 
 use crate::i18n::tr;
 use crate::session::SharedRef;
 use crate::trf;
-use crate::vault;
+use crate::vault::{self, Vault};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -17,40 +18,45 @@ include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
 /// Where the server listens, as the app needs it.
 pub struct Started {
+    /// The port of every origin, kept so pages keep their origin and their storage.
     pub port: u16,
-    /// URL prefix of vault pages.
-    pub base: String,
     /// URL prefix of loose pages, on an origin of their own.
     pub loose_base: String,
 }
 
-/// The two origins the server answers for. Loose pages get their own, on
-/// another loopback address, so they can neither read the vault nor make
-/// their address look like a vault page's.
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// What one origin serves. Each vault gets an origin of its own, on its own
+/// loopback address and with its own secret, so a page of one vault can read
+/// neither another vault nor a loose page; loose pages share one more.
+#[derive(Clone)]
 enum Realm {
-    Vault,
+    Vault(Arc<Vault>),
     Loose,
 }
 
-/// Starts the server. The preferred port is reused so pages keep their
-/// origin, and with it their localStorage, between sessions.
+/// Starts the origin of loose pages. The preferred port is reused so pages
+/// keep their origin, and with it their localStorage, between sessions.
 pub fn start(preferred_port: Option<u16>, shared: SharedRef) -> Option<Started> {
-    let vault = listen("127.0.0.1", preferred_port)?;
-    let port = port_of(&vault)?;
-    let loose = listen("127.0.0.2", Some(port))?;
-    let loose_port = port_of(&loose)?;
+    let loose = listen("127.0.0.2", preferred_port)?;
+    let port = port_of(&loose)?;
     // Other programs on this machine can reach the port; without the secret
-    // path they cannot read the vault.
+    // path they cannot read the pages.
     let prefix = format!("/{}/", secret()?);
-    let started = Started {
-        port,
-        base: format!("http://127.0.0.1:{port}{prefix}"),
-        loose_base: format!("http://127.0.0.2:{loose_port}{prefix}"),
-    };
-    serve(vault, Realm::Vault, format!("127.0.0.1:{port}"), prefix.clone(), shared.clone());
-    serve(loose, Realm::Loose, format!("127.0.0.2:{loose_port}"), prefix, shared);
-    Some(started)
+    let loose_base = format!("http://127.0.0.2:{port}{prefix}");
+    serve(loose, Realm::Loose, format!("127.0.0.2:{port}"), prefix, shared);
+    Some(Started { port, loose_base })
+}
+
+/// Starts the origin of the vault at `root`, on `127.0.0.<host>` and the
+/// same port as the others when it is free. It serves for as long as the
+/// process runs: a vault opened again later keeps its address.
+pub fn serve_vault(root: &Path, host: u8, port: u16, shared: SharedRef) -> Option<Arc<Vault>> {
+    let address = format!("127.0.0.{host}");
+    let server = listen(&address, Some(port))?;
+    let port = port_of(&server)?;
+    let prefix = format!("/{}/", secret()?);
+    let vault = Arc::new(Vault::open_at(root, format!("http://{address}:{port}{prefix}")));
+    serve(server, Realm::Vault(vault.clone()), format!("{address}:{port}"), prefix, shared);
+    Some(vault)
 }
 
 fn listen(address: &str, port: Option<u16>) -> Option<Server> {
@@ -66,8 +72,8 @@ fn serve(server: Server, realm: Realm, host: String, prefix: String, shared: Sha
     let server = Arc::new(server);
     thread::spawn(move || {
         for request in server.incoming_requests() {
-            let (shared, prefix, host) = (shared.clone(), prefix.clone(), host.clone());
-            thread::spawn(move || handle(request, realm, &shared, &prefix, &host));
+            let (realm, shared, prefix, host) = (realm.clone(), shared.clone(), prefix.clone(), host.clone());
+            thread::spawn(move || handle(request, &realm, &shared, &prefix, &host));
         }
     });
 }
@@ -103,7 +109,7 @@ fn text(status: u16, message: &str) -> Response<std::io::Cursor<Vec<u8>>> {
         .with_header(header("Content-Type", "text/plain; charset=utf-8"))
 }
 
-fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host: &str) {
+fn handle(request: Request, realm: &Realm, shared: &SharedRef, prefix: &str, host: &str) {
     let value = |name: &str| {
         request
             .headers()
@@ -130,12 +136,12 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     }
     let rel = percent_encoding::percent_decode_str(rel).decode_utf8_lossy().into_owned();
     // Each origin serves only its own kind of page.
-    if vault::is_loose(&rel) != (realm == Realm::Loose) {
+    if vault::is_loose(&rel) != matches!(realm, Realm::Loose) {
         let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
         return;
     }
-    if realm == Realm::Loose {
-        let allowed = shared.lock().unwrap().loose.clone();
+    let Realm::Vault(vault) = realm else {
+        let allowed = shared.lock().unwrap().loose_folders();
         let range = value("Range");
         match vault::loose_file(Path::new(&rel), &allowed) {
             Some((path, folder)) if vault::is_markdown(&path) => {
@@ -146,10 +152,6 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
                 let _ = request.respond(text(404, &trf!("No existe: {}", "Does not exist: {}", rel)));
             }
         }
-        return;
-    }
-    let Some(vault) = shared.lock().unwrap().vault.clone() else {
-        let _ = request.respond(text(404, tr("No hay ninguna bóveda abierta", "No vault is open")));
         return;
     };
     if let Some(page) = vault::annot::requested(&rel) {
@@ -172,7 +174,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         // `![[image]]` in the editor: the image file, wherever it is in the vault.
         if let Some(name) = query.split('&').find_map(|q| q.strip_prefix("embed=")) {
             let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
-            let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::embed_url(&name, &vault.rel(&path), vault) {
                 Some(url) => text(302, "").with_header(header("Location", &url)),
                 None => text(404, tr("No existe", "Does not exist")),
             };
@@ -181,7 +183,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         }
         if let Some(target) = query.split('&').find_map(|q| q.strip_prefix("wiki=")) {
             let target = percent_encoding::percent_decode_str(target).decode_utf8_lossy();
-            let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), vault.root()) {
+            let response = match crate::vault::markdown::wiki_url(&target, &vault.rel(&path), vault) {
                 Some(url) => text(200, &url),
                 None => text(404, tr("No existe", "Does not exist")),
             };
@@ -195,9 +197,9 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         let (body, mime) = if query.split('&').any(|q| q == "raw") {
             (source, "text/plain; charset=utf-8")
         } else if vault::is_drawing(&path) {
-            (crate::vault::drawing::page(&vault.rel(&path)), "text/html; charset=utf-8")
+            (crate::vault::drawing::page(&vault.rel(&path), vault), "text/html; charset=utf-8")
         } else {
-            (crate::vault::markdown::page(&source, &vault.rel(&path), vault.root()), "text/html; charset=utf-8")
+            (crate::vault::markdown::page(&source, &vault.rel(&path), vault), "text/html; charset=utf-8")
         };
         let response = Response::from_string(body)
             .with_header(header("Content-Type", mime))
@@ -208,7 +210,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
     // A PDF opens in its viewer page, which reads the bytes back with `?raw`
     // (through `serve_file`, so PDF.js can ask for ranges).
     if vault::is_pdf(&path) && !query.split('&').any(|q| q == "raw") {
-        let response = Response::from_string(crate::vault::pdf::page(&vault.rel(&path)))
+        let response = Response::from_string(crate::vault::pdf::page(&vault.rel(&path), vault))
             .with_header(header("Content-Type", "text/html; charset=utf-8"))
             .with_header(header("Cache-Control", "no-store"));
         let _ = request.respond(response);
