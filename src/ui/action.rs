@@ -168,27 +168,20 @@ pub enum Action {
     FocusSide(usize),
     // Phase 1, area E: the settings popover sends these.
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
-    #[allow(dead_code)]
     SetTheme(Option<String>),
     /// The language chosen in the settings: "es", "en", or `None` for the system's.
-    #[allow(dead_code)]
     SetLanguage(Option<String>),
-    #[allow(dead_code)]
     SetAutoUpdate(bool),
-    #[allow(dead_code)]
     SetShowOtherFiles(bool),
     /// The engine for text in the address field that is not an address.
-    #[allow(dead_code)]
     SetSearchEngine(crate::ui::address::Engine),
     /// Checks for a new version now and installs it if there is one.
-    #[allow(dead_code)]
     CheckUpdates,
     /// Restarts visor on the installed version, if no note has unsaved text.
-    #[allow(dead_code)]
     Restart,
-    /// Shows the sidebar if hidden and opens its settings popover.
+    /// Ctrl+,: opens the settings panel.
     Settings,
-    /// Shows or hides the list of keyboard shortcuts.
+    /// Ctrl+K: shows or hides the list of keyboard shortcuts.
     Shortcuts,
     /// Ctrl+F: the page's own search (PDF, note editor) or the native find bar.
     Find,

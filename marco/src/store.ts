@@ -22,7 +22,19 @@ let state: Store = {
   files: { shown: true, vault: null, current: null, vaults: [], form: null, notice: null, width: null, show_other: true },
   sides: { sides: [], focused: 0, ratio: 0.5 },
   bar: { sides: [] },
-  status: { vault: null, kind: 'empty', zoom: 1, version: '', update: null },
+  status: {
+    vault: null,
+    kind: 'empty',
+    zoom: 1,
+    version: '',
+    update: null,
+    update_busy: false,
+    update_restart: false,
+    language_pending: false,
+    prefs: { theme: null, language: null, search_engine: 'duckduckgo', engines: [], auto_update: true, show_other: true },
+    settings_open: false,
+    shortcuts_open: false,
+  },
 }
 
 const listeners = new Set<() => void>()

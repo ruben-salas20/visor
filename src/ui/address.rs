@@ -45,8 +45,7 @@ impl Engine {
         }
     }
 
-    // Phase 1, area E: the settings list the engines.
-    #[allow(dead_code)]
+    // The settings panel lists the engines by this name.
     pub fn label(self) -> &'static str {
         match self {
             Engine::DuckDuckGo => "DuckDuckGo",
