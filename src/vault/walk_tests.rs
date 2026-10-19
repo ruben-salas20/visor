@@ -111,3 +111,23 @@ fn pdf_is_not_other_in_the_tree() {
     assert!(!is_page(&root.join("libros/manual.pdf")));
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn a_link_into_a_hidden_folder_is_neither_listed_nor_an_entry() {
+    let dir = temp("hidden-link");
+    let root = dir.join("v");
+    fs::create_dir_all(root.join(".visor/anotaciones")).unwrap();
+    fs::write(root.join(".visor/anotaciones/n.md"), "").unwrap();
+    fs::write(root.join(".visor/x.md"), "").unwrap();
+    symlink(root.join(".visor"), root.join("atajo")).unwrap();
+    symlink(root.join(".visor/x.md"), root.join("enlace.md")).unwrap();
+    let mut from_tree = vec![];
+    listed(&tree(&root), &mut from_tree);
+    assert!(from_tree.is_empty(), "{from_tree:?}");
+    assert!(files(&root, &root, is_page).is_empty());
+    let vault = Vault::open(&root);
+    assert!(vault.entry("atajo").is_err());
+    assert!(vault.entry("enlace.md").is_err());
+    assert!(vault.folder("atajo").is_err());
+    fs::remove_dir_all(dir).unwrap();
+}

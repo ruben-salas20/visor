@@ -110,6 +110,13 @@ fn hidden(name: &str) -> bool {
     name.starts_with('.') || name == "node_modules"
 }
 
+/// True if the real place a link leads to is hidden inside `root`. A link with a
+/// plain name must not open a way into `.visor/` or another hidden folder.
+fn leads_to_hidden(link: &Path, root: &Path) -> bool {
+    platform::canonicalize(link)
+        .is_ok_and(|real| real.strip_prefix(root).is_ok_and(|rel| rel.components().any(|c| hidden(&c.as_os_str().to_string_lossy()))))
+}
+
 /// True if a change at `path` should not affect what the viewer shows.
 pub fn ignored(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root).map_or(true, |rel| {
@@ -205,6 +212,9 @@ impl Walk {
             }
         }
         for path in linked {
+            if leads_to_hidden(&path, &self.limit) {
+                continue;
+            }
             match fs::metadata(&path) {
                 Ok(m) if m.is_dir() => {
                     let inside = platform::canonicalize(&path).is_ok_and(|p| p.starts_with(&self.limit));
@@ -515,6 +525,9 @@ impl Vault {
         let path = parent.join(path.file_name().ok_or(tr("Ruta no válida", "Invalid path"))?);
         if !parent.starts_with(&self.root) || fs::symlink_metadata(&path).is_err() {
             return Err(trf!("No existe: {rel}", "Does not exist: {rel}"));
+        }
+        if fs::symlink_metadata(&path).is_ok_and(|m| m.is_symlink()) && leads_to_hidden(&path, &self.root) {
+            return Err(trf!("Ruta no válida: {rel}", "Invalid path: {rel}"));
         }
         Ok(path)
     }
