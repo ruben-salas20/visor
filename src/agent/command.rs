@@ -5,6 +5,7 @@
 pub mod tools;
 
 use crate::i18n::tr;
+use crate::platform;
 use crate::trf;
 use crate::vault::is_web;
 use serde_json::{Value, json};
@@ -122,8 +123,8 @@ impl Page {
 
     /// For callers without a directory of their own (MCP): only absolute paths resolve.
     fn absolute_only(raw: &str) -> Self {
-        let path = Path::new(raw);
-        Self::resolve(raw, path.is_absolute().then(|| Path::new("")))
+        // Same test as vault::is_loose: on Windows `\x` and `C:/x` count too.
+        Self::resolve(raw, platform::is_absolute_text(raw).then(|| Path::new("")))
     }
 }
 
@@ -595,6 +596,11 @@ mod tests {
         Command::from_mcp(tool, &arguments)
     }
 
+    /// The path the CLI gives `rel` under the test directory /work, in this platform's form.
+    fn work(rel: &str) -> String {
+        PathBuf::from("/work").join(rel).to_string_lossy().into_owned()
+    }
+
     fn page(raw: &str, path: Option<&str>) -> Page {
         Page { raw: raw.into(), path: path.map(PathBuf::from) }
     }
@@ -919,7 +925,7 @@ mod tests {
         assert_eq!(wire(cli("close").unwrap()), json!({ "cmd": "close" }));
         assert_eq!(
             wire(cli("close x/a.html").unwrap()),
-            json!({ "cmd": "close", "path": "/work/x/a.html", "raw": "x/a.html" })
+            json!({ "cmd": "close", "path": work("x/a.html"), "raw": "x/a.html" })
         );
         assert_eq!(
             wire(mcp("close", json!({ "target": "/abs/a.html" })).unwrap()),
@@ -927,11 +933,11 @@ mod tests {
         );
         assert_eq!(
             wire(cli("open x/a.html").unwrap()),
-            json!({ "cmd": "open", "path": "/work/x/a.html", "raw": "x/a.html", "place": null })
+            json!({ "cmd": "open", "path": work("x/a.html"), "raw": "x/a.html", "place": null })
         );
         assert_eq!(
             wire(cli("open x --beside").unwrap()),
-            json!({ "cmd": "open", "path": "/work/x", "raw": "x", "place": "beside" })
+            json!({ "cmd": "open", "path": work("x"), "raw": "x", "place": "beside" })
         );
         assert_eq!(
             wire(cli("open https://a.b --tab").unwrap()),
@@ -962,7 +968,7 @@ mod tests {
         assert_eq!(wire(cli("notes --all").unwrap()), json!({ "cmd": "notes", "all": true }));
         assert_eq!(
             wire(cli("notes a.html").unwrap()),
-            json!({ "cmd": "notes", "path": "/work/a.html", "raw": "a.html" })
+            json!({ "cmd": "notes", "path": work("a.html"), "raw": "a.html" })
         );
         assert_eq!(
             wire(mcp("notes", json!({ "page": "a.html" })).unwrap()),
@@ -980,7 +986,7 @@ mod tests {
         let shot = cli("screenshot x.png").unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(&text(shot.clone())).unwrap(),
-            json!({ "cmd": "screenshot", "path": "/work/x.png", "raw": "x.png" })
+            json!({ "cmd": "screenshot", "path": work("x.png"), "raw": "x.png" })
         );
         assert_eq!(Command::from_wire(&serde_json::from_str(&text(shot.clone())).unwrap()).unwrap(), shot);
         let eval = cli("eval 1 + 1").unwrap();

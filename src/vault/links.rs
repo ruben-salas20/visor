@@ -341,7 +341,7 @@ mod tests {
                 fs::write(path, text).unwrap();
             }
         }
-        root.canonicalize().unwrap()
+        crate::platform::canonicalize(&root).unwrap()
     }
 
     fn moved(root: &Path, rel: &str, dir: &str) -> Vec<String> {

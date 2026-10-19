@@ -1,4 +1,5 @@
 use crate::i18n::tr;
+use crate::platform;
 use crate::trf;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -153,7 +154,7 @@ impl Config {
     /// drawing was opened from it: that would list and watch all of it. Opening
     /// the folder itself is still allowed.
     pub fn check_folder_of_file(dir: &Path, home: Option<&Path>) -> Result<(), String> {
-        let home = home.and_then(|h| h.canonicalize().ok());
+        let home = home.and_then(|h| platform::canonicalize(h).ok());
         if home.as_deref() == Some(dir) {
             return Err(tr(
                 "Abrir este archivo convertiría tu carpeta personal en bóveda. Ábrela a propósito con `visor open ~` o mueve el archivo a una carpeta.",
@@ -302,7 +303,7 @@ mod tests {
     fn home_and_root_are_not_made_vaults_by_a_file() {
         let home = std::env::temp_dir().join(format!("visor-config-home-{}", std::process::id()));
         fs::create_dir_all(home.join("apuntes")).unwrap();
-        let home = home.canonicalize().unwrap();
+        let home = platform::canonicalize(&home).unwrap();
         assert!(Config::check_folder_of_file(&home, Some(&home)).is_err());
         assert!(Config::check_folder_of_file(Path::new("/"), Some(&home)).is_err());
         assert!(Config::check_folder_of_file(&home.join("apuntes"), Some(&home)).is_ok());

@@ -1,4 +1,5 @@
 use crate::i18n::tr;
+use crate::platform;
 use crate::session::{LOADED, Place, AgentRequest, SharedRef, real_path};
 use crate::trf;
 use crate::agent::channel::{Listener, Stream};
@@ -275,7 +276,7 @@ fn notes(scope: &NotesScope, win: WinId, shared: &SharedRef) -> Value {
     let page = match scope {
         NotesScope::All => None,
         NotesScope::Page(page) => {
-            let found = page.path.as_ref().and_then(|p| p.canonicalize().ok()).filter(|p| p.starts_with(vault.root()));
+            let found = page.path.as_ref().and_then(|p| platform::canonicalize(p).ok()).filter(|p| p.starts_with(vault.root()));
             Some(found.map_or(page.raw.trim_start_matches("./").to_string(), |p| vault.rel(&p)))
         }
         NotesScope::Current => match &current {
