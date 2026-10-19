@@ -8,11 +8,10 @@ pub fn managed(exe: &Path) -> bool {
     cfg!(target_os = "linux") && ((exe.starts_with("/usr") && !exe.starts_with("/usr/local")) || exe.starts_with("/app"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn package_paths_are_managed_and_hand_installed_ones_are_not() {
         assert!(managed(Path::new("/usr/bin/visor")));

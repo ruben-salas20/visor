@@ -23,10 +23,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT, WriteFile,
 };
 use windows_sys::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
     PIPE_WAIT, WaitNamedPipeW,
 };
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 
 /// Size of the pipe's buffers in each direction. A request or reply is one short line.
 const BUFFER: u32 = 64 * 1024;
@@ -64,7 +64,11 @@ pub fn claim(path: &Path) -> Result<(Listener, Claim), ClaimError> {
             // Windows answers ERROR_ACCESS_DENIED when this first-instance flag meets an existing pipe.
             Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => {
                 if !restarting || std::time::Instant::now() >= deadline {
-                    return Err(ClaimError::Running);
+                    // The name is taken: by our own visor, or by another user posing as it.
+                    return match Stream::connect(path) {
+                        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Err(ClaimError::Failed(e.to_string())),
+                        _ => Err(ClaimError::Running),
+                    };
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -141,9 +145,18 @@ impl Stream {
                 )
             };
             if handle != INVALID_HANDLE_VALUE {
-                return Ok(Stream { handle: Handle(handle) });
+                let stream = Stream { handle: Handle(handle) };
+                // The name can be guessed, so another user could have created it first.
+                if !served_by_us(&stream) {
+                    return Err(foreign());
+                }
+                return Ok(stream);
             }
             let e = io::Error::last_os_error();
+            // A pipe whose DACL leaves us out was made by someone else.
+            if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+                return Err(foreign());
+            }
             if e.raw_os_error() != Some(ERROR_PIPE_BUSY as i32) {
                 return Err(e);
             }
@@ -248,9 +261,41 @@ impl Drop for Security {
 
 /// The SID of the user who runs this process, as text (`S-1-5-21-…`).
 fn current_user_sid() -> io::Result<String> {
+    // SAFETY: the pseudo handle of this process needs no closing.
+    process_sid(unsafe { GetCurrentProcess() })
+}
+
+/// True if the process at the other end of `stream` runs as this user.
+fn served_by_us(stream: &Stream) -> bool {
+    let mut pid = 0u32;
+    // SAFETY: the handle is an open client end of a pipe; the output pointer is valid.
+    if unsafe { GetNamedPipeServerProcessId(stream.handle.0, &mut pid) } == 0 {
+        return false;
+    }
+    // SAFETY: plain call; a null result means we may not look at that process.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return false;
+    }
+    let process = Handle(process);
+    matches!((process_sid(process.0), current_user_sid()), (Ok(theirs), Ok(ours)) if theirs == ours)
+}
+
+fn foreign() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        tr(
+            "El canal de visor lo ha creado otro usuario de este equipo. No se le envía nada.",
+            "Another user of this computer created visor's channel. Nothing is sent to it.",
+        ),
+    )
+}
+
+/// The SID of the user `process` runs as, as text.
+fn process_sid(process: HANDLE) -> io::Result<String> {
     let mut token: HANDLE = null_mut();
     // SAFETY: the output pointer is valid.
-    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+    if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
         return Err(io::Error::last_os_error());
     }
     let token = Handle(token);
@@ -408,6 +453,16 @@ mod tests {
         BufReader::new(&mut first).read_line(&mut reply).unwrap();
         assert_eq!(reply, "A\n");
         server.join().unwrap();
+    }
+
+    #[test]
+    fn our_own_server_passes_the_owner_check() {
+        let path = test_path("owner");
+        let (listener, _claim) = claim(&path).unwrap();
+        let server = thread::spawn(move || listener.incoming().next().unwrap().unwrap());
+        let stream = Stream::connect(&path).expect("our own visor is accepted");
+        assert!(served_by_us(&stream));
+        drop(server.join().unwrap());
     }
 
     #[test]
