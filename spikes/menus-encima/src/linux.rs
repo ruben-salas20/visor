@@ -146,7 +146,8 @@ fn rect(c: [i32; 4]) -> cairo::RectangleInt {
 fn aplicar(vista: &webkit2gtk::WebView, v: &Value) {
     let Some([_, _, w, h]) = caja(&serde_json::json!([0, 0, v["ventana"][0], v["ventana"][1]])) else { return };
     let region = cairo::Region::create_rectangle(&rect([0, 0, w, h]));
-    for c in v["huecos"].as_array().into_iter().flatten().filter_map(caja) {
+    let huecos = if v["capturar"] == true { None } else { v["huecos"].as_array() };
+    for c in huecos.into_iter().flatten().filter_map(caja) {
         let _ = region.subtract_rectangle(&rect(c));
     }
     for c in v["solidos"].as_array().into_iter().flatten().filter_map(caja) {

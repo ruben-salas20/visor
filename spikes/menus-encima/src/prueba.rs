@@ -188,7 +188,8 @@ pub fn ejecutar(reg: Registro, e: &mut dyn Entrada) -> Value {
     pausa(800);
     let en_marco = p.hay(n, "marco", "soltar-en-marco");
     let en_pagina = p.hay(n, "pagina", "soltar-en-pagina");
-    p.out.insert("8-arrastre-al-hueco".into(), json!({ "informativo": true, "soltar_en_marco": en_marco, "soltar_en_pagina": en_pagina, "eventos": p.tipos(n) }));
+    // The frame takes the whole window while dragging: the page never sees the drag.
+    p.anota("8-arrastre-al-hueco", en_marco && !en_pagina, json!({ "soltar_en_marco": en_marco, "soltar_en_pagina": en_pagina, "eventos": p.tipos(n) }));
 
     // 9. The page cannot reach the frame: its forged order stays in its own handler.
     let reg = p.desde(0);

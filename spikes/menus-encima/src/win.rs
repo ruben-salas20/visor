@@ -78,13 +78,16 @@ impl App {
         let Some([_, _, ancho, alto]) = caja(&serde_json::json!([0, 0, v["ventana"][0], v["ventana"][1]])) else { return };
         unsafe {
             let region = CreateRectRgn(0, 0, f(ancho), f(alto));
-            for c in v["huecos"].as_array().into_iter().flatten().filter_map(caja) {
+            let huecos = if v["capturar"] == true { None } else { v["huecos"].as_array() };
+            for c in huecos.into_iter().flatten().filter_map(caja) {
                 let r = CreateRectRgn(f(c[0]), f(c[1]), f(c[0] + c[2]), f(c[1] + c[3]));
                 CombineRgn(Some(region), Some(region), Some(r), RGN_DIFF);
                 let _ = DeleteObject(HGDIOBJ(r.0));
             }
+            // With a transparent frame the region can take the menu's shadow too.
+            let mg = if self.modo == "opaco" { 0 } else { v["margen"].as_i64().unwrap_or(0) as i32 };
             for c in v["solidos"].as_array().into_iter().flatten().filter_map(caja) {
-                let r = CreateRoundRectRgn(f(c[0]), f(c[1]), f(c[0] + c[2]) + 1, f(c[1] + c[3]) + 1, f(16), f(16));
+                let r = CreateRoundRectRgn(f(c[0] - mg), f(c[1] - mg), f(c[0] + c[2] + mg) + 1, f(c[1] + c[3] + mg) + 1, f(16 + mg), f(16 + mg));
                 CombineRgn(Some(region), Some(region), Some(r), RGN_OR);
                 let _ = DeleteObject(HGDIOBJ(r.0));
             }

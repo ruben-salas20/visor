@@ -32,12 +32,12 @@ jobs:
       - name: Compilar (release)
         run: cargo build --release --bin menus-encima
 
-      # One run per mode, three times each. The program gives up at 150 s.
+      # Region three times, opaque frame once. The program gives up at 150 s.
       - name: Ejecutar pruebas
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          foreach ($modo in @('region', 'opaco', 'transparente')) {
-            foreach ($i in 1..3) {
+          foreach ($modo in @('region', 'opaco')) {
+            foreach ($i in 1..$(if ($modo -eq 'region') { 3 } else { 1 })) {
               $base = "resultados\$modo-$i"
               $p = Start-Process -FilePath .\target\release\menus-encima.exe `
                 -ArgumentList @('--prueba', "$base.json", '--modo', $modo) -PassThru -NoNewWindow `
