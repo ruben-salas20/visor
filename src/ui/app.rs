@@ -71,7 +71,6 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: Proxy, in_drawing: Rc<
         let action = match () {
             _ if ctrl && shift && k == key::a => Action::PickElement,
             _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
-            _ if ctrl && shift && k == key::b => Action::ToggleBar,
             _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::ZoomKey(1),
             _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::ZoomKey(-1),
             _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::ZoomKey(0),
@@ -866,10 +865,6 @@ impl App {
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => self.sidebar_shown = !self.sidebar_shown,
             Action::FocusAddress => self.focus_address(),
-            Action::ToggleBar => {
-                self.cfg_mut(|c| c.bar_shown = !c.bar_shown);
-                self.save_config_soon();
-            }
             Action::ZoomKey(step) => match self.tabs.focused_view().filter(|id| self.is_pdf_view(*id)) {
                 Some(_) => self.eval(&page_calls::pdf_zoom(step)),
                 None => self.act(Action::Zoom(step)),

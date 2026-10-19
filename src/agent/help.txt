@@ -341,8 +341,6 @@ SHORTCUTS IN THE APP
   Ctrl+R / F5  reload
   Ctrl+L  address bar: URL, domain, vault path, absolute path or search.
           Escape leaves the bar (in an empty tab, the tab stays blank).
-  Ctrl+Shift+B  show or hide the bar (starts hidden; remembered;
-          Ctrl+L shows it while you type)
   Ctrl+E  edit the open .md note or drawing, or go back to the view
   Ctrl+N  new note in the folder of the current one
   Ctrl+Shift+A  annotate an element or a point

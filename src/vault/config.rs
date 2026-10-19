@@ -22,7 +22,6 @@ pub struct Config {
     pub split_ratio: Option<f64>,
     /// Port of the local server, kept so pages keep their origin and storage.
     pub port: Option<u16>,
-    pub bar_shown: bool,
     pub zoom: Option<f64>,
     /// «claro» or «oscuro» to fix the palette; `None`, or any other value, follows the system.
     pub theme: Option<String>,
@@ -250,7 +249,6 @@ mod tests {
         let mut config = Config::default();
         config.add(Path::new("/a/b"));
         config.port = Some(4242);
-        config.bar_shown = true;
         config.search_engine = Some("google".into());
         config.language = Some("en".into());
         config.workspaces.insert(
@@ -262,7 +260,6 @@ mod tests {
         assert_eq!(loaded.vaults, [PathBuf::from("/a/b")]);
         assert_eq!(loaded.current.as_deref(), Some(Path::new("/a/b")));
         assert_eq!(loaded.port, Some(4242));
-        assert!(loaded.bar_shown);
         assert_eq!(loaded.search_engine.as_deref(), Some("google"));
         assert_eq!(loaded.language.as_deref(), Some("en"));
         assert_eq!(loaded.workspaces[Path::new("/a/b")].panes[0].tabs, ["x.md"]);

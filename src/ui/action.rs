@@ -143,7 +143,6 @@ pub enum Action {
     Quit,
     PickVault,
     ToggleSidebar,
-    ToggleBar,
     /// Steps the page zoom in (1) or out (-1), or resets it (0).
     Zoom(i8),
     /// Ctrl+plus, Ctrl+minus, Ctrl+0: as `Zoom`, but a PDF in front takes it

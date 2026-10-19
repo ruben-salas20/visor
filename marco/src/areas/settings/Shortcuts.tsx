@@ -9,7 +9,6 @@ export const SHORTCUTS: [string, string][] = [
   ['Ctrl+B', 'mostrar u ocultar el panel'],
   ['Ctrl+R / F5', 'recargar'],
   ['Ctrl+L', 'barra de direcciones: URL, dominio, ruta de la bóveda, ruta absoluta o búsqueda'],
-  ['Ctrl+Shift+B', 'mostrar u ocultar la barra de direcciones'],
   ['Ctrl+E', 'editar la nota o el dibujo abiertos, o volver a la vista'],
   ['Ctrl+F', 'buscar en la página'],
   ['Ctrl+N', 'nueva nota en la carpeta de la actual'],

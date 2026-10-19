@@ -118,7 +118,6 @@ impl Common {
 pub struct Settings {
     theme: Option<String>,
     zoom: Option<f64>,
-    bar: bool,
     show_other: Option<bool>,
     auto_update: Option<bool>,
     search_engine: Option<String>,
@@ -131,7 +130,6 @@ pub struct Settings {
 pub struct SettingsChange {
     pub theme: bool,
     pub zoom: bool,
-    pub bar: bool,
     pub show_other: bool,
     pub vaults: bool,
     /// Any other setting, shown only in the settings menu.
@@ -143,7 +141,6 @@ impl Settings {
         Settings {
             theme: config.theme.clone(),
             zoom: config.zoom,
-            bar: config.bar_shown,
             show_other: config.show_other_files,
             auto_update: config.auto_update,
             search_engine: config.search_engine.clone(),
@@ -157,7 +154,6 @@ impl Settings {
         (self != after).then(|| SettingsChange {
             theme: self.theme != after.theme,
             zoom: self.zoom != after.zoom,
-            bar: self.bar != after.bar,
             show_other: self.show_other != after.show_other,
             vaults: self.vaults != after.vaults,
             menu: self.auto_update != after.auto_update || self.search_engine != after.search_engine || self.language != after.language,
