@@ -93,11 +93,17 @@ Every command answers in JSON. "ok": false means an error, and the
 command exits with code 1. <path> can be relative to the current folder
 or to the open vault.
 
+WINDOWS
+  --window N (before or right after the command name, not after eval)
+  sends the command to window N. Windows are numbered from 1. Without it,
+  the command goes to the focused window.
+
 MCP
   Register the server with: claude mcp add visor -- visor mcp
   Each tool is equivalent to a command. Arguments:
 
       open         target (path or URL), place ("here", "tab" or "beside")
+      any tool     window (number, as in --window; without it, the focused window)
       close        target (absolute path; without it, the active tab)
       status, reload
       console      errors_only (= --errors), clear

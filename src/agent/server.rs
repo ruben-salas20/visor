@@ -137,6 +137,9 @@ fn respond(command: Command, shared: &SharedRef, send: &dyn Fn(AgentRequest)) ->
         },
         // `visor mcp` answers the guide itself.
         Command::Guide => fail(tr("Comando desconocido: guide", "Unknown command: guide").into()),
+        Command::NewWindow { .. } => fail(
+            tr("Esta versión de visor no puede abrir otra ventana todavía.", "This visor version cannot open another window yet.").into(),
+        ),
     }
 }
 
