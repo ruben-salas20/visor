@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react'
 import type { BarState } from './areas/bar/protocol'
 import type { FilesState, Tree } from './areas/files/protocol'
+import type { FindState } from './areas/find/protocol'
 import type { Status } from './areas/settings/protocol'
 import type { SidesState } from './areas/sides/protocol'
 import { listen, type Colors, type ToFrame } from './protocol'
@@ -14,6 +15,7 @@ export type Store = {
   files: FilesState
   sides: SidesState
   bar: BarState
+  find: FindState
   status: Status
 }
 
@@ -22,6 +24,7 @@ let state: Store = {
   files: { shown: true, vault: null, current: null, vaults: [], form: null, notice: null, width: null, show_other: true },
   sides: { sides: [], focused: 0, ratio: 0.5 },
   bar: { sides: [] },
+  find: { open: false, side: 0, text: '', match_case: false, whole_word: false, label: '', found: false, edit: 0 },
   status: {
     vault: null,
     kind: 'empty',

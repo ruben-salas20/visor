@@ -27,7 +27,7 @@ impl App {
             FrameMsg::Files(msg) => self.on_sidebar(msg),
             FrameMsg::Sides(msg) => self.on_sides(msg),
             FrameMsg::Bar(msg) => self.on_bar(msg),
-            FrameMsg::Find(msg) => match msg {},
+            FrameMsg::Find(msg) => self.on_find(msg),
             FrameMsg::Settings(msg) => self.on_settings(msg),
         }
     }
@@ -37,7 +37,7 @@ impl App {
         if !self.frame.ready {
             return;
         }
-        let mut updates = vec![ToFrame::Files(self.files_state()), ToFrame::Sides(self.sides_state()), ToFrame::Bar(self.bar_state()), ToFrame::Status(self.status())];
+        let mut updates = vec![ToFrame::Files(self.files_state()), ToFrame::Sides(self.sides_state()), ToFrame::Bar(self.bar_state()), ToFrame::Find(self.find_state()), ToFrame::Status(self.status())];
         if let Some(colors) = self.colors() {
             updates.push(ToFrame::Theme(colors));
         }

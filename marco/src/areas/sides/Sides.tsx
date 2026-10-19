@@ -3,7 +3,7 @@
 // zones over the pages and page fullscreen are Rust's (src/ui/host.rs): the
 // pages lie over the frame, so the frame never sees what passes over them.
 import { Plus, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AddressRow } from '@/areas/bar/AddressRow'
 import { KindIcon } from '@/components/kind-icon'
 import { useHole } from '@/holes'
@@ -12,6 +12,9 @@ import { cn } from '@/lib/utils'
 import { post } from '@/protocol'
 import { useArea } from '@/store'
 import type { Side as SideState } from './protocol'
+
+// The find bar loads the first time it opens (area D).
+const Find = lazy(() => import('@/areas/find/Find'))
 
 const icon = 'grid size-[22px] place-items-center rounded-[3px] text-muted-foreground hover:bg-accent hover:text-foreground'
 
@@ -80,7 +83,7 @@ function TabRow({ side, focused }: { side: SideState; focused: boolean }) {
   )
 }
 
-function Side({ side, focused, grow }: { side: SideState; focused: boolean; grow: number }) {
+function Side({ side, focused, finding, grow }: { side: SideState; focused: boolean; finding: boolean; grow: number }) {
   const hole = useHole(side.id)
   const focus = () => !focused && post({ area: 'sides', type: 'focus', side: side.id })
   return (
@@ -89,8 +92,15 @@ function Side({ side, focused, grow }: { side: SideState; focused: boolean; grow
         <TabRow side={side} focused={focused} />
         <AddressRow side={side.id} focused={focused} />
       </div>
-      {/* Transparent: this side's page views lie under it. */}
-      <div ref={hole} className="min-h-0 flex-1" />
+      {/* Transparent: this side's page views lie under it. The find bar lies over them, at the top. */}
+      <div className="relative flex min-h-0 flex-1">
+        <div ref={hole} className="min-h-0 flex-1" />
+        {finding && (
+          <Suspense fallback={null}>
+            <Find />
+          </Suspense>
+        )}
+      </div>
     </section>
   )
 }
@@ -145,12 +155,18 @@ export function Sides() {
   const [dragged, setDragged] = useState<number | null>(null)
   useEffect(() => setDragged(null), [ratio])
   const share = dragged ?? ratio
+  const find = useArea('find')
   return (
     <main ref={main} className="flex min-w-0 flex-1">
       {sides.map((s, i) => (
         <div key={s.id} className="contents">
           {i > 0 && <Divider main={main} onMove={setDragged} />}
-          <Side side={s} focused={i === focused} grow={sides.length === 2 ? (i === 0 ? share : 1 - share) : 1} />
+          <Side
+            side={s}
+            focused={i === focused}
+            finding={find.open && find.side === s.id}
+            grow={sides.length === 2 ? (i === 0 ? share : 1 - share) : 1}
+          />
         </div>
       ))}
     </main>
