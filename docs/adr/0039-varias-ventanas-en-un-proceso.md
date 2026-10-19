@@ -40,7 +40,7 @@ Decidido sin consultar:
 
 ## Consecuencias
 
-- Las medidas de una y de dos ventanas están pendientes; las pide `docs/pruebas.md` y se hacen con la autorización del usuario.
+- Coste medido (`docs/pruebas.md`, 2026-10-19): con una ventana, ninguno visible. La segunda ventana suma 46–56 MB y se abre en 61–95 ms. Dos instancias separadas costarían 50–60 MB más que dos ventanas en un proceso.
 - El reinicio tras una actualización solo comprueba si hay notas sin guardar en la ventana que lo pide.
 - Mover o borrar un archivo desde el panel de una ventana no reapunta las pestañas de otra ventana con la misma bóveda. Esa ventana ve el cambio por su vigilante de archivos, como si viniera de fuera.
 - Si dos ventanas editan la misma nota, gana el último guardado. Cada ventana trata lo que escribe la otra como un cambio externo, igual que la edición de un agente.

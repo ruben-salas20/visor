@@ -71,6 +71,26 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ### En sway sin pantalla
 
+#### Varias ventanas (#39)
+
+2026-10-19, rama `feat/39-ventanas` frente a `main` (`c77d2f1`). Enchufado, perfil `performance`, en sway sin pantalla.
+
+Con una ventana, una ronda alternada de `medir.py` no muestra coste: todas las diferencias caen dentro del ruido. Por ejemplo, el binario de `main` dio 131,9 y 143,2 MB con la nota mínima en dos ejecuciones seguidas. El binario pesa 5 319 464 bytes frente a 5 244 672 (+73 KB).
+
+Dos ventanas, medidas con un guion propio. Usa el PSS de `medir.py`, la nota mínima en cada ventana y 10 s de espera tras cargar. Son tres rondas:
+
+| Medida | Resultado |
+|---|---|
+| Una ventana | 140–155 MB |
+| Dos ventanas en un proceso | 185–211 MB |
+| Coste de la segunda ventana | +46–56 MB |
+| Dos instancias separadas, como alternativa | 248–258 MB |
+| Abrir la segunda ventana con `visor` (hasta que la orden termina) | 61–95 ms |
+
+Dos instancias cuestan unos 50–60 MB más que dos ventanas en un proceso: cada instancia carga su propio proceso de red y su propia interfaz. Es la razón de la opción elegida en el ADR 0039.
+
+#### Pele (#40)
+
 2026-10-18, #40 (diagramas con Pele en vez de Mermaid), enchufado, perfil `performance`, medido con `medir.py` en sway sin pantalla. Dos rondas alternadas con el binario de `8bd1820` en la misma ejecución: intervalo de las dos rondas. No se compara con la tabla de Hyprland de abajo.
 
 | Medida | Pele | Antes (`8bd1820`, Mermaid) |
