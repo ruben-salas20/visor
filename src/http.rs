@@ -292,7 +292,7 @@ mod tests {
         let nfd = dir.join("Pra\u{301}ctica");
         fs::create_dir_all(&nfd).unwrap();
         fs::write(nfd.join("Ejercicios de Pra\u{301}ctica.pdf"), "").unwrap();
-        let root = dir.canonicalize().unwrap();
+        let root = crate::platform::canonicalize(&dir).unwrap();
         let allowed = [root.join("Pra\u{301}ctica")];
         let nfc = format!("{}/Práctica/Ejercicios de Práctica.pdf", root.display());
         let (found, _) = vault::loose_file(Path::new(&nfc), &allowed).expect("NFC spelling");
@@ -314,7 +314,7 @@ mod tests {
         for file in ["pagina/x.html", "pagina/css/e.css", "pagina/.oculta/s.txt", "pagina/.s.txt", "otra/y.html"] {
             fs::write(dir.join(file), "").unwrap();
         }
-        let root = dir.canonicalize().unwrap();
+        let root = crate::platform::canonicalize(&dir).unwrap();
         std::os::unix::fs::symlink(root.join("otra/y.html"), root.join("pagina/enlace.html")).unwrap();
         let allowed = [root.join("pagina")];
         let reads = |rel: &str| vault::loose_file(&root.join(rel), &allowed).is_some();
@@ -336,7 +336,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("notas")).unwrap();
         fs::write(dir.join("notas/tema.md"), "# Tema\n\n- [ ] uno\n").unwrap();
-        let root = dir.canonicalize().unwrap();
+        let root = crate::platform::canonicalize(&dir).unwrap();
         let note = root.join("notas/tema.md");
         let allowed = [root.join("notas")];
         let (path, folder) = vault::loose_file(&note, &allowed).expect("a loose note is readable");

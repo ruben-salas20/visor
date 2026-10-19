@@ -12,7 +12,7 @@ pub mod pdf;
 mod walk_tests;
 
 use crate::i18n::tr;
-use crate::platform::{FileId, file_id};
+use crate::platform::{self, FileId, file_id};
 use crate::trf;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -95,9 +95,15 @@ pub fn is_html(path: &Path) -> bool {
 }
 
 /// A page opened on its own, outside every vault, is kept as its absolute
-/// path; vault paths never start with `/`.
+/// path; vault paths are never absolute.
 pub fn is_loose(target: &str) -> bool {
-    target.starts_with('/')
+    platform::is_absolute_text(target)
+}
+
+/// A vault path that is not absolute and whose every name Windows can hold.
+/// On Linux only the first part can fail.
+fn names_ok(rel: &str) -> bool {
+    !is_loose(rel) && rel.split(platform::SEPARATORS).all(|seg| platform::name_problem(seg).is_none())
 }
 
 fn hidden(name: &str) -> bool {
@@ -169,7 +175,7 @@ pub struct Walk {
 impl Walk {
     /// Walks from `start`, inside the vault at `root`.
     pub fn new(root: &Path, start: &Path) -> Self {
-        let limit = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let limit = platform::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let seen = file_id(start).into_iter().collect();
         Walk { limit, seen }
     }
@@ -201,7 +207,7 @@ impl Walk {
         for path in linked {
             match fs::metadata(&path) {
                 Ok(m) if m.is_dir() => {
-                    let inside = path.canonicalize().is_ok_and(|p| p.starts_with(&self.limit));
+                    let inside = platform::canonicalize(&path).is_ok_and(|p| p.starts_with(&self.limit));
                     if inside && self.enter(&path) {
                         out.push((path, true));
                     }
@@ -401,7 +407,7 @@ impl Vault {
     /// so its pages can read neither another vault nor the loose pages.
     /// If the folder cannot be read yet, the root stays as given and nothing resolves in it.
     pub fn open_at(path: &Path, base: String) -> Self {
-        let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let root = platform::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         Vault { path: path.to_path_buf(), root, base }
     }
 
@@ -449,11 +455,14 @@ impl Vault {
     /// what the page is listed under.
     fn locate(&self, rel: &str) -> Option<(String, PathBuf)> {
         let rel = rel.trim_start_matches('/');
-        let (rel, path) = match self.root.join(rel).canonicalize() {
+        if !names_ok(rel) {
+            return None;
+        }
+        let (rel, path) = match platform::canonicalize(&self.root.join(rel)) {
             Ok(path) => (rel.to_string(), path),
             Err(_) => {
                 let real = find_nfc(&self.root, Path::new(rel))?;
-                (self.rel(&real), real.canonicalize().ok()?)
+                (self.rel(&real), platform::canonicalize(&real).ok()?)
             }
         };
         let path = if path.is_dir() { path.join("index.html") } else { path };
@@ -473,7 +482,7 @@ impl Vault {
 
     /// Like [`Vault::page`], from the vault path instead of the URL.
     pub fn page_at(&self, rel: &str) -> Result<(String, PathBuf), String> {
-        if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
+        if !names_ok(rel) || rel.split(platform::SEPARATORS).any(|seg| seg == "." || seg == "..") {
             return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
         }
         self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
@@ -494,17 +503,30 @@ impl Vault {
     /// A file or folder of the vault named by the panel, never the vault itself
     /// nor anything outside it or hidden.
     pub fn entry(&self, rel: &str) -> Result<PathBuf, String> {
-        if rel.is_empty() || rel.split('/').any(|seg| seg.starts_with('.') || seg.is_empty()) {
+        if rel.is_empty() || !names_ok(rel) || rel.split(platform::SEPARATORS).any(|seg| seg.starts_with('.') || seg.is_empty()) {
+            return Err(trf!("Ruta no válida: {rel}", "Invalid path: {rel}"));
+        }
+        if self.hidden_on_disk(rel) {
             return Err(trf!("Ruta no válida: {rel}", "Invalid path: {rel}"));
         }
         // The parent is canonicalized, not the item, so a link is moved and not its target.
         let path = self.root.join(rel);
-        let parent = path.parent().and_then(|p| p.canonicalize().ok()).ok_or_else(|| trf!("No existe: {rel}", "Does not exist: {rel}"))?;
+        let parent = path.parent().and_then(|p| platform::canonicalize(p).ok()).ok_or_else(|| trf!("No existe: {rel}", "Does not exist: {rel}"))?;
         let path = parent.join(path.file_name().ok_or(tr("Ruta no válida", "Invalid path"))?);
         if !parent.starts_with(&self.root) || fs::symlink_metadata(&path).is_err() {
             return Err(trf!("No existe: {rel}", "Does not exist: {rel}"));
         }
         Ok(path)
+    }
+
+    /// True if a name in `rel`, as it is on disk, starts with a dot. A short name such as
+    /// `VISOR~1` can stand for a hidden folder, so the typed text alone is not enough on Windows.
+    fn hidden_on_disk(&self, rel: &str) -> bool {
+        let mut path = self.root.clone();
+        rel.split(platform::SEPARATORS).any(|seg| {
+            path.push(seg);
+            platform::real_name(&path).is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        })
     }
 
     /// A folder of the vault; the empty path is the vault itself.
@@ -523,10 +545,13 @@ impl Vault {
             )
             .into());
         }
+        if let Some(problem) = platform::name_problem(name) {
+            return Err(problem.into());
+        }
         let folder = if dir.is_empty() {
             self.root.clone()
         } else {
-            let folder = self.root.join(dir).canonicalize().map_err(|_| trf!("No existe la carpeta {dir}", "The folder {dir} does not exist"))?;
+            let folder = platform::canonicalize(&self.root.join(dir)).map_err(|_| trf!("No existe la carpeta {dir}", "The folder {dir} does not exist"))?;
             if !folder.starts_with(&self.root) {
                 return Err(tr("La carpeta está fuera de la bóveda.", "The folder is outside the vault.").into());
             }
@@ -570,7 +595,7 @@ pub fn agent_may_read(url: &str, vault: Option<&Vault>) -> bool {
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
     let real;
     let path = if fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
-        real = path.canonicalize()?;
+        real = platform::canonicalize(path)?;
         &real
     } else {
         path
@@ -651,7 +676,7 @@ pub fn loose_base() -> &'static str {
 
 /// URL of a loose page, given its absolute path: `loose_base()` + `/` + path.
 pub fn loose_url(path: &str) -> String {
-    format!("{}{}", loose_base(), encode_rel(path))
+    format!("{}{}", loose_base(), encode_rel(&platform::loose_text(path)))
 }
 
 /// Percent-encodes each segment of a path, keeping the `/` separators.
@@ -664,7 +689,7 @@ fn encode_rel(rel: &str) -> String {
 /// of a loose tab that is open, subfolders included, and with nothing hidden on the way.
 pub fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
     // A loose path is absolute, so the lookup starts at `/`.
-    let real = |p: &Path| p.canonicalize().ok().or_else(|| find_nfc(Path::new("/"), p)?.canonicalize().ok());
+    let real = |p: &Path| platform::canonicalize(p).ok().or_else(|| platform::canonicalize(&find_nfc(Path::new("/"), p)?).ok());
     let path = real(path).filter(|p| p.is_file())?;
     let visible = |rel: &Path| !rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
     let folder = allowed.iter().find(|dir| path.strip_prefix(dir).is_ok_and(visible))?;
@@ -714,7 +739,8 @@ mod tests {
     #[test]
     fn tab_names_of_a_loose_page() {
         let names = tab_names(Path::new("/home/u/s.html"), None, "s.html", Some(Path::new("/v")), |_| false);
-        assert_eq!(names, ["/home/u/s.html", "s.html"]);
+        let shown = Path::new("/home/u/s.html").to_string_lossy().into_owned();
+        assert_eq!(names, [shown.as_str(), "s.html"]);
         // A page of a known vault that is not open is not a loose tab.
         let names = tab_names(Path::new("/home/u/s.html"), None, "", Some(Path::new("/v")), |_| true);
         assert!(names.is_empty());
@@ -916,7 +942,7 @@ mod tests {
         for f in ["notas/tema.md", "notas/pagina.html", "notas/.oculta/x.md", "otra/fuera.md", "notas/dibujo.excalidraw.md"] {
             fs::write(dir.join(f), "").unwrap();
         }
-        let root = dir.canonicalize().unwrap();
+        let root = platform::canonicalize(&dir).unwrap();
         let allowed = [root.join("notas")];
         let loose = |rel: &str| loose_url(&root.join(rel).to_string_lossy());
         assert_eq!(loose_note(&loose("notas/tema.md"), &allowed), Ok(root.join("notas/tema.md")));
@@ -1040,6 +1066,115 @@ mod tests {
         symlink(dir.join("no-existe"), dir.join("colgante.md")).unwrap();
         assert!(write_atomic(&dir.join("colgante.md"), "x").is_err());
         assert_eq!(fs::read_dir(dir.join("otra")).unwrap().count(), 1, "no temp left");
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use crate::platform::{self, file_id};
+    use std::process::Command;
+
+    /// A vault with a folder, a hidden folder, a file outside it, and a junction
+    /// inside it that leads outside. Junctions need no administrator rights.
+    fn make(name: &str) -> (Vault, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("visor-vault-win-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = dir.join("boveda");
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::create_dir_all(root.join(".oculta")).unwrap();
+        fs::write(root.join("a").join("nota.md"), "# Nota").unwrap();
+        fs::write(root.join(".oculta").join("x.md"), "").unwrap();
+        fs::write(dir.join("fuera.md"), "secreto").unwrap();
+        let made = Command::new("cmd").args(["/C", "mklink", "/J"]).arg(root.join("enlace")).arg(&dir).status().unwrap();
+        assert!(made.success(), "mklink /J");
+        (Vault::open(&root), dir)
+    }
+
+    #[test]
+    fn windows_forms_are_not_vault_paths() {
+        for loose in ["C:/x", "C:\\x", "c:/", "\\\\server\\share\\x", "\\\\?\\C:\\x", "/x"] {
+            assert!(is_loose(loose), "{loose:?}");
+        }
+        for vault_path in ["a/b", "a\\b", "C:x", "nota.md"] {
+            assert!(!is_loose(vault_path), "{vault_path:?}");
+        }
+    }
+
+    #[test]
+    fn reserved_and_forbidden_names() {
+        for bad in ["CON", "nul.txt", "com1", "LPT9.md", "a:b", "x?", "x*", "x.", "x ", "a|b", "a<b"] {
+            assert!(platform::name_problem(bad).is_some(), "{bad:?}");
+        }
+        for good in [".", "..", "ok.html", "CONTROL.md", "COM10"] {
+            assert!(platform::name_problem(good).is_none(), "{good:?}");
+        }
+    }
+
+    #[test]
+    fn canonical_paths_have_no_verbatim_prefix() {
+        let (vault, dir) = make("prefix");
+        assert!(!vault.root().to_string_lossy().starts_with(r"\\?\"), "{:?}", vault.root());
+        let real = platform::canonicalize(&dir).unwrap();
+        assert!(!real.to_string_lossy().starts_with(r"\\?\"), "{real:?}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn windows_paths_stay_inside_the_vault() {
+        let (vault, dir) = make("inside");
+        let root = vault.root().to_path_buf();
+        assert_eq!(vault.entry("a\\nota.md"), Ok(root.join("a").join("nota.md")));
+        for bad in ["C:\\Windows", "C:/x", "\\\\?\\C:\\x", "\\\\server\\share", "a\\..\\..\\fuera.md", "CON", "nota.md.", "a:b"] {
+            assert!(vault.entry(bad).is_err(), "entry {bad:?}");
+        }
+        for bad in ["C:/x", "\\\\?\\C:\\x", "a\\..\\..\\fuera.md", "enlace\\fuera.md", "enlace/fuera.md", ".oculta\\x.md"] {
+            assert!(vault.page_at(bad).is_err(), "page_at {bad:?}");
+        }
+        assert!(vault.new_in("", "CON").is_err());
+        assert!(vault.new_in("", "x.").is_err());
+        assert!(vault.new_in("", "a:b").is_err());
+        assert!(vault.new_in("enlace", "x").is_err(), "junction out of the vault");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_junction_has_the_identity_of_its_target() {
+        let (vault, dir) = make("identity");
+        let root = vault.root();
+        let folder = file_id(&root.join("a")).unwrap();
+        assert_ne!(folder, file_id(root).unwrap());
+        assert_eq!(file_id(&root.join("enlace")), file_id(&dir), "the junction leads to the outside folder");
+        assert!(fs::symlink_metadata(root.join("enlace")).unwrap().file_type().is_symlink(), "junction seen as a link");
+        assert!(file_id(&root.join("falta")).is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn walks_do_not_enter_a_junction_out_of_the_vault() {
+        let (vault, dir) = make("walk");
+        let found = files(vault.root(), vault.root(), |_| true);
+        assert!(found.iter().all(|p| !p.to_string_lossy().contains("fuera.md")), "{found:?}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn trash_moves_a_file_to_the_bin() {
+        let dir = std::env::temp_dir().join(format!("visor-trash-win-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("papelera.md");
+        fs::write(&file, "x").unwrap();
+        platform::trash(&file).unwrap();
+        assert!(!file.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn real_name_of_a_file() {
+        let (vault, dir) = make("name");
+        assert_eq!(platform::real_name(&vault.root().join("a").join("nota.md")), Some("nota.md".into()));
         fs::remove_dir_all(dir).unwrap();
     }
 }

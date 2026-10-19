@@ -91,7 +91,7 @@ pub fn note_target(vault: &Vault, dir: &str, name: &str) -> Result<(PathBuf, Str
         }
         match fs::symlink_metadata(&folder) {
             Ok(_) => {
-                let real = folder.canonicalize().map_err(|_| trf!("No existe la carpeta {part}", "The folder {part} does not exist"))?;
+                let real = platform::canonicalize(&folder).map_err(|_| trf!("No existe la carpeta {part}", "The folder {part} does not exist"))?;
                 if !real.is_dir() {
                     return Err(trf!("«{part}» no es una carpeta.", "«{part}» is not a folder."));
                 }
@@ -120,7 +120,7 @@ mod tests {
         fs::create_dir_all(root.join(annot::DIR).join("a")).unwrap();
         fs::write(root.join("a/nota.md"), "# Nota").unwrap();
         fs::write(root.join(annot::DIR).join("a/nota.md.json"), "{}").unwrap();
-        root.canonicalize().unwrap()
+        platform::canonicalize(&root).unwrap()
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! requests the socket server makes of the window. Nothing here knows GTK.
 
 use crate::paths;
+use crate::platform;
 use crate::ui::windows::{WinId, target_in};
 use crate::vault::{self, Vault};
 use serde_json::{Value, json};
@@ -277,7 +278,7 @@ fn append_event(event: &Value) {
 /// `path` without `..` or links, for [`Shared::target_for`]. A file that does
 /// not exist (a tab whose file was deleted) resolves through its folder.
 pub fn real_path(path: &Path) -> Option<PathBuf> {
-    path.canonicalize().ok().or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
+    platform::canonicalize(path).ok().or_else(|| Some(platform::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
 }
 
 #[cfg(test)]

@@ -689,7 +689,7 @@ mod tests {
         for file in ["nota/x.md", "nota/img/foto.png", "nota/sub/otra.md", "nota/.oculta/secreto.md", "afuera.md"] {
             fs::write(dir.join(file), "").unwrap();
         }
-        let folder = dir.canonicalize().unwrap().join("nota");
+        let folder = crate::platform::canonicalize(&dir).unwrap().join("nota");
         let source = "![[foto.png]] [[otra]] [[secreto]] [[afuera]] [[nueva]]\n\n- [ ] tarea\n";
         let html = loose_page(source, "x.md", &folder);
         let folder_text = folder.to_string_lossy();

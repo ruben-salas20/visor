@@ -5,13 +5,7 @@ pub fn socket() -> PathBuf {
     if let Some(path) = std::env::var_os("VISOR_SOCKET") {
         return PathBuf::from(path);
     }
-    match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir).join("visor.sock"),
-        None => std::env::temp_dir().join(format!(
-            "visor-{}.sock",
-            std::env::var("USER").unwrap_or_default()
-        )),
-    }
+    crate::platform::default_socket()
 }
 
 pub fn config() -> PathBuf {
@@ -22,7 +16,7 @@ pub fn config() -> PathBuf {
 
 /// Empty file whose time is the last check for a new version.
 pub fn update_check() -> PathBuf {
-    dirs::state_dir()
+    crate::platform::state_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("visor/actualizacion")
 }
@@ -38,7 +32,7 @@ pub fn desktop_icon() -> Option<PathBuf> {
 }
 
 pub fn events() -> PathBuf {
-    dirs::state_dir()
+    crate::platform::state_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("visor/events.jsonl")
 }
