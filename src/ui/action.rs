@@ -44,8 +44,6 @@ impl Proxy {
         Proxy { window, inner }
     }
 
-    // Read once events are routed to the App of their window (#39, step 6).
-    #[allow(dead_code)]
     pub fn window(&self) -> WinId {
         self.window
     }

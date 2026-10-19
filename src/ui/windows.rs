@@ -1,5 +1,5 @@
-#![allow(dead_code)] // Wired into the app in a later step of #39.
 
+#![allow(dead_code)] // Several windows reach these methods in step 7 of #39.
 //! The model of visor's windows: which are open, in which order, and which one
 //! has the focus. It knows no GTK and no webview; a window is only its id.
 //!
