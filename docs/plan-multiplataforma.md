@@ -20,9 +20,22 @@ Reglas del proyecto que se mantienen:
 ## Para la sesión nueva (empieza aquí)
 
 - **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`, ya subida a GitHub. Se fusionó con `main` el 2026-10-19, después de las varias ventanas (#39). Si `main` ha avanzado, `git merge main` (no `rebase`: la rama ya está publicada).
-- **Qué leer:** `AGENTS.md`, `CONTEXT.md`, `docs/informe-multiplataforma.md`, este plan y `docs/pruebas.md`. El ADR 0001 (por qué wry y no GPUI) y los 0002, 0003, 0033 y 0035 son los que más se tocan.
-- **Estado (2026-10-19):** L1, L2, L3 (parcial), W1, W2, W3, U1 y U2 hechos; resultados en «Resultados» y decisiones en «Decisiones del usuario». **Las tres puertas están decididas:** G1 pasa con winit en Windows, G2 es la opción A (marco en HTML con React + shadcn/ui, cargando solo los componentes que se ven) y G3 deja fuera RHEL 9 y Alpine.
-- **Siguiente paso:** fase 1 (costuras) hecha el 2026-10-19: la parte sin interfaz compila para Windows. U1 en Windows (CI, winit) hecho: el marco en HTML funciona allí igual que en Linux (ver «Resultados»). Fase 2: A (tubería), B (archivos y procesos) y C (actualización) fusionadas; con todo junto, `cargo test` en Windows sin la interfaz da 262 de 262 (ejecución 39263052877). L5 hecha: el `.deb` y el Flatpak funcionan. ADR 0035 actualizado. ADR 0040 escrito (interfaz en HTML y winit en Windows; amplía el 0001 y sustituye al 0004 cuando el marco reemplace a GTK). Queda: W4 y construir la interfaz.
+- **Qué leer:** `AGENTS.md`, `CONTEXT.md`, este plan, `docs/pruebas.md` y el ADR 0040 (interfaz en HTML y winit en Windows). También 0001, 0035 y 0039 si se tocan la ventana, la actualización o las ventanas.
+- **Estado (2026-10-19, fin de sesión):**
+  - Puertas G1, G2 y G3 decididas. U1 funciona en Linux y en Windows (ver «Resultados»).
+  - Fase 1 (costuras) hecha: lo propio de cada sistema está en `src/platform/` (`linux.rs`, `windows.rs`) y `agent/channel.rs` (socket Unix en Linux, `agent/pipe.rs` en Windows).
+  - Fase 2 sin interfaz hecha y fusionada: tubería con nombre (con comprobación del usuario dueño), archivos, rutas y procesos, y actualización. `cargo test` en Windows sin la interfaz: 265 de 265 (ejecución 39264610352); en Linux, 293.
+  - L5 hecha: `.deb` y Flatpak (`io.github.ruben_salas20.visor`) funcionan; las copias de paquete no se actualizan solas (`src/package.rs`).
+  - ADR 0035 ampliado; ADR 0040 nuevo.
+  - CI: `windows-check.yml` (W1) pasa `cargo check` y `cargo test` en Windows sin la interfaz en cada subida a esta rama o a `port-*`; `windows-update.yml`, `windows-u1.yml` y `linux-packages.yml` cubren sus prototipos.
+- **Pendiente, por orden propuesto:**
+  1. **W4 en CI:** funciones que wry no da en Windows (captura, pantalla completa, fallos de recursos, hoja de estilo inyectada, zoom, foco, botones laterales del ratón). Recomendado: un subagente con encargo acotado (líneas exactas, sin leer registros completos).
+  2. **Plan de la interfaz:** dividir la construcción del marco React (panel, pestañas, barra, divisores, ajustes, buscador…) en tareas paralelas que no se crucen, y el orden. Se escribe con el usuario antes de construir. W4 dice qué queda sin versión en Windows. Recomendado: W4 y este plan a la vez.
+  3. **Construir la interfaz** (opción A del ADR 0040), en Linux primero, y medir frente a visor (GTK) con `docs/pruebas.md`.
+  4. **Publicación**, cuando haya interfaz: `tools/publicar.sh` con el `.exe` de Windows (instalador y portable), flujo de paquetes en cada versión, Flatpak sin red al compilar para Flathub (dependencias de Rust en el manifiesto), y el `.deb` con su `visor.desktop` fuera de `spikes/`.
+  5. **Pruebas a mano del usuario** (no se pueden en CI): en Windows 10/11 de escritorio, clic, arrastre, teclado, escala 125–150 %, reinicio y papelera; en Linux, X11 real (Mint) y los paquetes en un escritorio.
+  6. **Riesgo conocido sin resolver:** en Windows, si fallan a la vez el renombrado del `.exe` nuevo y la vuelta atrás, no queda `visor.exe` (`update.rs`).
+- **Al terminar cada subagente:** revisar su diff, fusionar en esta rama, anotar en «Resultados», y borrar su worktree y sus ramas (local y de GitHub). Encargos acotados: un subagente Haiku se quedó sin contexto en U1; el de Opus, con líneas exactas que leer, terminó en 15 minutos.
 - **Permisos:** subir la rama del worktree y lanzar su CI está autorizado. **Sin permiso explícito:** tocar `main`, instalar nada con `sudo`, cambiar ADR, comentar en el issue 35 (el repositorio es público), abrir ventanas en el escritorio del usuario (Hyprland) y medir rendimiento. Las pruebas funcionales en un sway sin pantalla y `cargo test` no necesitan permiso.
 - **Prototipos útiles:**
   - `spikes/u1-marco-html/`: marco en HTML con dos páginas. `--marco simple|react|svelte` elige la implementación (fuentes en `marcos/`, compilados en `web/`; `npm install && npm run build` en cada `marcos/*`). `pruebas/ejecutar.sh --marco X` pasa las pruebas a–g en un sway sin pantalla; `pruebas/medir.py` mide los tres marcos y `pruebas/medir_visor.py VISOR` los compara con visor.
@@ -211,11 +224,16 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
   - **G2: opción A, el marco en HTML, con React + shadcn/ui** (Tailwind, Radix). React y Svelte costaron casi lo mismo (ver «Resultados»); el usuario prefiere el ecosistema de React, que tiene más componentes para un futuro chat con IA. El diseño del prototipo Svelte le gustó más y se puede llevar a React. Acepta el coste medido (+97 a +110 MB frente a visor con GTK) y quiere **cargar solo los componentes que se ven**.
   - **Objetivo futuro:** un chat con IA dentro de visor con la clave o el servidor del usuario (BYOK/BYOS). El marco debe permitirlo. Condiciones ya acordadas: la clave la guarda Rust, nunca el JavaScript del marco, y lo que aporte una página al chat se trata como no confiable (`AGENTS.md`). Componentes de terceros solo con licencia compatible con MIT (AICSS Pro no es público: revisar su licencia antes de usarlo).
   - **Mejorar el aspecto de las «conversaciones» de las notas** se puede hacer ya, aparte del port (`src/page/`).
+- **2026-10-19 (tarde):**
+  - Dependencias solo de Windows: `windows-sys`, `getrandom` y `sha2`.
+  - Paquetes: identificador Flatpak `io.github.ruben_salas20.visor`; Flatpak con acceso a toda la carpeta personal; una copia es «de paquete» por dónde está el ejecutable (`/usr`, salvo `/usr/local`, o `/app`); responsable del `.deb`, el correo de los commits.
+  - Los paquetes definitivos esperan a la interfaz nueva; L5 fue solo la prueba de viabilidad.
+  - Seguridad: un enlace a una carpeta oculta no se lista ni se usa desde el panel (Linux y Windows); en Windows, la CLI comprueba que la tubería es del mismo usuario, y el panel salta lo que Windows marca oculto o de sistema y los nombres cortos de carpetas ocultas.
+  - ADR 0035 ampliado con Windows y paquetes; ADR 0040 nuevo, que amplía el 0001 y sustituye al 0004 cuando el marco reemplace a GTK.
 
 ## Decisiones pendientes del usuario
 
-1. Dependencias de la fase 2, solo para Windows: `windows-sys` (ya llega a `Cargo.lock` por otras bibliotecas), `getrandom` para el secreto y `sha2` para comprobar la descarga de `update.rs` (en lugar de leer la salida de `certutil`).
-2. Los cambios concretos de los ADR 0001 y 0004, cuando se propongan (mejor después de U1 en Windows).
+1. Siguiente paso: W4 y el plan de la interfaz a la vez (recomendado), o solo uno de los dos.
 
 ## Registro de descartes
 
