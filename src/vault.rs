@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn tab_names_of_a_loose_page() {
         let names = tab_names(Path::new("/home/u/s.html"), None, "s.html", Some(Path::new("/v")), |_| false);
-        let shown = Path::new("/home/u/s.html").to_string_lossy().into_owned();
+        let shown = lexical(Path::new("/home/u/s.html")).to_string_lossy().into_owned();
         assert_eq!(names, [shown.as_str(), "s.html"]);
         // A page of a known vault that is not open is not a loose tab.
         let names = tab_names(Path::new("/home/u/s.html"), None, "", Some(Path::new("/v")), |_| true);
