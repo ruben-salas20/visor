@@ -41,7 +41,6 @@ use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, Use
 use wry::{WebView, WebViewExtUnix};
 
 const SIDEBAR_WIDTH: i32 = 260;
-const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 const RESTART_WAIT: Duration = Duration::from_secs(3);
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
@@ -949,21 +948,8 @@ impl App {
         push_console(&mut shared, self.win, view, "error", &text);
     }
 
-    /// Marks the settings as changed and writes them once, shortly after,
-    /// instead of on every navigation: the write blocks the window. A crash
-    /// loses at most this delay of state.
-    fn save_config_soon(&mut self) {
-        if self.common.borrow_mut().mark_config_dirty() {
-            let proxy = self.proxy.clone();
-            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || {
-                proxy.send(UserEvent::SaveConfig);
-            });
-        }
-    }
-
-    /// Writes the settings now if a change is waiting.
-    fn flush_config(&self) {
-        self.common.borrow_mut().flush_config();
+    fn save_config_soon(&self) {
+        self.common.borrow_mut().mark_config_dirty();
     }
 
     pub(super) fn save_layout(&mut self) {
@@ -1080,13 +1066,9 @@ impl App {
                 self.apply_theme();
             }
             UserEvent::Action(action) => self.act(action),
-            UserEvent::SaveConfig => {
-                self.common.borrow_mut().config_write_due();
-                self.flush_config();
-            }
             UserEvent::UpdateDone { message, installed } => self.sidebar.update_done(&message, installed),
             // The process handles these; see `ui/visor.rs`.
-            UserEvent::Quit | UserEvent::Restart { .. } => {}
+            UserEvent::Quit | UserEvent::Restart { .. } | UserEvent::SaveConfig => {}
             UserEvent::RestartChecked(check) => match check {
                 RestartCheck::Clear => self.restart(),
                 RestartCheck::Unsaved => self.sidebar.update_done(

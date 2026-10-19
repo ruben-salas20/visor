@@ -29,12 +29,9 @@ use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use wry::WebContext;
-
-const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 
 pub fn launch() -> i32 {
     // Started for a page outside every vault: that page alone, without the
@@ -89,7 +86,7 @@ pub fn launch() -> i32 {
     }
     let auto_update = config.auto_update != Some(false);
     let (states, focus) = if loose { (vec![WindowState::default()], 0) } else { config.restore_windows() };
-    let common: CommonRef = Rc::new(RefCell::new(Common::new(config, theme, context, styles, port)));
+    let common: CommonRef = Rc::new(RefCell::new(Common::new(config, theme, context, styles, port, process.clone())));
 
     let mut visor = Visor {
         common,
@@ -288,11 +285,6 @@ impl Visor {
             return;
         }
         self.save_windows();
-        // `save_windows` marked the settings; one write covers a burst of changes.
-        if self.common.borrow_mut().mark_config_dirty() {
-            let proxy = Proxy::new(0, self.loop_proxy.clone());
-            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || proxy.send(UserEvent::SaveConfig));
-        }
     }
 
     fn window_event(&mut self, w: WinId, event: UserEvent) {

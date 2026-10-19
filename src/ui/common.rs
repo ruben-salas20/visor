@@ -4,6 +4,7 @@
 
 use crate::i18n::tr;
 use crate::session::SharedRef;
+use crate::ui::action::{Proxy, UserEvent};
 use crate::ui::theme::Theme;
 use crate::vault::Vault;
 use crate::vault::config::Config;
@@ -12,7 +13,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 use wry::WebContext;
+
+/// How long after a change the settings are written: a burst of changes makes one write.
+const CONFIG_SAVE_DELAY: Duration = Duration::from_millis(500);
 
 pub type CommonRef = Rc<RefCell<Common>>;
 
@@ -22,6 +27,8 @@ pub struct Common {
     config_dirty: bool,
     /// Whether a write is already scheduled, so a burst of changes makes one write.
     save_scheduled: bool,
+    /// Sends the scheduled write to the process, which outlives every window.
+    saver: Proxy,
     pub theme: Option<Rc<Theme>>,
     /// The monospace font for the theme. It is found in a thread, after the window opens.
     pub mono: Option<String>,
@@ -36,12 +43,14 @@ pub struct Common {
 }
 
 impl Common {
-    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, styles: gtk::CssProvider, port: u16) -> Self {
+    /// `saver` sends to the process (window 0).
+    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, styles: gtk::CssProvider, port: u16, saver: Proxy) -> Self {
         let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
         Common {
             config,
             config_dirty: false,
             save_scheduled: false,
+            saver,
             theme: theme.map(Rc::new),
             mono: None,
             background,
@@ -69,11 +78,16 @@ impl Common {
         Ok(vault)
     }
 
-    /// Marks the settings as changed. True if the caller must schedule the
-    /// write; it is scheduled once, until `config_write_due` runs.
-    pub fn mark_config_dirty(&mut self) -> bool {
+    /// Marks the settings as changed and schedules one write shortly after,
+    /// instead of one per change: the write blocks the windows. A crash loses
+    /// at most this delay of state.
+    pub fn mark_config_dirty(&mut self) {
         self.config_dirty = true;
-        !std::mem::replace(&mut self.save_scheduled, true)
+        // Scheduled here, where it is marked, so nothing marks it without a write coming.
+        if !std::mem::replace(&mut self.save_scheduled, true) {
+            let saver = self.saver.clone();
+            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || saver.send(UserEvent::SaveConfig));
+        }
     }
 
     /// Called when the scheduled write runs. Changes made later schedule another.
