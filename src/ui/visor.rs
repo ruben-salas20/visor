@@ -293,12 +293,17 @@ impl Visor {
         let Some(app) = self.apps.get_mut(&w) else { return };
         app.handle(event);
         let after = Settings::of(&self.common.borrow().config);
+        let mut changed = vec![w];
         if let Some(change) = before.change(&after) {
-            for (_, other) in self.apps.iter_mut().filter(|(id, _)| **id != w) {
+            for (id, other) in self.apps.iter_mut().filter(|(id, _)| **id != w) {
                 other.settings_changed(&change);
+                changed.push(*id);
             }
         }
-        self.window_changed(w);
+        // Another window may have left a removed vault, so its layout changed too.
+        for id in changed {
+            self.window_changed(id);
+        }
     }
 
     /// An event for the process. True when the process must end.

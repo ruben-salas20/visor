@@ -386,9 +386,22 @@ impl App {
             self.restyle();
             self.announce_theme();
         }
-        if changed.vaults || changed.show_other {
+        // Another window removed the vault this one shows.
+        let removed = changed.vaults && self.vault().is_some_and(|v| self.cfg(|c| !c.vaults.iter().any(|p| p == v.path())));
+        if removed {
+            self.leave_removed_vault();
+        } else if changed.vaults || changed.show_other {
             self.refresh_sidebar();
         }
+    }
+
+    /// The vault this window shows was removed from the list: shows the first
+    /// one left, or none.
+    fn leave_removed_vault(&mut self) {
+        // The removed vault must not get its workspace saved back.
+        self.shared.lock().unwrap().window_mut(self.win).vault = None;
+        let next = self.cfg(|c| c.vaults.first().cloned());
+        self.show_vault(next);
     }
 
     /// The installed binary could not replace this process.
@@ -1546,14 +1559,9 @@ impl App {
                     c.open_folders.remove(&path);
                 });
                 if self.vault().is_some_and(|v| v.path() == path) {
-                    let next = self.cfg_mut(|c| {
-                        c.current = c.vaults.first().cloned();
-                        c.current.clone()
-                    });
+                    self.cfg_mut(|c| c.current = c.vaults.first().cloned());
                     self.save_config_soon();
-                    // The removed vault must not get its workspace saved back.
-                    self.shared.lock().unwrap().window_mut(self.win).vault = None;
-                    self.show_vault(next);
+                    self.leave_removed_vault();
                 } else {
                     self.save_config_soon();
                     self.refresh_sidebar();
