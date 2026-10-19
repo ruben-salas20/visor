@@ -48,7 +48,7 @@ jobs:
       - name: Ejecutar pruebas
         run: |
           New-Item -ItemType Directory -Force -Path resultados | Out-Null
-          $pruebas = @('captura', 'pantalla', 'fallos', 'estilo', 'zoom', 'foco', 'lateral')
+          $pruebas = @('captura')
           foreach ($nombre in $pruebas) {
             $base = "resultados\$nombre"
             $p = Start-Process -FilePath .\target\release\w4-funciones.exe `

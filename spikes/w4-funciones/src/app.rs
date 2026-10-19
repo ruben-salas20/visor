@@ -47,6 +47,13 @@ use crate::server;
 
 const LIMITE: Duration = Duration::from_secs(90);
 
+static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+fn traza(que: &str) {
+    let t = T0.get().map(|t| ms(t.elapsed())).unwrap_or(0);
+    eprintln!("[{t} ms] {que}");
+}
+
 type Evidencia = Arc<Mutex<Map<String, Value>>>;
 
 /// Result of a test: criterion met, one-line verdict, and reason.
@@ -130,6 +137,7 @@ fn source_of(wv: &ICoreWebView2) -> String {
 
 impl Vista {
     fn nueva(window: &Window, contexto: &mut WebContext, bounds: Rect) -> Result<Vista, String> {
+        traza("crear webview");
         let wv = WebViewBuilder::new_with_web_context(contexto)
             .with_url("about:blank")
             .with_bounds(bounds)
@@ -174,11 +182,14 @@ impl Vista {
             com.add_NavigationStarting(&inicio, &mut token).e("NavigationStarting")?;
         }
         // Let the initial about:blank finish before anything else.
-        esperar(5_000, || !completadas.borrow().is_empty());
+        traza("webview creado; esperando about:blank");
+        let blank = esperar(5_000, || !completadas.borrow().is_empty());
+        traza(&format!("about:blank terminado: {blank}"));
         Ok(Vista { wv, com, ctl, completadas, iniciadas, interceptar })
     }
 
     fn cargar(&self, url: &str) -> Result<(), String> {
+        traza(&format!("cargar {url}"));
         let n = self.completadas.borrow().len();
         self.wv.load_url(url).e("load_url")?;
         let ok = esperar(15_000, || self.completadas.borrow()[n..].iter().any(|(s, _)| s == url));
@@ -791,6 +802,7 @@ fn escribir(salida: &PathBuf, prueba: &str, ok: bool, resultado: &str, motivo: &
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        traza("resumed");
         if self.window.is_some() {
             return;
         }
@@ -798,7 +810,10 @@ impl ApplicationHandler for App {
             .with_title("W4 funciones (Windows)")
             .with_inner_size(LogicalSize::new(800.0, 600.0));
         match event_loop.create_window(attrs) {
-            Ok(w) => self.window = Some(w),
+            Ok(w) => {
+                traza("ventana creada");
+                self.window = Some(w)
+            }
             Err(e) => self.fin(Err(format!("no se pudo crear la ventana: {e}"))),
         }
         bombear(300);
@@ -828,6 +843,8 @@ fn argumento(args: &[String], nombre: &str) -> Option<String> {
 
 pub fn main() {
     let t0 = Instant::now();
+    let _ = T0.set(t0);
+    traza("inicio");
     let args: Vec<String> = std::env::args().collect();
     let (Some(salida), Some(prueba)) = (argumento(&args, "--auto"), argumento(&args, "--prueba")) else {
         eprintln!("uso: w4-funciones --auto <salida.json> --prueba captura|pantalla|fallos|estilo|zoom|foco|lateral");
@@ -841,6 +858,7 @@ pub fn main() {
     let (s, p, e) = (salida.clone(), prueba.clone(), evidencia.clone());
     std::thread::spawn(move || {
         std::thread::sleep(LIMITE);
+        traza("tiempo agotado");
         escribir(&s, &p, false, "error", "tiempo agotado", t0, &e);
         std::process::exit(3);
     });
