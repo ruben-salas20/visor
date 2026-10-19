@@ -189,7 +189,7 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 
 | Opción | Estado | Evidencia |
 |---|---|---|
-| GPUI | Descartada | Sin webviews en Wayland nativo: `build_as_child` solo X11 en wry 0.57; gpui-kit PR 3395; el crate `gpui` oficial es 0.2.2 de oct. 2025 y el ecosistema usa instantáneas semanales [V] |
+| GPUI | Descartada | Sin webviews en Wayland nativo: `build_as_child` solo X11 en wry 0.57; gpui-kit PR 3395; el crate `gpui` oficial es 0.2.2 de oct. 2025 y el ecosistema usa instantáneas semanales [V]. Revisado el 2026-10-19: `gpui` sigue en 0.2.2; `rgpui-webview` 0.5.0 (agosto de 2026, 113 descargas) monta en Linux un `gtk::Fixed` sin ventana y su propio código dice «aún no funciona del todo» [V] |
 | Tauri 2 como base | Descartada | Su multiwebview (`add_child`) sigue tras la feature `unstable` [V]. Se puede usar su empaquetador sin migrar [S] |
 | Opción D (GTK en Linux + interfaz aparte en Windows) | Descartada salvo que G2 falle | Dos bases de UI: mantenimiento muy alto |
 | AppImage | Descartada (usuario, 2026-10-19) | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
