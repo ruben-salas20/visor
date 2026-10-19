@@ -334,11 +334,9 @@ SEARCH FROM THE BAR
     name of a note is never sent to a search engine by mistake.
 
 SHORTCUTS IN THE APP
-  The interface is being rebuilt in HTML (#35). For now the panel only
-  lists the vault and opens a file on a click, in the focused side. Not
-  there yet: the find bar outside PDFs and the note editor, settings
-  (Ctrl+,), the list of shortcuts (Ctrl+K), dragging from the panel,
-  menus and the trash. The other shortcuts work.
+  The interface is being rebuilt in HTML (#35). Not there yet: the find
+  bar outside PDFs and the note editor, settings (Ctrl+,) and the list of
+  shortcuts (Ctrl+K). The other shortcuts work.
   Ctrl+O  open folder        Ctrl+B  show or hide the panel
   Ctrl+R / F5  reload
   Ctrl+L  address bar: URL, domain, vault path, absolute path or search.
