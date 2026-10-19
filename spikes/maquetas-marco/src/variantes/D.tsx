@@ -70,8 +70,8 @@ function Rama({ nodo, nivel }: { nodo: Nodo; nivel: number }) {
 function Lateral() {
   return (
     <aside className="flex h-full w-[264px] shrink-0 flex-col border-r bg-sidebar">
-      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b px-1.5">
-        <Button variant="ghost" size="sm" className="h-7 min-w-0 flex-1 justify-start px-2 font-semibold" title="Cambiar de bóveda">
+      <div className="flex h-[30px] shrink-0 items-center gap-0.5 border-b px-1.5">
+        <Button variant="ghost" size="sm" className="h-6 min-w-0 flex-1 justify-start px-2 font-semibold" title="Cambiar de bóveda">
           <span className="truncate">{BOVEDA}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
