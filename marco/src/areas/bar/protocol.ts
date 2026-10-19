@@ -23,3 +23,4 @@ export type BarMsg =
   | { type: 'pick_element'; side: number }
   | { type: 'toggle_annotations'; side: number }
   | { type: 'go'; side: number; text: string }
+  | { type: 'leave'; side: number }

@@ -336,7 +336,7 @@ SEARCH FROM THE BAR
 SHORTCUTS IN THE APP
   The interface is being rebuilt in HTML (#35). For now the panel only
   lists the vault and opens a file on a click, in the focused side. Not
-  there yet: typing in the bar (Ctrl+L), the find bar outside PDFs and the
+  there yet: the find bar outside PDFs and the
   note editor, settings (Ctrl+,), the list of shortcuts (Ctrl+K), the
   divider, dragging, menus and the trash. The other shortcuts work.
   Ctrl+O  open folder        Ctrl+B  show or hide the panel

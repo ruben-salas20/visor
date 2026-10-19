@@ -13,6 +13,8 @@ pub enum Msg {
     ToggleAnnotations { side: u64 },
     /// The text typed in the address field, sent with Enter.
     Go { side: u64, text: String },
+    /// Escape in the address field: the keys go back to the page.
+    Leave { side: u64 },
 }
 
 /// One address row per side, in the order of the sides.

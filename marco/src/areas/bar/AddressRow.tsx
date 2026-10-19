@@ -1,6 +1,6 @@
 // Area C, the address row of a side: back, forward, reload, where the page
 // is, the address field (Ctrl+L) and the annotation buttons.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChevronRight, Crosshair, ListTree, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { post } from '@/protocol'
@@ -40,6 +40,16 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
   const [typing, setTyping] = useState(false)
   const [text, setText] = useState('')
   const [marked, setMarked] = useState(false)
+  const field = useRef<HTMLInputElement>(null)
+
+  // Ctrl+L gives the frame's view the keyboard focus after the field opens,
+  // and WebKit then hands the focus back to what had it before: take it back.
+  useEffect(() => {
+    if (!typing) return
+    const again = () => field.current?.focus()
+    window.addEventListener('focus', again)
+    return () => window.removeEventListener('focus', again)
+  }, [typing])
 
   // Rust counts each request: a new count opens the field, or marks it when
   // the address led nowhere. It is set while rendering so the field opens
@@ -90,10 +100,20 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
             setMarked(false)
           }}
           onFocus={(e) => e.currentTarget.select()}
-          onBlur={leave}
+          ref={field}
+          // A blur that comes with the view getting focus is WebKit's, not the
+          // person's: only a blur that leaves the focus elsewhere closes the field.
+          onBlur={() =>
+            requestAnimationFrame(() => {
+              if (document.activeElement !== field.current) leave()
+            })
+          }
           onKeyDown={(e) => {
             if (e.key === 'Enter') go()
-            else if (e.key === 'Escape') leave()
+            else if (e.key === 'Escape') {
+              leave()
+              post({ area: 'bar', type: 'leave', side })
+            }
           }}
           className={cn(
             'h-[22px] min-w-0 flex-1 rounded-[3px] border bg-background px-1.5 text-foreground outline-none',

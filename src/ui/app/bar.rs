@@ -28,10 +28,23 @@ impl App {
             Msg::PickElement { side } => (side, Action::PickElement),
             Msg::ToggleAnnotations { side } => (side, Action::ToggleAnnotations),
             Msg::Go { side, text } => (side, Action::Go(text)),
+            Msg::Leave { side } => {
+                if let Some(p) = self.side_index(side) {
+                    self.focus_pane(p, true);
+                }
+                return;
+            }
         };
         let Some(p) = self.side_index(side) else { return };
         self.focus_pane(p, false);
+        let go = matches!(action, Action::Go(_));
+        let refused = self.address.get(&side).map_or(0, |m| m.refused);
         self.act(action);
+        // Like a browser, the keys go back to the page once it is on its way;
+        // a refused address keeps them in the field, which stays open.
+        if go && self.address.get(&side).map_or(0, |m| m.refused) == refused {
+            self.focus_pane(p, true);
+        }
     }
 
     pub(super) fn bar_state(&self) -> State {
