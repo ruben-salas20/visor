@@ -64,5 +64,8 @@ export type FilesMsg =
   /** While it lasts, the pages take the file (area B, src/ui/host.rs). */
   | { type: 'drag_start'; path: string }
   | { type: 'drag_end' }
+  /** Over a side's pages: 0 left half, 1 right half, 2 the whole side. */
+  | { type: 'drop_hover'; side: number; zone: number | null }
+  | { type: 'drop_on'; side: number; half: number | null }
   | { type: 'width'; width: number }
   | { type: 'show_other'; on: boolean }

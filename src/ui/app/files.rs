@@ -49,6 +49,12 @@ impl App {
             SidebarMsg::PickVault => self.pick_vault(),
             SidebarMsg::DragStart { path } => self.drag_start(path),
             SidebarMsg::DragEnd => self.drag_end(),
+            SidebarMsg::DropHover { side, zone } => self.drop_hover(side, zone.filter(|z| *z <= 2)),
+            SidebarMsg::DropOn { side, half } => {
+                if half.is_none_or(|h| h <= 1) {
+                    self.dropped(side, half);
+                }
+            }
             // The frame names a vault from the list it was sent; any other path is refused.
             SidebarMsg::SwitchVault { path } => {
                 if self.cfg(|c| c.vaults.contains(&path)) {

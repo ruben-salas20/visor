@@ -34,6 +34,11 @@ pub enum SidebarMsg {
     /// A file started being dragged; the pages can take it while it lasts.
     DragStart { path: String },
     DragEnd,
+    /// The file dragged is over a side's pages: 0 left half, 1 right half,
+    /// 2 the whole side; none once it leaves them.
+    DropHover { side: u64, zone: Option<u8> },
+    /// The file dragged was dropped on a side: on a half, or on the whole side.
+    DropOn { side: u64, half: Option<usize> },
     /// The person dragged the panel's edge.
     Width { width: i32 },
     ShowOther { on: bool },

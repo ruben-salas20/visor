@@ -48,3 +48,7 @@ export function useArea<K extends keyof Store>(area: K): Store[K] {
   return useSyncExternalStore(subscribe, () => state[area])
 }
 
+/** The current copy, for code outside components. */
+export function store() {
+  return state
+}
