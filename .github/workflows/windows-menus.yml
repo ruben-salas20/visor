@@ -1,0 +1,69 @@
+name: Menús encima de las páginas (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [port-menus]
+    paths:
+      - "spikes/menus-encima/**"
+      - "!spikes/menus-encima/README.md"
+      - ".github/workflows/windows-menus.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probar:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: spikes/menus-encima
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/menus-encima
+
+      - name: Compilar (release)
+        run: cargo build --release --bin menus-encima
+
+      # Region three times, opaque frame once. The program gives up at 150 s.
+      - name: Ejecutar pruebas
+        run: |
+          New-Item -ItemType Directory -Force -Path resultados | Out-Null
+          foreach ($modo in @('region', 'opaco')) {
+            foreach ($i in 1..$(if ($modo -eq 'region') { 3 } else { 1 })) {
+              $base = "resultados\$modo-$i"
+              $p = Start-Process -FilePath .\target\release\menus-encima.exe `
+                -ArgumentList @('--prueba', "$base.json", '--modo', $modo) -PassThru -NoNewWindow `
+                -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+              Wait-Process -Id $p.Id -Timeout 180 -ErrorAction SilentlyContinue
+              if (-not $p.HasExited) { taskkill /T /F /PID $p.Id | Out-Null; $estado = 'colgado' }
+              elseif ($p.ExitCode -eq 0) { $estado = 'ok' } else { $estado = "salida $($p.ExitCode)" }
+              Write-Host "$modo $i -> $estado"
+              Start-Sleep -Seconds 2
+            }
+          }
+
+      - name: Resumen
+        if: always()
+        run: |
+          $salida = @('| ejecución | ok | fallos | menú sobre página | sombra | hueco |', '|---|---|---|---|---|---|')
+          foreach ($f in Get-ChildItem resultados\*.json) {
+            $d = Get-Content $f.FullName -Raw | ConvertFrom-Json
+            $p = $d.pasos
+            $salida += "| $($f.BaseName) | $($d.ok) | $($d.fallos -join ', ') | $($p.'2-menu-encima'.detalle.menu_sobre_pagina) | $($p.'2b-sombra-sobre-pagina'.detalle.pixel_bajo_el_menu) | $($p.'1-hueco-transparente'.detalle.boton_pagina) |"
+          }
+          $salida -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $salida -join "`n" | Write-Host
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: menus-encima-resultados
+          path: spikes/menus-encima/resultados/
