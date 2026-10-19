@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "spikes/w4-funciones/**"
+      - "!spikes/w4-funciones/README.md"
       - ".github/workflows/windows-w4.yml"
 
 permissions:
