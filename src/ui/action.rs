@@ -92,6 +92,11 @@ pub enum UserEvent {
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,
+    /// For the process: closes every window and remembers them all (Ctrl+Q).
+    Quit,
+    /// For the process: saves every window and runs the installed binary.
+    /// `from` is the window that asked, which shows why if it fails.
+    Restart { from: WinId },
     /// A manual update check ended. `installed` offers the restart button.
     UpdateDone { message: String, installed: bool },
     /// The pages answered whether a restart may go ahead.
@@ -114,6 +119,7 @@ pub enum LoadFailure {
 }
 
 pub enum Action {
+    Quit,
     PickVault,
     ToggleSidebar,
     ToggleBar,

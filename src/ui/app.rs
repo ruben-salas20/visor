@@ -2,13 +2,13 @@ use crate::i18n::tr;
 use crate::trf;
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, SharedRef, SizeReply, ValueReply, push_console, push_event};
-use crate::ui::common::CommonRef;
+use crate::ui::common::{CommonRef, SettingsChange};
 use crate::ui::windows::WinId;
-use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, SidebarMsg, UserEvent};
+use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, Routed, SidebarMsg, UserEvent};
 use crate::ui::address::{self, Engine, Plan};
 use crate::ui::bar::Bar;
 use crate::ui::find;
-use crate::vault::config::{Config, PaneState, Workspace};
+use crate::vault::config::{Config, PaneState, WindowState, Workspace};
 use crate::vault::files;
 use crate::vault::links;
 use crate::ui::page_calls;
@@ -28,13 +28,15 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs;
 
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tao::dpi::LogicalSize;
+use tao::event_loop::EventLoopWindowTarget;
 use tao::platform::unix::WindowExtUnix;
+use tao::window::WindowBuilder;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
 use wry::{WebView, WebViewExtUnix};
 
@@ -115,6 +117,7 @@ fn connect_shortcuts(window: &tao::window::Window, proxy: Proxy, in_drawing: Rc<
             _ if k == key::F5 => Action::Reload,
             _ if ctrl && k == key::r => Action::Reload,
             _ if ctrl && k == key::o => Action::PickVault,
+            _ if ctrl && k == key::q => Action::Quit,
             _ if ctrl && k == key::b => Action::ToggleSidebar,
             _ if ctrl && k == key::l => Action::FocusAddress,
             _ if ctrl && k == key::n => Action::NewNote,
@@ -203,20 +206,42 @@ pub(super) struct App {
     watcher: Option<RecommendedWatcher>,
     /// One per folder of the loose pages in the tabs, without subfolders.
     loose_watchers: LooseWatchers,
+    /// This window's sidebar width and divider share, saved with the window.
+    sidebar_width: Option<i32>,
+    split_ratio: Option<f64>,
+    /// Started for a loose page: until a vault opens, the window is not remembered.
+    loose: bool,
+    /// Tabs, sides or size changed since the process last saved the windows.
+    layout_changed: bool,
+    /// Last, so the views above are dropped before their window.
+    window: tao::window::Window,
 }
 
 impl App {
     /// Builds the window's widgets and its first, empty side. `common` is the
     /// process-wide state that the other windows share too.
-    pub(super) fn new(window: &tao::window::Window, proxy: Proxy, win: WinId, shared: SharedRef, common: CommonRef, loose: bool) -> App {
-        debug_assert_eq!(proxy.window(), win, "the proxy must belong to this window");
+    pub(super) fn new(
+        target: &EventLoopWindowTarget<Routed>,
+        proxy: Proxy,
+        shared: SharedRef,
+        common: CommonRef,
+        state: &WindowState,
+        loose: bool,
+    ) -> App {
+        let win = proxy.window();
+        let (width, height) = state.size.map_or((1200.0, 820.0), |(w, h)| (f64::from(w), f64::from(h)));
+        let window = WindowBuilder::new()
+            .with_title("Visor")
+            .with_inner_size(LogicalSize::new(width, height))
+            .build(target)
+            .expect("ventana");
         // Reads only: no GTK call and no App call while the borrow is held.
         let (sidebar_width, bar_shown) = {
             let c = common.borrow();
-            (c.config.sidebar_width.unwrap_or(SIDEBAR_WIDTH), c.config.bar_shown)
+            (state.sidebar_width.or(c.config.sidebar_width).unwrap_or(SIDEBAR_WIDTH), c.config.bar_shown)
         };
         let in_drawing = Rc::new(Cell::new(false));
-        connect_shortcuts(window, proxy.clone(), in_drawing.clone());
+        connect_shortcuts(&window, proxy.clone(), in_drawing.clone());
 
         // Layout: [sidebar | left side | right side], split by draggable dividers.
         // Each side stacks its tab strip, its address bar and its page views.
@@ -284,7 +309,92 @@ impl App {
             common,
             watcher: None,
             loose_watchers: LooseWatchers::default(),
+            sidebar_width: state.sidebar_width,
+            split_ratio: state.split_ratio,
+            loose,
+            layout_changed: false,
+            window,
         }
+    }
+
+    pub(super) fn tao_id(&self) -> tao::window::WindowId {
+        self.window.id()
+    }
+
+    /// Asks the compositor for the focus. `token` is the activation token of
+    /// the launch that asked for this window, without which Wayland may refuse.
+    pub(super) fn present(&self, token: Option<&str>) {
+        if let Some(token) = token {
+            self.window.gtk_window().set_startup_id(token);
+        }
+        self.window.set_focus();
+    }
+
+    /// What the settings keep of this window, to reopen it as it is.
+    pub(super) fn window_state(&self) -> WindowState {
+        let size = self.window.inner_size().to_logical::<f64>(self.window.scale_factor());
+        WindowState {
+            vault: self.vault().map(|v| v.path().to_path_buf()),
+            workspace: self.tabs.workspace(),
+            size: Some((size.width.round() as u32, size.height.round() as u32)),
+            sidebar_width: self.sidebar_width,
+            split_ratio: self.split_ratio,
+        }
+    }
+
+    /// Whether the window is remembered: not while it shows only the loose
+    /// page it was started for.
+    pub(super) fn is_remembered(&self) -> bool {
+        !self.loose || self.vault().is_some()
+    }
+
+    pub(super) fn resized(&mut self) {
+        self.layout_changed = true;
+    }
+
+    /// Whether the window changed in a way the settings keep, since the last call.
+    pub(super) fn take_layout_changed(&mut self) -> bool {
+        std::mem::take(&mut self.layout_changed)
+    }
+
+    /// Another window changed a setting that every window shares: shows it here too.
+    pub(super) fn settings_changed(&mut self, changed: &SettingsChange) {
+        let (theme_choice, language, zoom, auto_update, show_other, engine, bar_shown) = self.cfg(|c| {
+            (
+                c.theme.clone(),
+                c.language.clone(),
+                c.zoom.unwrap_or(1.0),
+                c.auto_update != Some(false),
+                c.show_other_files != Some(false),
+                Engine::from_id(c.search_engine.as_deref()),
+                c.bar_shown,
+            )
+        });
+        self.sidebar.set_settings(theme_choice.as_deref(), zoom, auto_update, show_other, engine, language.as_deref());
+        if changed.bar {
+            for pane in &self.panes {
+                if !pane.bar().is_typing() {
+                    pane.bar().set_visible(bar_shown);
+                }
+            }
+        }
+        if changed.zoom {
+            for (id, _) in &self.views {
+                self.apply_zoom(*id);
+            }
+        }
+        if changed.theme {
+            self.restyle();
+            self.announce_theme();
+        }
+        if changed.vaults || changed.show_other {
+            self.refresh_sidebar();
+        }
+    }
+
+    /// The installed binary could not replace this process.
+    pub(super) fn restart_failed(&self, message: &str) {
+        self.sidebar.update_done(message, true);
     }
 
     /// Reads the settings. The closure runs while `common` is borrowed, so it
@@ -310,7 +420,7 @@ impl App {
 
     /// The URL prefix of the open vault's pages. With no vault open, the default base.
     fn vault_base(&self) -> String {
-        self.vault().map_or_else(|| vault::base().to_string(), |v| v.base().to_string())
+        self.vault().map_or_else(|| vault::NO_VAULT_BASE.to_string(), |v| v.base().to_string())
     }
 
     /// The vault path, or the loose absolute path, that a visor address names.
@@ -397,10 +507,22 @@ impl App {
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
     pub(super) fn show_vault(&mut self, root: Option<PathBuf>) {
+        self.show_vault_with(root, None);
+    }
+
+    /// Like `show_vault`, with the tabs to restore instead of the vault's last ones.
+    pub(super) fn show_vault_with(&mut self, root: Option<PathBuf>, workspace: Option<Workspace>) {
         if let Some(Err(e)) = root.as_deref().map(Config::check_vault) {
             eprintln!("{e}");
             return;
         }
+        let opened = match root.as_deref().map(|r| self.common.borrow_mut().vault(r, &self.shared)) {
+            Some(Err(e)) => {
+                eprintln!("{e}");
+                return;
+            }
+            opened => opened.and_then(Result::ok),
+        };
         if root.is_some() && self.vault().is_none() {
             // It was hidden for loose pages.
             self.sidebar.root.show();
@@ -409,7 +531,7 @@ impl App {
         {
             let mut shared = self.shared.lock().unwrap();
             let w = shared.window_mut(self.win);
-            w.vault = root.as_deref().map(|r| Arc::new(Vault::open(r)));
+            w.vault = opened;
             w.pages.clear();
         }
         self.watcher = None;
@@ -420,7 +542,9 @@ impl App {
         }
         self.show_sidebar();
 
-        let saved = root.as_deref().and_then(|r| self.saved_workspace(r));
+        let name = root.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
+        self.window.set_title(&name.map_or_else(|| "Visor".to_string(), |n| format!("Visor — {n}")));
+        let saved = workspace.filter(|_| root.is_some()).or_else(|| root.as_deref().and_then(|r| self.saved_workspace(r)));
         let effects = self.tabs.reset(saved, |t| root.as_deref().is_some_and(|r| r.join(t).is_file()));
         self.apply(effects);
         self.focus_changed();
@@ -448,6 +572,7 @@ impl App {
             w.vault.as_ref().map(|v| v.path().to_path_buf())
         };
         self.watch_loose();
+        self.layout_changed = true;
         let Some(root) = root else { return };
         let workspace = self.tabs.workspace();
         self.cfg_mut(|c| {
@@ -461,7 +586,8 @@ impl App {
         let pane = Pane::new(id, &self.proxy);
         pane.bar().set_visible(self.cfg(|c| c.bar_shown));
         self.split.pack2(pane.root(), true, false);
-        self.place_split.set(Some(self.cfg(|c| c.split_ratio.unwrap_or(0.5))));
+        let ratio = self.split_ratio.or_else(|| self.cfg(|c| c.split_ratio)).unwrap_or(0.5);
+        self.place_split.set(Some(ratio));
         self.split.queue_resize();
         self.panes.push(pane);
     }
@@ -747,6 +873,11 @@ impl App {
 
     pub(super) fn apply_theme(&mut self) {
         self.common.borrow_mut().reload_theme();
+        self.restyle();
+    }
+
+    /// Styles the window and its views with the theme `common` holds.
+    pub(super) fn restyle(&mut self) {
         for view in self.live_views() {
             self.style_view(view);
         }
@@ -776,7 +907,7 @@ impl App {
     /// `Page::file` is set from the committed address, the one `vault::access`
     /// trusts, and is `None` for websites. Called on changes only, not at
     /// startup, when no page has been opened yet.
-    fn announce_theme(&self) {
+    pub(super) fn announce_theme(&self) {
         let Some(theme) = self.theme() else { return };
         let code = page_calls::theme_changed(theme.dark);
         let shared = self.shared.lock().unwrap();
@@ -791,6 +922,8 @@ impl App {
     /// addresses are written in full; any other site is named by its host,
     /// because its address or error text could carry instructions for agents.
     fn resource_failed(&self, view: u64, uri: &str, reason: LoadFailure) {
+        // Before the lock: `vault_base` takes it too, and it is not reentrant.
+        let vault_base = self.vault_base();
         let mut shared = self.shared.lock().unwrap();
         if shared.page_of(self.win, view).file.is_none() {
             return;
@@ -799,7 +932,6 @@ impl App {
             LoadFailure::Network => tr("error de red", "network error").to_string(),
             LoadFailure::Status(status) => trf!("respondió {status}", "responded {status}"),
         };
-        let vault_base = self.vault_base();
         let own = [vault_base.as_str(), vault::loose_base()].into_iter().find(|base| !base.is_empty() && uri.starts_with(base));
         // visor's own scripts ask for things that are often missing: annot.js for
         // the page's annotation file, which exists once it has notes, and the
@@ -837,6 +969,8 @@ impl App {
     pub(super) fn save_layout(&mut self) {
         if self.sidebar.root.is_visible() {
             let width = self.paned.position();
+            self.sidebar_width = Some(width);
+            // Also the width a new window starts with.
             self.cfg_mut(|c| c.sidebar_width = Some(width));
         }
         self.save_split();
@@ -847,8 +981,9 @@ impl App {
     fn save_split(&mut self) {
         let width = self.split.allocated_width();
         if self.panes.len() == 2 && width > 1 && self.place_split.get().is_none() {
-            let ratio = self.split.position() as f64 / width as f64;
-            self.cfg_mut(|c| c.split_ratio = Some(ratio.clamp(0.1, 0.9)));
+            let ratio = (self.split.position() as f64 / width as f64).clamp(0.1, 0.9);
+            self.split_ratio = Some(ratio);
+            self.cfg_mut(|c| c.split_ratio = Some(ratio));
         }
     }
 
@@ -914,6 +1049,10 @@ impl App {
                     AgentRequest::Reload => self.act(Action::Reload),
                     AgentRequest::Eval { code, reply } => self.eval_for_agent(&code, reply),
                     AgentRequest::Screenshot { path, reply } => self.screenshot_for_agent(path, reply),
+                    // Sent to the process, never to a window.
+                    AgentRequest::NewWindow { reply, .. } => {
+                        let _ = reply.send(Err(tr("Una ventana no abre otras.", "A window does not open others.").into()));
+                    }
                 }
             }
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
@@ -946,6 +1085,8 @@ impl App {
                 self.flush_config();
             }
             UserEvent::UpdateDone { message, installed } => self.sidebar.update_done(&message, installed),
+            // The process handles these; see `ui/visor.rs`.
+            UserEvent::Quit | UserEvent::Restart { .. } => {}
             UserEvent::RestartChecked(check) => match check {
                 RestartCheck::Clear => self.restart(),
                 RestartCheck::Unsaved => self.sidebar.update_done(
@@ -1023,21 +1164,15 @@ impl App {
         }
     }
 
-    /// Replaces this process with the installed binary, with the same arguments.
-    /// The state is saved first, since exec skips the exit path. It returns only
-    /// when exec fails, and then visor keeps running.
+    /// Asks the process to replace itself with the installed binary.
     fn restart(&mut self) {
-        self.save_layout();
-        self.flush_config();
-        let Some(exe) = crate::update::running_exe() else {
-            return self.sidebar.update_done(tr("No se pudo reiniciar: no se encuentra visor.", "Could not restart: visor not found."), true);
-        };
-        let error = std::process::Command::new(exe).args(std::env::args_os().skip(1)).exec();
-        self.sidebar.update_done(&trf!("No se pudo reiniciar: {error}.", "Could not restart: {error}."), true);
+        // The process saves every window first; see `Visor::restart`.
+        self.proxy.to(0).send(UserEvent::Restart { from: self.win });
     }
 
     fn act(&mut self, action: Action) {
         match action {
+            Action::Quit => self.proxy.to(0).send(UserEvent::Quit),
             Action::Reload => {
                 if let Some(view) = self.view() {
                     let _ = view.reload();

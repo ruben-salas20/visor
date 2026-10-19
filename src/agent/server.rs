@@ -59,12 +59,24 @@ fn respond(request: Request, shared: &SharedRef, send: &dyn Fn(WinId, AgentReque
         },
         // `visor mcp` answers the guide itself.
         Command::Guide => fail(tr("Comando desconocido: guide", "Unknown command: guide").into()),
-        Command::NewWindow { .. } => fail(
-            tr("Esta versión de visor no puede abrir otra ventana todavía.", "This visor version cannot open another window yet.").into(),
-        ),
+        Command::NewWindow { token } => {
+            let (reply, answer) = mpsc::channel();
+            // Window 0 is the process, which opens windows.
+            send(0, AgentRequest::NewWindow { token, reply });
+            match answer.recv_timeout(Duration::from_secs(15)) {
+                Ok(Ok(window)) => json!({ "ok": true, "window": window }),
+                Ok(Err(e)) => fail(e),
+                Err(_) => fail(tr("La app no respondió.", "The app did not respond.").into()),
+            }
+        }
         command => {
+            // `open <file>` and `close <file>` go to a window that shows the file's vault, if one does.
+            let file = match &command {
+                Command::Open { target: Target::Path(page), .. } | Command::Close { target: Some(page) } => page.path.clone(),
+                _ => None,
+            };
             // The lock is released before `respond_in` takes it again.
-            let target = shared.lock().unwrap().target(window);
+            let target = shared.lock().unwrap().target_for(window, file.as_deref());
             match target {
                 Ok(win) => respond_in(command, win, shared, send),
                 Err(e) => fail(e),

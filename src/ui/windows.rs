@@ -1,12 +1,10 @@
 
-#![allow(dead_code)] // Several windows reach these methods in step 7 of #39.
 //! The model of visor's windows: which are open, in which order, and which one
 //! has the focus. It knows no GTK and no webview; a window is only its id.
 //!
 //! Agents act on the focused window unless they ask for another one.
 
 use crate::trf;
-use std::path::{Path, PathBuf};
 
 pub type WinId = u64;
 
@@ -103,20 +101,11 @@ impl Windows {
     }
 
     /// The window an agent's request goes to: the one asked for, or the focused one.
+    #[cfg(test)]
     pub fn target(&self, asked: Option<u64>) -> Result<WinId, String> {
         target_in(self.focused, |w| self.contains(w), asked)
     }
 
-    /// The window for `visor open <file>` without `--window`: a window that
-    /// already shows `vault`, the focused one first if it does. Without a
-    /// window showing it, the focused one. `vault_of` says what each window shows.
-    pub fn for_vault(&self, vault: Option<&Path>, vault_of: impl Fn(WinId) -> Option<PathBuf>) -> Option<WinId> {
-        let shows = |w: WinId| vault.is_some() && vault_of(w).as_deref() == vault;
-        if let Some(f) = self.focused.filter(|&f| shows(f)) {
-            return Some(f);
-        }
-        self.list.iter().copied().find(|&w| shows(w)).or(self.focused)
-    }
 
     /// The windows in the order they are saved to config, and the index of the
     /// focused one in that list.
@@ -221,44 +210,6 @@ mod tests {
         let w = Windows::new();
         assert_eq!(w.target(None).unwrap_err(), "No hay ninguna ventana abierta");
         assert_eq!(w.target(Some(1)).unwrap_err(), "No hay ninguna ventana abierta");
-    }
-
-    #[test]
-    fn for_vault_prefers_the_focused_window_when_it_shows_the_vault() {
-        // 1 and 3 show A, 2 shows B; 3 is focused.
-        let shows = |w: WinId| match w {
-            1 | 3 => Some(PathBuf::from("/a")),
-            2 => Some(PathBuf::from("/b")),
-            _ => None,
-        };
-        let w = three();
-        assert_eq!(w.for_vault(Some(Path::new("/a")), shows), Some(3));
-    }
-
-    #[test]
-    fn for_vault_takes_another_window_showing_the_vault_before_the_focused_one() {
-        let shows = |w: WinId| match w {
-            1 | 3 => Some(PathBuf::from("/a")),
-            2 => Some(PathBuf::from("/b")),
-            _ => None,
-        };
-        let mut w = three();
-        w.focus(2);
-        assert_eq!(w.for_vault(Some(Path::new("/a")), shows), Some(1));
-    }
-
-    #[test]
-    fn for_vault_falls_back_to_the_focused_window() {
-        let shows = |w: WinId| match w {
-            1 | 3 => Some(PathBuf::from("/a")),
-            2 => Some(PathBuf::from("/b")),
-            _ => None,
-        };
-        let mut w = three();
-        w.focus(2);
-        assert_eq!(w.for_vault(Some(Path::new("/c")), shows), Some(2));
-        assert_eq!(w.for_vault(None, shows), Some(2));
-        assert_eq!(Windows::new().for_vault(Some(Path::new("/a")), shows), None);
     }
 
     #[test]

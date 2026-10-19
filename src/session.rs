@@ -47,6 +47,9 @@ pub enum AgentRequest {
     Eval { code: String, reply: ValueReply },
     /// Saves the focused page as a PNG at `path`, which the caller has checked.
     Screenshot { path: PathBuf, reply: SizeReply },
+    /// Opens another window, for the process to handle. `token` lets the
+    /// compositor give it the focus.
+    NewWindow { token: Option<String>, reply: mpsc::Sender<Result<WinId, String>> },
 }
 
 /// What a page view is showing, for the socket server.
@@ -149,10 +152,17 @@ impl Shared {
         self.page_of(window, self.window(window).map_or(0, |w| w.focused))
     }
 
-    /// The vault the HTTP server serves: the focused window's, else the first window's that has one.
-    pub fn served_vault(&self) -> Option<Arc<Vault>> {
-        let focused = self.focused_window.and_then(|w| self.window(w));
-        focused.and_then(|w| w.vault.clone()).or_else(|| self.windows.values().find_map(|w| w.vault.clone()))
+    /// Like [`Shared::target`], for a request about `file`: without a window
+    /// asked for, a window that shows the vault the file is in, the focused
+    /// one first.
+    pub fn target_for(&self, asked: Option<u64>, file: Option<&Path>) -> Result<WinId, String> {
+        let focused = self.target(asked)?;
+        let Some(file) = file.filter(|_| asked.is_none()) else { return Ok(focused) };
+        let shows = |w: &WindowShared| w.vault.as_ref().is_some_and(|v| file.starts_with(v.path()) || file.starts_with(v.root()));
+        if self.window(focused).is_some_and(shows) {
+            return Ok(focused);
+        }
+        Ok(self.windows.iter().find(|(_, w)| shows(w)).map_or(focused, |(id, _)| *id))
     }
 
     /// The loose-page folders of every window, each one once.
@@ -240,11 +250,13 @@ pub fn push_event(shared: &mut Shared, mut event: Value, window: Option<WinId>) 
 /// Adds a line to a view's console, dropping the oldest past `MAX_CONSOLE`.
 /// Server addresses leave the text: vault paths read better, and the secret must stay out of logs.
 pub fn push_console(shared: &mut Shared, window: WinId, view: u64, level: &str, text: &str) {
-    let Some(page) = shared.windows.get_mut(&window).and_then(|w| w.pages.get_mut(&view)) else { return };
+    let Some(w) = shared.windows.get_mut(&window) else { return };
+    let base = w.vault.as_ref().map_or(vault::NO_VAULT_BASE, |v| v.base());
+    let text = text.replace(base, "").replace(vault::loose_base(), "");
+    let Some(page) = w.pages.get_mut(&view) else { return };
     if page.console.len() >= MAX_CONSOLE {
         page.console.remove(0);
     }
-    let text = text.replace(vault::base(), "").replace(vault::loose_base(), "");
     page.console.push(json!({ "time": now(), "level": level, "text": text }));
 }
 
@@ -375,12 +387,17 @@ mod tests {
     }
 
     #[test]
-    fn served_vault_prefers_the_focused_window() {
-        let mut shared = with_windows(&[1, 2]);
-        assert!(shared.served_vault().is_none());
+    fn open_goes_to_a_window_that_shows_the_files_vault() {
+        let mut shared = with_windows(&[1, 2, 3]);
+        shared.focused_window = Some(3);
         shared.window_mut(1).vault = Some(Arc::new(Vault::open(Path::new("/tmp/visor-a"))));
-        assert_eq!(shared.served_vault().unwrap().path(), Path::new("/tmp/visor-a"));
         shared.window_mut(2).vault = Some(Arc::new(Vault::open(Path::new("/tmp/visor-b"))));
-        assert_eq!(shared.served_vault().unwrap().path(), Path::new("/tmp/visor-b"));
+        let file = Path::new("/tmp/visor-b/notas/x.md");
+        assert_eq!(shared.target_for(None, Some(file)), Ok(2));
+        assert_eq!(shared.target_for(Some(1), Some(file)), Ok(1), "a window asked for wins");
+        assert_eq!(shared.target_for(None, Some(Path::new("/otra/x.md"))), Ok(3), "no vault has it: the focused window");
+        assert_eq!(shared.target_for(None, None), Ok(3));
+        shared.window_mut(3).vault = Some(Arc::new(Vault::open(Path::new("/tmp/visor-b"))));
+        assert_eq!(shared.target_for(None, Some(file)), Ok(3), "the focused window first");
     }
 }

@@ -5,7 +5,8 @@ Excalidraw drawings) in a tree and renders the one you pick. If a
 file changes on disk, the view updates by itself.
 
 USE
-  visor                      Opens the app.
+  visor                      Opens the app. If it is already open, opens
+                             another window on the vault of the focused one.
   visor open <path|URL> [--tab | --beside] [--loose]
                              Opens a folder as a vault, shows a file or
                              loads a web page (http or https). Starts the
@@ -97,16 +98,21 @@ command exits with code 1. <path> can be relative to the current folder
 or to the open vault.
 
 WINDOWS
+  visor can have several windows, each with its own vault and tabs (two
+  windows may show the same vault). `visor status` lists them in
+  "windows". Window numbers start at 1 and are never reused.
   --window N (before or right after the command name, not after eval)
-  sends the command to window N. Windows are numbered from 1. Without it,
-  the command goes to the focused window.
+  sends the command to window N. Without it, the command goes to the
+  focused window (the last one the person used), and `open <path>` goes
+  to a window that already shows the vault of that path, if one does.
+  Ctrl+Q closes every window and visor opens them all again next time;
+  closing a window while others stay open forgets it.
 
 MCP
   Register the server with: claude mcp add visor -- visor mcp
   Each tool is equivalent to a command. Arguments:
 
       open         target (path or URL), place ("here", "tab" or "beside")
-      any tool     window (number, as in --window; without it, the focused window)
       close        target (absolute path; without it, the active tab)
       status, reload
       console      errors_only (= --errors), clear
@@ -117,6 +123,7 @@ MCP
       notes_reply  id, text
       update       checks for a new version and installs it; does not restart
       guide        returns this text
+  Every tool but guide also takes window (a number, as in --window).
 
 TABS AND SIDES
   The window can be split into two sides, each with its own tabs.

@@ -2,10 +2,16 @@
 //! the app-wide CSS. A window reaches it through `CommonRef`. How to borrow it
 //! safely is described in `ui/visor.rs`.
 
+use crate::i18n::tr;
+use crate::session::SharedRef;
 use crate::ui::theme::Theme;
+use crate::vault::Vault;
 use crate::vault::config::Config;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use wry::WebContext;
 
 pub type CommonRef = Rc<RefCell<Common>>;
@@ -22,10 +28,15 @@ pub struct Common {
     pub background: (u8, u8, u8, u8),
     pub context: WebContext,
     pub styles: gtk::CssProvider,
+    /// The port of every origin of the local server.
+    port: u16,
+    /// Every vault opened since the start, each with its own origin, by the
+    /// path it was opened with. Two windows on one vault share it.
+    vaults: HashMap<PathBuf, Arc<Vault>>,
 }
 
 impl Common {
-    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, styles: gtk::CssProvider) -> Self {
+    pub fn new(config: Config, theme: Option<Theme>, context: WebContext, styles: gtk::CssProvider, port: u16) -> Self {
         let background = theme.as_ref().map_or((255, 255, 255, 255), Theme::rgba);
         Common {
             config,
@@ -36,7 +47,26 @@ impl Common {
             background,
             context,
             styles,
+            port,
+            vaults: HashMap::new(),
         }
+    }
+
+    /// The vault at `root`, served on its origin. The first time, it gets the
+    /// address the settings keep for it, or a new one.
+    pub fn vault(&mut self, root: &Path, shared: &SharedRef) -> Result<Arc<Vault>, String> {
+        if let Some(vault) = self.vaults.get(root) {
+            return Ok(vault.clone());
+        }
+        let known = self.config.origins.len();
+        let host = self.config.origin_for(root).ok_or(tr("Hay demasiadas bóvedas para darles una dirección a cada una.", "There are too many vaults to give each one an address."))?;
+        if self.config.origins.len() != known {
+            self.config_dirty = true;
+        }
+        let vault = crate::http::serve_vault(root, host, self.port, shared.clone())
+            .ok_or(tr("No se pudo servir la bóveda.", "Could not serve the vault."))?;
+        self.vaults.insert(root.to_path_buf(), vault.clone());
+        Ok(vault)
     }
 
     /// Marks the settings as changed. True if the caller must schedule the
@@ -65,5 +95,76 @@ impl Common {
             self.background = theme.rgba();
         }
         self.theme = theme;
+    }
+}
+
+/// The settings every window shows, to tell what an event in one window
+/// changed and show it in the others.
+#[derive(Clone, PartialEq)]
+pub struct Settings {
+    theme: Option<String>,
+    zoom: Option<f64>,
+    bar: bool,
+    show_other: Option<bool>,
+    auto_update: Option<bool>,
+    search_engine: Option<String>,
+    language: Option<String>,
+    vaults: Vec<PathBuf>,
+}
+
+/// What changed between two [`Settings`].
+#[derive(Default, Debug, PartialEq)]
+pub struct SettingsChange {
+    pub theme: bool,
+    pub zoom: bool,
+    pub bar: bool,
+    pub show_other: bool,
+    pub vaults: bool,
+    /// Any other setting, shown only in the settings menu.
+    pub menu: bool,
+}
+
+impl Settings {
+    pub fn of(config: &Config) -> Self {
+        Settings {
+            theme: config.theme.clone(),
+            zoom: config.zoom,
+            bar: config.bar_shown,
+            show_other: config.show_other_files,
+            auto_update: config.auto_update,
+            search_engine: config.search_engine.clone(),
+            language: config.language.clone(),
+            vaults: config.vaults.clone(),
+        }
+    }
+
+    /// `None` when nothing changed.
+    pub fn change(&self, after: &Settings) -> Option<SettingsChange> {
+        (self != after).then(|| SettingsChange {
+            theme: self.theme != after.theme,
+            zoom: self.zoom != after.zoom,
+            bar: self.bar != after.bar,
+            show_other: self.show_other != after.show_other,
+            vaults: self.vaults != after.vaults,
+            menu: self.auto_update != after.auto_update || self.search_engine != after.search_engine || self.language != after.language,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_change_says_what_the_other_windows_must_show() {
+        let mut config = Config::default();
+        let before = Settings::of(&config);
+        assert_eq!(before.change(&Settings::of(&config)), None);
+        config.zoom = Some(1.25);
+        config.vaults.push(PathBuf::from("/b"));
+        let change = before.change(&Settings::of(&config)).unwrap();
+        assert_eq!(change, SettingsChange { zoom: true, vaults: true, ..Default::default() });
+        config.search_engine = Some("ddg".into());
+        assert!(before.change(&Settings::of(&config)).unwrap().menu);
     }
 }

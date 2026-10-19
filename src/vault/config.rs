@@ -190,7 +190,6 @@ impl Config {
     /// The windows to open at startup, and which one gets focus. A config from
     /// before several windows has no `windows`: its `current` vault becomes the
     /// one window.
-    #[allow(dead_code)] // Used from step 6 of #39.
     pub fn restore_windows(&self) -> (Vec<WindowState>, usize) {
         if self.windows.is_empty() {
             let vault = self.current.clone().filter(|c| c.is_dir());
@@ -222,7 +221,6 @@ impl Config {
     /// The loopback host octet of `vault`, given to it the first time it is asked.
     /// Octets 1 and 2 are not handed out: 1 belongs to the old `current` vault and 2 to loose pages.
     /// The caller saves the config.
-    #[allow(dead_code)] // Used from step 6 of #39.
     pub fn origin_for(&mut self, vault: &Path) -> Option<u8> {
         // Configs from before origins were stored: the vault that was served on 127.0.0.1 keeps it.
         if self.origins.is_empty()

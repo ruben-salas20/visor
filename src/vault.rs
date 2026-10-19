@@ -386,12 +386,14 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// Served from the global [`base`], the same origin for every vault. Until #39
-    /// serves each vault on its own origin, use this one.
+    /// For tests: every vault on the same made-up origin.
+    #[cfg(test)]
     pub fn open(path: &Path) -> Self {
-        Self::open_at(path, base().to_string())
+        Self::open_at(path, "http://127.0.0.1:1/s/".into())
     }
 
+    /// `base` is the URL prefix of the origin the server gives this vault alone,
+    /// so its pages can read neither another vault nor the loose pages.
     /// If the folder cannot be read yet, the root stays as given and nothing resolves in it.
     pub fn open_at(path: &Path, base: String) -> Self {
         let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -625,13 +627,7 @@ pub fn byte_range(header: &str, len: u64) -> Option<(u64, u64)> {
     (start <= end && start < len).then_some((start, end))
 }
 
-static BASE: OnceLock<String> = OnceLock::new();
 static LOOSE_BASE: OnceLock<String> = OnceLock::new();
-
-/// Sets the URL the local server serves the vault from. Called once at startup.
-pub fn set_base(base: String) {
-    let _ = BASE.set(base);
-}
 
 /// Sets the URL loose pages are served from. It is another origin, so a loose
 /// page can neither read the vault nor take the address of one of its pages.
@@ -639,10 +635,9 @@ pub fn set_loose_base(base: String) {
     let _ = LOOSE_BASE.set(base);
 }
 
-/// URL prefix of the vault origin, e.g. `http://127.0.0.1:PORT/SECRET/`. Default for [`Vault::open`].
-pub fn base() -> &'static str {
-    BASE.get().map_or("", String::as_str)
-}
+/// What a view of a window without a vault takes for the vault's URL prefix:
+/// no address starts with it, so no page there is a vault page.
+pub const NO_VAULT_BASE: &str = "about:visor-no-vault/";
 
 /// URL prefix of loose pages, e.g. `http://127.0.0.2:PORT/SECRET/`.
 pub fn loose_base() -> &'static str {
@@ -767,9 +762,8 @@ mod tests {
     const BASE: &str = "http://127.0.0.1:1/s/";
     const LOOSE_BASE: &str = "http://127.0.0.2:1/s/";
 
-    /// The same bases in every test: they can only be set once per process.
+    /// The same loose base in every test: it can only be set once per process.
     fn bases() {
-        set_base(BASE.into());
         set_loose_base(LOOSE_BASE.into());
     }
 
