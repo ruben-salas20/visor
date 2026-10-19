@@ -101,7 +101,17 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
           )}
         />
       ) : (
-        <Crumbs target={address.target} vault={vault} />
+        <div
+          className="flex min-w-0 flex-1 cursor-text"
+          title="Escribe una dirección (Ctrl+L)"
+          onClick={() => {
+            setText(address.target)
+            setMarked(false)
+            setTyping(true)
+          }}
+        >
+          <Crumbs target={address.target} vault={vault} />
+        </div>
       )}
       {address.annotations && (
         <>
