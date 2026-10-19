@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Página hostil</title>
+</head>
+<body>
+<h1>Página hostil de prueba</h1>
+<script>
+  // Intenta órdenes de marco y rutas fuera de la bóveda. Rust debe rechazarlas todas.
+  const enviar = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const ataques = [
+    { accion: 'abrir', lado: 0, ruta: 'carpeta-01/nota-001.html' },
+    { accion: 'abrir', lado: 1, ruta: '../../etc/passwd' },
+    { accion: 'nueva', lado: 0, ruta: 'carpeta-01/nota-001.html' },
+    { accion: 'cerrar', lado: 0, id: 1 },
+    { accion: 'recolocar', rectas: [{ x: 0, y: 0, w: 9999, h: 9999 }, { x: 0, y: 0, w: 1, h: 1 }] },
+    { accion: 'soltar', x: 10, y: 10, ruta: 'carpeta-01/nota-001.html' },
+    { accion: 'cerrar_activa', lado: 0 },
+    { accion: 'soltar_en_pagina', ruta: '../../../etc/hostname' },
+  ];
+  for (const a of ataques) enviar(a);
+  setTimeout(() => { location.href = 'file:///etc/hostname'; }, 200);
+  setTimeout(() => { location.href = 'https://example.com/'; }, 400);
+  setTimeout(() => { window.open('https://example.com/'); }, 600);
+</script>
+</body>
+</html>

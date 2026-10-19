@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Marco</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;font:13px sans-serif;background:#e9e6df;color:#222}
+  body{display:flex;flex-direction:column}
+  #barra{height:34px;display:flex;align-items:center;gap:12px;padding:0 10px;background:#2f3a45;color:#fff;flex:none}
+  #barra span{opacity:.8}
+  #cuerpo{flex:1;display:flex;min-height:0}
+  #arbol{width:260px;flex:none;overflow:auto;background:#f7f5f0;border-right:1px solid #bbb;padding:6px}
+  #arbol .carpeta{font-weight:bold;margin-top:6px;color:#555}
+  #arbol .item{padding:2px 6px;cursor:pointer;white-space:nowrap;border-radius:3px;user-select:none}
+  #arbol .item:hover{background:#e2ddd1}
+  #paneles{flex:1;display:flex;min-width:0}
+  .panel{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid #bbb}
+  .pestanas{height:30px;flex:none;display:flex;align-items:center;gap:4px;padding:0 4px;background:#d8d3c7;overflow:hidden}
+  .panel.foco .pestanas{box-shadow:inset 0 -2px 0 #2f6fbf}
+  .pestana{padding:3px 8px;background:#f1eee6;border-radius:4px 4px 0 0;cursor:pointer;white-space:nowrap}
+  .pestana.activa{background:#fff;font-weight:bold}
+  .pestana .cerrar{margin-left:6px;color:#888}
+  .nueva{margin-left:auto;cursor:pointer;padding:0 6px;white-space:nowrap}
+  .contenido{flex:1;min-height:0;background:#fff}
+</style>
+</head>
+<body>
+<div id="barra"><b>U1 marco HTML</b><span>Ctrl+W cierra la pestaña activa del panel con foco</span></div>
+<div id="cuerpo">
+  <div id="arbol"></div>
+  <div id="paneles">
+    <div class="panel" data-lado="0"><div class="pestanas"></div><div class="contenido" data-lado="0"></div></div>
+    <div class="panel" data-lado="1"><div class="pestanas"></div><div class="contenido" data-lado="1"></div></div>
+  </div>
+</div>
+<script>
+  const enviar = (m) => window.ipc.postMessage(JSON.stringify(m));
+  const arbolEl = document.getElementById('arbol');
+  let rutas = null;
+  let foco = 0;
+  let seleccion = null;
+  let pendiente = null;
+
+  function construirArbol(lista) {
+    let carpeta = null;
+    for (const r of lista) {
+      const [dir, archivo] = r.split('/');
+      if (dir !== carpeta) {
+        carpeta = dir;
+        const c = document.createElement('div');
+        c.className = 'carpeta';
+        c.textContent = dir;
+        arbolEl.appendChild(c);
+      }
+      const it = document.createElement('div');
+      it.className = 'item';
+      it.dataset.ruta = r;
+      it.draggable = true;
+      it.textContent = archivo;
+      arbolEl.appendChild(it);
+    }
+  }
+
+  function pintarPaneles(paneles) {
+    paneles.forEach((p, i) => {
+      const cont = document.querySelector(`.panel[data-lado="${i}"] .pestanas`);
+      cont.innerHTML = '';
+      p.pestanas.forEach((t) => {
+        const el = document.createElement('span');
+        el.className = 'pestana' + (t.activa ? ' activa' : '');
+        el.dataset.id = t.id;
+        el.dataset.lado = i;
+        el.textContent = t.ruta.split('/').pop();
+        const x = document.createElement('span');
+        x.className = 'cerrar';
+        x.dataset.id = t.id;
+        x.dataset.lado = i;
+        x.textContent = '×';
+        el.appendChild(x);
+        cont.appendChild(el);
+      });
+      const n = document.createElement('span');
+      n.className = 'nueva';
+      n.dataset.lado = i;
+      n.textContent = '+ nueva pestaña';
+      cont.appendChild(n);
+      document.querySelector(`.panel[data-lado="${i}"]`).classList.toggle('foco', i === foco);
+    });
+  }
+
+  function enviarRectas() {
+    const rectas = [0, 1].map((i) => {
+      const b = document.querySelector(`.contenido[data-lado="${i}"]`).getBoundingClientRect();
+      return { x: b.left, y: b.top, w: b.width, h: b.height };
+    });
+    enviar({ accion: 'recolocar', rectas });
+  }
+  new ResizeObserver(enviarRectas).observe(document.getElementById('paneles'));
+
+  arbolEl.addEventListener('click', (e) => {
+    const it = e.target.closest('.item');
+    if (!it) return;
+    seleccion = it.dataset.ruta;
+    enviar({ accion: 'abrir', lado: foco, ruta: seleccion });
+  });
+  arbolEl.addEventListener('dragstart', (e) => {
+    const ruta = e.target.dataset.ruta;
+    e.dataTransfer.setData('text/plain', ruta);
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+  // Registro de eventos del ratón para la prueba (f): sirve para ver si el arrastre empezó.
+  window.__ev = [];
+  for (const t of ['mousedown', 'mouseup', 'dragstart', 'dragend']) {
+    document.addEventListener(t, (e) => window.__ev.push(`${t}@${Math.round(e.clientX)},${Math.round(e.clientY)}`), true);
+  }
+  // Alternativa sin arrastre HTML5: si el ratón se suelta fuera del árbol, Rust mira las coordenadas.
+  arbolEl.addEventListener('mousedown', (e) => {
+    const it = e.target.closest('.item');
+    pendiente = it ? it.dataset.ruta : null;
+  });
+  document.addEventListener('mouseup', (e) => {
+    if (!pendiente) return;
+    if (e.clientX > 260) enviar({ accion: 'soltar', x: e.clientX, y: e.clientY, ruta: pendiente });
+    pendiente = null;
+  });
+
+  document.addEventListener('click', (e) => {
+    const c = e.target.closest('.cerrar');
+    if (c) return enviar({ accion: 'cerrar', lado: +c.dataset.lado, id: +c.dataset.id });
+    const n = e.target.closest('.nueva');
+    if (n) return enviar({ accion: 'nueva', lado: +n.dataset.lado, ruta: seleccion || rutas[0] });
+    const t = e.target.closest('.pestana');
+    if (t) enviar({ accion: 'activar', lado: +t.dataset.lado, id: +t.dataset.id });
+  });
+  document.addEventListener('mousedown', (e) => {
+    const p = e.target.closest('.panel');
+    if (p && +p.dataset.lado !== foco) {
+      foco = +p.dataset.lado;
+      document.querySelectorAll('.panel').forEach((q) => q.classList.toggle('foco', +q.dataset.lado === foco));
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === 'w') {
+      e.preventDefault();
+      enviar({ accion: 'cerrar_activa', lado: foco });
+    }
+  });
+
+  window.marco = {
+    pintar(est) {
+      if (!rutas) {
+        rutas = est.arbol;
+        construirArbol(rutas);
+      }
+      pintarPaneles(est.paneles);
+      enviarRectas();
+    },
+  };
+  enviar({ accion: 'listo' });
+</script>
+</body>
+</html>
