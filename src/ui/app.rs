@@ -4,36 +4,29 @@ use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::common::{CommonRef, SettingsChange};
 use crate::ui::windows::WinId;
-use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, Routed, SidebarMsg, UserEvent};
-use crate::ui::address::{self, Engine, Plan};
-use crate::ui::bar::Bar;
-use crate::ui::find;
+use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, Routed, UserEvent};
+use crate::ui::address::Engine;
+use crate::ui::host::Host;
+use crate::ui::protocol::PageMsg;
 use crate::vault::config::{Config, PaneState, WindowState, Workspace};
-use crate::vault::files;
-use crate::vault::links;
+use crate::vault::files as vault_files;
 use crate::ui::page_calls;
 use crate::ui::page_view::{Document, build_page, clean_position, host_of};
 use crate::vault::is_web;
-use crate::ui::panes::Pane;
 use crate::ui::tabs::{Effect, Tabs};
-use crate::ui::shortcuts::Shortcuts;
-use crate::ui::sidebar::{Sidebar, no_application};
 use crate::ui::theme::Theme;
 use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
 use crate::vault::{self, Access, Vault};
 use gtk::prelude::*;
 use notify::{RecommendedWatcher, RecursiveMode};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use tao::dpi::LogicalSize;
 use tao::event_loop::EventLoopWindowTarget;
 use tao::platform::unix::WindowExtUnix;
@@ -41,36 +34,14 @@ use tao::window::WindowBuilder;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
 use wry::{WebView, WebViewExtUnix};
 
-const SIDEBAR_WIDTH: i32 = 260;
-const RESTART_WAIT: Duration = Duration::from_secs(3);
-const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+mod bar;
+mod files;
+mod find;
+mod frame;
+mod settings;
+mod sides;
 
-/// Messages from vault pages. Websites never get to send these.
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum PageMsg {
-    Console { level: String, text: String },
-    Event { data: Value },
-    PickVault,
-    /// From a note's editor: replaces that note's text.
-    SaveNote { text: String },
-    /// From a drawing's editor: replaces the whole file, in the form it had.
-    SaveDrawing { text: String },
-    /// From a drawing's editor: an image pasted or inserted in it, as base64.
-    SaveImage { file_id: String, data: String },
-    /// From a checkbox in a rendered note: the task whose `[ ]` starts at `offset`.
-    ToggleTask { offset: usize, checked: bool },
-    /// From a `[[link]]` to a note that does not exist yet.
-    CreateNote { dir: String, name: String },
-    /// From the PDF viewer's «Abrir con otra aplicación»: the PDF the view shows.
-    OpenPdfElsewhere,
-    AnnotSave { annotation: Value },
-    AnnotDelete { id: String },
-    /// The person's reply in the conversation of one of the page's annotations.
-    AnnotReply { id: String, text: String },
-    /// Which annotations the page could not place.
-    AnnotStatus { orphans: Vec<String>, total: usize },
-}
+const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
 /// App-wide shortcuts. They are caught on the window before the focused
 /// webview sees them, so they work whichever side has focus.
@@ -172,12 +143,14 @@ button:hover {{ box-shadow: 0 0 0 1px light-dark(oklch(0 0 0 / .08), oklch(1 0 0
 }
 
 /// The window's app: its tabs, sides and views. What every window shares
-/// (settings, theme, web context) is in `common`.
+/// (settings, theme, web context) is in `common`. The interface is the frame,
+/// drawn by `host`; each area's part of the app is in `app/<area>.rs`.
 pub(super) struct App {
-    sidebar: Sidebar,
-    /// The widgets of the left side and, when split, of the right one. They
-    /// follow the sides of `tabs`, which the effects keep in step.
-    panes: Vec<Pane>,
+    /// The frame's webview and the containers of each side's page views,
+    /// which follow the sides of `tabs`.
+    host: Host,
+    /// What the frame was last sent; see `app/frame.rs`.
+    frame: frame::Sent,
     tabs: Tabs,
     /// The live pages' views, by view id.
     views: Vec<(u64, WebView)>,
@@ -185,18 +158,13 @@ pub(super) struct App {
     documents: HashMap<u64, Document>,
     /// Whether the focused view shows a drawing; see `connect_shortcuts`.
     in_drawing: Rc<Cell<bool>>,
-    shortcuts: Shortcuts,
-    split: gtk::Paned,
-    /// The share of the width for the left side, applied once the new right side has a size.
-    place_split: Rc<Cell<Option<f64>>>,
-    /// The file being dragged from the sidebar.
-    dragging: Option<String>,
-    /// Whether the sidebar was showing when fullscreen began, to restore it after.
-    sidebar_before_fullscreen: Option<bool>,
+    /// Whether the panel shows: not for a loose page started alone, and Ctrl+B flips it.
+    sidebar_shown: bool,
+    /// The last result of an update check, for the status bar.
+    update_message: Option<String>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
     /// that still matches is the app's own; anything else came from outside.
     own_write: Option<OwnWrite>,
-    paned: gtk::Paned,
     shared: SharedRef,
     /// The window this app runs. Agents address it by id.
     win: WinId,
@@ -207,6 +175,7 @@ pub(super) struct App {
     /// One per folder of the loose pages in the tabs, without subfolders.
     loose_watchers: LooseWatchers,
     /// This window's sidebar width and divider share, saved with the window.
+    /// The frame does not use them yet; they are kept for phase 1.
     sidebar_width: Option<i32>,
     split_ratio: Option<f64>,
     /// Started for a loose page: until a vault opens, the window is not remembered.
@@ -235,74 +204,30 @@ impl App {
             .with_inner_size(LogicalSize::new(width, height))
             .build(target)
             .expect("ventana");
-        // Reads only: no GTK call and no App call while the borrow is held.
-        let (sidebar_width, bar_shown) = {
-            let c = common.borrow();
-            (state.sidebar_width.or(c.config.sidebar_width).unwrap_or(SIDEBAR_WIDTH), c.config.bar_shown)
-        };
         let in_drawing = Rc::new(Cell::new(false));
         connect_shortcuts(&window, proxy.clone(), in_drawing.clone());
-
-        // Layout: [sidebar | left side | right side], split by draggable dividers.
-        // Each side stacks its tab strip, its address bar and its page views.
-        let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
-        paned.set_position(sidebar_width);
-        window.default_vbox().expect("vbox de GTK").pack_start(&paned, true, true, 0);
-        let split = gtk::Paned::new(gtk::Orientation::Horizontal);
-        // A new right side gets its saved share of the width once the width is known.
-        let place_split: Rc<Cell<Option<f64>>> = Rc::new(Cell::new(None));
-        let pending = place_split.clone();
-        split.connect_size_allocate(move |split, alloc| {
-            if let Some(ratio) = pending.get()
-                && alloc.width() > 1
-            {
-                pending.set(None);
-                split.set_position((alloc.width() as f64 * ratio) as i32);
-            }
-        });
-
-        // Reads only: no GTK call and no App call while the borrow is held.
-        let (theme_choice, language, zoom, auto_update, show_other, engine) = {
-            let c = common.borrow();
-            (
-                c.config.theme.clone(),
-                c.config.language.clone(),
-                c.config.zoom.unwrap_or(1.0),
-                c.config.auto_update != Some(false),
-                c.config.show_other_files != Some(false),
-                Engine::from_id(c.config.search_engine.as_deref()),
-            )
+        // The borrow covers Host::new, a GTK call that only connects handlers
+        // sending through the proxy; none of them reads `common`.
+        let host = {
+            let mut c = common.borrow_mut();
+            let (background, base) = (c.background, c.frame_base.clone());
+            Host::new(&window, &mut c.context, background, proxy.clone(), &base).expect("marco")
         };
-        let sidebar = Sidebar::new(&proxy);
-        sidebar.set_settings(theme_choice.as_deref(), zoom, auto_update, show_other, engine, language.as_deref());
-        // Started for a page outside every vault: that page alone, without the
-        // last vault and its tabs. See cli::start.
-        if loose {
-            sidebar.root.hide();
-        }
-        paned.pack1(&sidebar.root, false, false);
-        paned.pack2(&split, true, true);
         let tabs = Tabs::new_from(crate::ui::windows::first_view_id(win));
-        let first = Pane::new(tabs.side(0).id(), &proxy);
-        first.bar().set_visible(bar_shown);
-        split.pack1(first.root(), true, false);
-        split.show();
-        paned.show();
+        host.add_side(tabs.side(0).id());
 
         App {
-            sidebar,
-            panes: vec![first],
+            host,
+            frame: frame::Sent::default(),
             tabs,
             views: vec![],
             documents: HashMap::new(),
             in_drawing,
-            shortcuts: Shortcuts::new(window.gtk_window()),
-            split,
-            place_split,
-            dragging: None,
-            sidebar_before_fullscreen: None,
+            // Started for a page outside every vault: that page alone, without the
+            // last vault and its tabs. See cli::start.
+            sidebar_shown: !loose,
+            update_message: None,
             own_write: None,
-            paned,
             shared,
             win,
             proxy,
@@ -359,25 +284,6 @@ impl App {
 
     /// Another window changed a setting that every window shares: shows it here too.
     pub(super) fn settings_changed(&mut self, changed: &SettingsChange) {
-        let (theme_choice, language, zoom, auto_update, show_other, engine, bar_shown) = self.cfg(|c| {
-            (
-                c.theme.clone(),
-                c.language.clone(),
-                c.zoom.unwrap_or(1.0),
-                c.auto_update != Some(false),
-                c.show_other_files != Some(false),
-                Engine::from_id(c.search_engine.as_deref()),
-                c.bar_shown,
-            )
-        });
-        self.sidebar.set_settings(theme_choice.as_deref(), zoom, auto_update, show_other, engine, language.as_deref());
-        if changed.bar {
-            for pane in &self.panes {
-                if !pane.bar().is_typing() {
-                    pane.bar().set_visible(bar_shown);
-                }
-            }
-        }
         if changed.zoom {
             for (id, _) in &self.views {
                 self.apply_zoom(*id);
@@ -392,8 +298,9 @@ impl App {
         if removed {
             self.leave_removed_vault();
         } else if changed.vaults || changed.show_other {
-            self.refresh_sidebar();
+            self.refresh_tree();
         }
+        self.sync_frame();
     }
 
     /// The vault this window shows was removed from the list: shows the first
@@ -406,8 +313,9 @@ impl App {
     }
 
     /// The installed binary could not replace this process.
-    pub(super) fn restart_failed(&self, message: &str) {
-        self.sidebar.update_done(message, true);
+    pub(super) fn restart_failed(&mut self, message: &str) {
+        self.update_done(message, true);
+        self.sync_frame();
     }
 
     /// Reads the settings. The closure runs while `common` is borrowed, so it
@@ -445,10 +353,6 @@ impl App {
         self.vault().ok_or_else(|| tr("No hay ninguna bóveda abierta", "No vault is open").into())
     }
 
-    fn pane(&self) -> &Pane {
-        &self.panes[self.tabs.focused()]
-    }
-
     /// The view of the focused side's active tab. It is always loaded.
     fn view(&self) -> Option<&WebView> {
         self.view_of(self.tabs.focused_view()?)
@@ -467,55 +371,6 @@ impl App {
 
     fn view_of(&self, view: u64) -> Option<&WebView> {
         self.views.iter().find(|(id, _)| *id == view).map(|(_, v)| v)
-    }
-
-    /// Opens the find bar on the focused side, over its active page. Visor's
-    /// own pages get the search of `find.js`; the engine is decided from the
-    /// address the page was loaded at, not from what the view shows now.
-    fn open_find(&self) {
-        let Some(id) = self.tabs.focused_view() else { return };
-        let Some(view) = self.view_of(id) else { return };
-        let engine = match self.documents.get(&id) {
-            Some(document) if vault::agent_may_read(&document.borrow(), self.vault().as_deref()) => find::Engine::Page,
-            _ => find::Engine::WebKit,
-        };
-        self.pane().find().open(id, &view.webview(), engine);
-    }
-
-    /// Ctrl+F in a page that is not a PDF: the note editor's own search if it
-    /// has one, else the native bar. The answer comes back later, as an event.
-    fn ask_note_find(&self) {
-        let Some(view) = self.view() else { return };
-        let proxy = self.proxy.clone();
-        let asked = view.evaluate_script_with_callback(page_calls::note_find(), move |answer| {
-            if find::native_wanted(&answer) {
-                proxy.send(UserEvent::Action(Action::FindNative));
-            }
-        });
-        if asked.is_err() {
-            self.open_find();
-        }
-    }
-
-    /// A search that moves away from a view ends first: its matches must not stay highlighted.
-    fn find_forget_all(&self, view: u64) {
-        for pane in &self.panes {
-            pane.find_forget(view);
-        }
-    }
-
-    /// Shows the vault list and the tree of the current vault in the sidebar.
-    fn show_sidebar(&self) {
-        let vault = self.vault();
-        let tree = vault.as_ref().map(|v| v.tree());
-        let opened = vault.as_ref().and_then(|v| self.cfg(|c| c.open_folders.get(v.path()).cloned())).unwrap_or_default();
-        let vaults = self.cfg(|c| c.vaults.clone());
-        self.sidebar.show(&vaults, vault.as_ref().map(|v| v.path()), tree, &opened);
-    }
-
-    fn refresh_sidebar(&self) {
-        self.show_sidebar();
-        self.sidebar.current(self.focused_file());
     }
 
     /// Opens a vault and restores its tabs. Without a vault the window shows one empty tab.
@@ -538,7 +393,7 @@ impl App {
         };
         if root.is_some() && self.vault().is_none() {
             // It was hidden for loose pages.
-            self.sidebar.root.show();
+            self.sidebar_shown = true;
         }
         self.publish();
         {
@@ -553,7 +408,7 @@ impl App {
             self.save_config_soon();
             self.watcher = watch(root, RecursiveMode::Recursive, 150, self.proxy.clone(), UserEvent::VaultChanged);
         }
-        self.show_sidebar();
+        self.refresh_tree();
 
         let name = root.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
         self.window.set_title(&name.map_or_else(|| "Visor".to_string(), |n| format!("Visor — {n}")));
@@ -594,48 +449,15 @@ impl App {
         self.save_config_soon();
     }
 
-    /// Adds the right side, empty.
-    fn add_pane(&mut self, id: u64) {
-        let pane = Pane::new(id, &self.proxy);
-        pane.bar().set_visible(self.cfg(|c| c.bar_shown));
-        self.split.pack2(pane.root(), true, false);
-        let ratio = self.split_ratio.or_else(|| self.cfg(|c| c.split_ratio)).unwrap_or(0.5);
-        self.place_split.set(Some(ratio));
-        self.split.queue_resize();
-        self.panes.push(pane);
-    }
-
-    fn remove_pane(&mut self, p: usize) {
-        self.save_split();
-        let pane = self.panes.remove(p);
-        self.split.remove(pane.root());
-        // The right side moves to the left.
-        if p == 0
-            && let Some(left) = self.panes.first()
-        {
-            self.split.remove(left.root());
-            self.split.pack1(left.root(), true, false);
-        }
-    }
-
-    fn swap_panes(&mut self) {
-        self.panes.swap(0, 1);
-        for pane in &self.panes {
-            self.split.remove(pane.root());
-        }
-        self.split.pack1(self.panes[0].root(), true, false);
-        self.split.pack2(self.panes[1].root(), true, false);
-    }
-
     /// Does what the tabs model asks, in order. Returns the load of the first
     /// view it creates or points elsewhere: the one `open` waits for.
     fn apply(&mut self, effects: Vec<Effect>) -> Option<Loading> {
         let mut loading = None;
         for effect in effects {
             match effect {
-                Effect::AddSide { id } => self.add_pane(id),
-                Effect::RemoveSide { side } => self.remove_pane(side),
-                Effect::SwapSides => self.swap_panes(),
+                Effect::AddSide { id } => self.host.add_side(id),
+                Effect::RemoveSide { side } => self.host.remove_side(side),
+                Effect::SwapSides => self.host.swap_sides(),
                 Effect::Create { side, view, target, fragment } => {
                     if self.create_view(side, view, &target, &fragment) {
                         loading.get_or_insert((view, 0));
@@ -644,18 +466,16 @@ impl App {
                     }
                 }
                 Effect::Unload { view } => {
-                    self.find_forget_all(view);
                     self.views.retain(|(id, _)| *id != view);
                     self.documents.remove(&view);
                     self.shared.lock().unwrap().window_mut(self.win).pages.remove(&view);
                 }
                 Effect::MoveView { view, from, to } => {
                     // Views move to the other side's container; WebKit keeps the page loaded.
-                    self.find_forget_all(view);
                     if let Some(v) = self.view_of(view) {
                         let widget = v.webview();
-                        self.panes[from].views().remove(&widget);
-                        self.panes[to].views().pack_start(&widget, true, true, 0);
+                        self.host.views(from).remove(&widget);
+                        self.host.views(to).pack_start(&widget, true, true, 0);
                     }
                 }
                 Effect::Navigate { view, target, fragment } => {
@@ -676,12 +496,7 @@ impl App {
                         });
                     }
                 }
-                Effect::Show { side } => {
-                    self.panes[side].find_close();
-                    self.show_active(side);
-                    self.panes[side].bar().set_text(self.tabs.side(side).tab().target());
-                    self.update_nav(side);
-                }
+                Effect::Show { side } => self.show_active(side),
                 Effect::Focus => {
                     if let Some(view) = self.view() {
                         view.webview().grab_focus();
@@ -701,7 +516,7 @@ impl App {
         let built = {
             let mut c = self.common.borrow_mut();
             let background = c.background;
-            build_page(self.panes[side].views(), &mut c.context, background, self.proxy.clone(), &vault_base, id)
+            build_page(&self.host.views(side), &mut c.context, background, self.proxy.clone(), &vault_base, id)
         };
         let view = match built {
             Ok((v, document)) => {
@@ -734,15 +549,6 @@ impl App {
         for (i, tab) in side.tabs().iter().enumerate() {
             if let Some(view) = tab.view().and_then(|id| self.view_of(id)) {
                 view.webview().set_visible(i == side.active());
-            }
-        }
-    }
-
-    /// Draws again the tab strips that changed since the last time, once per event.
-    pub(super) fn draw_strips(&mut self) {
-        for (p, pane) in self.panes.iter().enumerate() {
-            if self.tabs.take_dirty(p) {
-                pane.render(self.tabs.side(p), p == self.tabs.focused());
             }
         }
     }
@@ -784,10 +590,10 @@ impl App {
         }
     }
 
-    /// Updates what depends on the focused side: the sidebar and the agents' view.
+    /// Updates what depends on the focused side: the agents' view. The frame
+    /// reads the rest after the event.
     fn focus_changed(&mut self) {
         self.publish();
-        self.sidebar.current(self.focused_file());
     }
 
     fn focus_pane(&mut self, p: usize, grab: bool) {
@@ -810,44 +616,6 @@ impl App {
         let loading = self.apply(effects);
         self.focus_changed();
         loading
-    }
-
-    /// Resolves what was typed in the address field: a URL, a vault path, an
-    /// absolute path, as the field shows for loose pages, a bare domain, or
-    /// text to search for. The rules are in `address::plan`.
-    fn go(&mut self, text: &str) {
-        let text = text.trim();
-        if text.is_empty() {
-            return;
-        }
-        let in_vault = self.vault().and_then(|v| Some(v.rel(&v.resolve(text)?)));
-        match address::plan(text, in_vault.as_deref()) {
-            Plan::Loose => {
-                if self.open(PathBuf::from(text), text, Place::Here, false).is_err() {
-                    self.pane().bar().set_error();
-                }
-            }
-            Plan::Web => {
-                self.open_in(text.to_string(), Place::Here);
-            }
-            Plan::Vault(rel) => {
-                self.open_in(rel.to_string(), Place::Here);
-            }
-            Plan::Domain => {
-                self.open_in(format!("https://{text}"), Place::Here);
-            }
-            Plan::Search(query) => {
-                let engine = self.cfg(|c| Engine::from_id(c.search_engine.as_deref()));
-                self.open_in(address::search_url(engine, query), Place::Here);
-            }
-            Plan::Error => self.pane().bar().set_error(),
-        }
-    }
-
-    fn update_nav(&self, p: usize) {
-        let Some(view) = self.tabs.side(p).tab().view().and_then(|id| self.view_of(id)) else { return };
-        let view = view.webview();
-        self.panes[p].set_nav(view.can_go_back(), view.can_go_forward());
     }
 
     fn style_view(&self, view: &WebView) {
@@ -889,30 +657,14 @@ impl App {
         self.restyle();
     }
 
-    /// Styles the window and its views with the theme `common` holds.
+    /// Styles the frame and the views with the theme `common` holds.
     pub(super) fn restyle(&mut self) {
         for view in self.live_views() {
             self.style_view(view);
         }
-        let theme = self.theme();
-        let css = theme.as_ref().map_or(String::new(), |t| {
-            format!(
-                // GTK3 repaints the window background under the page on every
-                // frame of an animation; the page covers it, so it costs ~2% CPU
-                // for nothing. The bars and the sidebar paint their own.
-                "window.background {{ background: none; }}\n\
-                 paned > separator {{ background: {}; background-image: none; min-width: 1px; }}\n{}\n{}\n{}",
-                t.tone(14.0),
-                Bar::css(t),
-                Pane::css(t),
-                Sidebar::css(t)
-            )
-        });
-        // The provider is a GObject: the clone is a second handle to it, so the
-        // borrow ends before the GTK call that loads the CSS.
-        let styles = self.common.borrow().styles.clone();
-        let _ = styles.load_from_data(css.as_bytes());
-        self.sidebar.set_theme(theme.as_deref());
+        let background = self.common.borrow().background;
+        self.host.set_background(background);
+        self.sync_frame();
     }
 
     /// Tells the open pages of visor that the theme changed, once their
@@ -967,29 +719,12 @@ impl App {
     }
 
     pub(super) fn save_layout(&mut self) {
-        if self.sidebar.root.is_visible() {
-            let width = self.paned.position();
-            self.sidebar_width = Some(width);
-            // Also the width a new window starts with.
-            self.cfg_mut(|c| c.sidebar_width = Some(width));
-        }
-        self.save_split();
         self.publish();
-    }
-
-    /// Remembers where the divider is, while there are two sides to measure.
-    fn save_split(&mut self) {
-        let width = self.split.allocated_width();
-        if self.panes.len() == 2 && width > 1 && self.place_split.get().is_none() {
-            let ratio = (self.split.position() as f64 / width as f64).clamp(0.1, 0.9);
-            self.split_ratio = Some(ratio);
-            self.cfg_mut(|c| c.split_ratio = Some(ratio));
-        }
     }
 
     pub(super) fn handle(&mut self, event: UserEvent) {
         self.dispatch(event);
-        self.draw_strips();
+        self.sync_frame();
         self.in_drawing.set(self.focused_is_drawing());
     }
 
@@ -1003,7 +738,7 @@ impl App {
 
     fn dispatch(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Sidebar(msg) => self.on_sidebar(msg),
+            UserEvent::Frame(msg) => self.on_frame(msg),
             UserEvent::Page { view, url, body } => {
                 if let Ok(msg) = serde_json::from_str(&body) {
                     self.on_page(view, &url, msg);
@@ -1028,7 +763,6 @@ impl App {
                     let title = self.view_of(view).and_then(|v| v.webview().title()).map(|t| t.to_string());
                     self.tabs.set_title(view, title);
                 }
-                self.update_nav(loaded.side);
             }
             UserEvent::Focused(view) => {
                 if let Some((p, true)) = self.tabs.locate(view) {
@@ -1066,12 +800,6 @@ impl App {
             UserEvent::ResourceFailed { view, uri, reason } => self.resource_failed(view, &uri, reason),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
-            UserEvent::Dropped { pane, half } => self.dropped(pane, half),
-            UserEvent::DropHover { pane, zone } => {
-                if let Some(p) = self.panes.iter().position(|x| x.id() == pane) {
-                    self.frost(p, zone);
-                }
-            }
             UserEvent::Position { view, json } => {
                 self.tabs.set_position(view, clean_position(&json));
             }
@@ -1080,90 +808,21 @@ impl App {
                 self.apply_theme();
             }
             UserEvent::Action(action) => self.act(action),
-            UserEvent::UpdateDone { message, installed } => self.sidebar.update_done(&message, installed),
+            UserEvent::UpdateDone { message, installed } => self.update_done(&message, installed),
             // The process handles these; see `ui/visor.rs`.
             UserEvent::Quit | UserEvent::Restart { .. } | UserEvent::SaveConfig => {}
             UserEvent::RestartChecked(check) => match check {
                 RestartCheck::Clear => self.restart(),
-                RestartCheck::Unsaved => self.sidebar.update_done(
+                RestartCheck::Unsaved => self.update_done(
                     tr("Hay notas sin guardar. Guárdalas antes de reiniciar.", "There are unsaved notes. Save them before restarting."),
                     true,
                 ),
-                RestartCheck::Unknown => self.sidebar.update_done(
+                RestartCheck::Unknown => self.update_done(
                     tr("No se pudo comprobar si hay notas sin guardar. No se reinicia.", "Could not check for unsaved notes. Not restarting."),
                     true,
                 ),
             },
         }
-    }
-
-    /// Checks for a new version on a thread, so the window keeps answering; the
-    /// result comes back as `UpdateDone`.
-    fn check_updates(&mut self) {
-        self.sidebar.update_busy();
-        let proxy = self.proxy.clone();
-        std::thread::spawn(move || {
-            let outcome = crate::update::run(true);
-            let installed = matches!(outcome, crate::update::Outcome::Installed(_));
-            proxy.send(UserEvent::UpdateDone { message: outcome.message(), installed });
-        });
-    }
-
-    /// Restarts once no page has a note with unsaved text. Pages answer on the
-    /// main loop, so each answer is counted here and the last one sends `RestartChecked`.
-    /// A page that never answers (still loading, stuck) counts as unknown after
-    /// `RESTART_WAIT`, so the button never does nothing.
-    fn ask_restart(&mut self) {
-        let views: Vec<&WebView> = self.views.iter().map(|(_, v)| v).collect();
-        if views.is_empty() {
-            return self.restart();
-        }
-        let waiting = Arc::new(AtomicUsize::new(views.len()));
-        let unsaved = Arc::new(AtomicBool::new(false));
-        let unknown = Arc::new(AtomicBool::new(false));
-        let decided = Arc::new(AtomicBool::new(false));
-        {
-            let (decided, proxy) = (decided.clone(), self.proxy.clone());
-            gtk::glib::timeout_add_local_once(RESTART_WAIT, move || {
-                if !decided.swap(true, Ordering::SeqCst) {
-                    proxy.send(UserEvent::RestartChecked(RestartCheck::Unknown));
-                }
-            });
-        }
-        let settle = {
-            let (waiting, unsaved, unknown, proxy) = (waiting.clone(), unsaved.clone(), unknown.clone(), self.proxy.clone());
-            move || {
-                if waiting.fetch_sub(1, Ordering::SeqCst) == 1 && !decided.swap(true, Ordering::SeqCst) {
-                    let check = if unknown.load(Ordering::SeqCst) {
-                        RestartCheck::Unknown
-                    } else if unsaved.load(Ordering::SeqCst) {
-                        RestartCheck::Unsaved
-                    } else {
-                        RestartCheck::Clear
-                    };
-                    proxy.send(UserEvent::RestartChecked(check));
-                }
-            }
-        };
-        for view in views {
-            let (answered, unsaved_flag) = (settle.clone(), unsaved.clone());
-            let asked = view.evaluate_script_with_callback(page_calls::note_unsaved(), move |answer| {
-                if answer == "true" {
-                    unsaved_flag.store(true, Ordering::SeqCst);
-                }
-                answered();
-            });
-            if asked.is_err() {
-                unknown.store(true, Ordering::SeqCst);
-                settle();
-            }
-        }
-    }
-
-    /// Asks the process to replace itself with the installed binary.
-    fn restart(&mut self) {
-        // The process saves every window first; see `Visor::restart`.
-        self.proxy.to(0).send(UserEvent::Restart { from: self.win });
     }
 
     fn act(&mut self, action: Action) {
@@ -1177,38 +836,12 @@ impl App {
             Action::Back => self.view().map_or((), |v| v.webview().go_back()),
             Action::Forward => self.view().map_or((), |v| v.webview().go_forward()),
             Action::PickVault => self.pick_vault(),
-            Action::ToggleSidebar => {
-                let side = self.sidebar.root.clone();
-                if side.is_visible() {
-                    self.save_layout();
-                }
-                side.set_visible(!side.is_visible());
-            }
-            Action::FocusAddress => {
-                self.pane().bar().focus_address();
-            }
-            Action::AddressDone => {
-                if !self.cfg(|c| c.bar_shown) {
-                    for pane in &self.panes {
-                        if !pane.bar().is_typing() {
-                            pane.bar().set_visible(false);
-                        }
-                    }
-                }
-            }
+            Action::ToggleSidebar => self.sidebar_shown = !self.sidebar_shown,
+            Action::FocusAddress => self.focus_address(),
+            Action::AddressDone => {}
             Action::ToggleBar => {
-                let shown = self.cfg_mut(|c| {
-                    c.bar_shown = !c.bar_shown;
-                    c.bar_shown
-                });
+                self.cfg_mut(|c| c.bar_shown = !c.bar_shown);
                 self.save_config_soon();
-                let typing = self.panes.iter().any(|p| p.bar().is_typing());
-                for pane in &self.panes {
-                    pane.bar().set_visible(shown);
-                }
-                if !shown && typing && let Some(view) = self.view() {
-                    view.webview().grab_focus();
-                }
             }
             Action::ZoomKey(step) => match self.tabs.focused_view().filter(|id| self.is_pdf_view(*id)) {
                 Some(_) => self.eval(&page_calls::pdf_zoom(step)),
@@ -1225,7 +858,6 @@ impl App {
                 for (id, _) in &self.views {
                     self.apply_zoom(*id);
                 }
-                self.sidebar.set_zoom(zoom);
                 self.save_config_soon();
             }
             Action::SetTheme(choice) => {
@@ -1243,67 +875,40 @@ impl App {
                 self.save_config_soon();
             }
             Action::SetLanguage(choice) => {
-                self.sidebar.set_language_pending(crate::i18n::would_use(choice.as_deref()) != crate::i18n::lang());
+                self.language_pending(crate::i18n::would_use(choice.as_deref()) != crate::i18n::lang());
                 self.cfg_mut(|c| c.language = choice);
                 self.save_config_soon();
             }
             Action::SetShowOtherFiles(on) => {
                 self.cfg_mut(|c| c.show_other_files = Some(on).filter(|on| !on));
                 self.save_config_soon();
-                self.sidebar.set_show_other(on);
-                if let Some(vault) = self.vault() {
-                    self.sidebar.set_tree(Some(vault.tree()));
-                }
+                self.refresh_tree();
             }
             Action::CheckUpdates => self.check_updates(),
             Action::Restart => self.ask_restart(),
-            Action::Shortcuts => self.shortcuts.toggle(),
-            Action::Find => {
-                if self.pane().find_open() {
-                    self.pane().find().focus_text();
-                } else if let Some(id) = self.tabs.focused_view() {
-                    if self.is_pdf_view(id) {
-                        self.eval(page_calls::pdf_find());
-                    } else {
-                        self.ask_note_find();
-                    }
-                }
-            }
+            Action::Shortcuts => self.toggle_shortcuts(),
+            Action::Find => self.find(),
             Action::FindNative => self.open_find(),
-            Action::Settings => {
-                let side = self.sidebar.root.clone();
-                if !side.is_visible() {
-                    side.set_visible(true);
-                }
-                self.sidebar.popup_settings();
-            }
+            Action::Settings => self.open_settings(),
             Action::LeaveAddress => {
                 if let Some(view) = self.view() {
                     view.webview().grab_focus();
                 }
-                self.pane().bar().set_text(self.tabs.focused_side().tab().target());
             }
             Action::Go(text) => self.go(&text),
             Action::PickElement => self.page_call(page_calls::annot_pick_element()),
             Action::ToggleAnnotations => self.page_call(page_calls::annot_toggle_panel()),
-            Action::ToggleEdit => {
-                // The bar searched the reading view, which the editor hides; left
-                // open, it would also keep Ctrl+F from opening the editor's search.
-                self.pane().find_close();
-                self.page_call(page_calls::note_toggle());
-            }
+            Action::ToggleEdit => self.page_call(page_calls::note_toggle()),
             Action::NewNote => {
                 if self.vault().is_none() {
                     return;
                 }
                 let dir = self.focused_file().as_deref().and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d).to_string();
-                let side = self.sidebar.root.clone();
-                side.show();
-                self.sidebar.new_note(&dir, false);
+                self.new_note(&dir);
             }
             Action::NewTab => {
                 self.open_in(String::new(), Place::NewTab);
-                self.pane().bar().focus_address();
+                self.focus_address();
             }
             Action::CloseTab(id) => {
                 let effects = self.tabs.close(id);
@@ -1325,13 +930,8 @@ impl App {
                 let effects = self.tabs.toggle_split();
                 self.apply_and_publish(effects);
             }
-            Action::FocusPane(id) => {
-                if let Some(p) = self.panes.iter().position(|pane| pane.id() == id) {
-                    self.focus_pane(p, false);
-                }
-            }
             Action::FocusSide(p) => {
-                if p < self.panes.len() {
+                if p < self.tabs.sides().len() {
                     self.focus_pane(p, true);
                 }
             }
@@ -1365,39 +965,6 @@ impl App {
         self.focus_changed();
     }
 
-    fn end_drag(&mut self) {
-        for p in 0..self.panes.len() {
-            self.panes[p].show_drop(false, false);
-            self.frost(p, None);
-        }
-        self.dragging = None;
-    }
-
-    fn frost(&self, p: usize, zone: Option<u8>) {
-        let Some(view) = self.tabs.side(p).tab().view().and_then(|id| self.view_of(id)) else { return };
-        let theme = self.theme();
-        let accent = theme.as_ref().map_or("#3584e4", |t| t.accent.as_str());
-        let _ = view.evaluate_script(&page_calls::frost(zone, accent));
-    }
-
-    fn dropped(&mut self, pane: u64, half: Option<usize>) {
-        let target = self.dragging.take();
-        self.end_drag();
-        let (Some(target), Some(p)) = (target, self.panes.iter().position(|x| x.id() == pane)) else { return };
-        if self.panes.len() == 2 {
-            self.tabs.focus(p);
-            self.open_in(target, Place::NewTab);
-            return;
-        }
-        self.tabs.focus(0);
-        self.open_in(target, Place::Beside);
-        if half == Some(0) {
-            // The new side was added on the right; the file goes on the left.
-            let effects = self.tabs.swap_sides();
-            self.apply_and_publish(effects);
-        }
-    }
-
     /// Runs a page function on the focused side, giving that page the keys.
     fn page_call(&self, code: &str) {
         if let Some(view) = self.view() {
@@ -1406,28 +973,7 @@ impl App {
         self.eval(code);
     }
 
-    fn fullscreen(&mut self, view: u64, on: bool) {
-        let side = self.sidebar.root.clone();
-        let holder = self.tabs.locate(view).map(|(p, _)| p);
-        if on {
-            self.sidebar_before_fullscreen.get_or_insert(side.is_visible());
-            side.hide();
-            for (p, pane) in self.panes.iter().enumerate() {
-                pane.fullscreen(Some(p) == holder);
-            }
-        } else {
-            for pane in &self.panes {
-                pane.windowed(self.cfg(|c| c.bar_shown));
-            }
-            if self.sidebar_before_fullscreen.take().unwrap_or(true) {
-                side.show();
-            }
-        }
-    }
-
     fn navigated(&mut self, view: u64, url: String) {
-        // A search ends with the page it ran in: the next page may be a website.
-        self.find_forget_all(view);
         let file = self.rel_of(&url);
         let target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
         let Some(nav) = self.tabs.navigated(view, target) else { return };
@@ -1435,9 +981,7 @@ impl App {
         if nav.revealed {
             self.show_active(nav.side);
             if focused_active {
-                // Ctrl+T puts the cursor in the bar before the empty page commits.
-                let typing = self.panes[nav.side].bar().is_typing();
-                self.focus_pane(nav.side, !typing);
+                self.focus_pane(nav.side, true);
             }
         }
         {
@@ -1451,124 +995,7 @@ impl App {
             }
         }
         self.apply_zoom(view);
-        if nav.active {
-            self.panes[nav.side].bar().set_text(self.tabs.side(nav.side).tab().target());
-            self.update_nav(nav.side);
-        }
         self.publish();
-        if focused_active {
-            self.sidebar.current(file);
-        }
-    }
-
-    fn pick_vault(&self) {
-        let proxy = self.proxy.clone();
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new().set_title(tr("Abrir carpeta como bóveda", "Open folder as vault")).pick_folder();
-            let picked = picked.and_then(|p| p.canonicalize().ok());
-            proxy.send(UserEvent::Picked(picked));
-        });
-    }
-
-    fn on_sidebar(&mut self, msg: SidebarMsg) {
-        match msg {
-            SidebarMsg::OpenFolders(open) => {
-                if let Some(vault) = self.vault() {
-                    let path = vault.path().to_path_buf();
-                    self.cfg_mut(|c| c.open_folders.insert(path, open));
-                    self.save_config_soon();
-                }
-            }
-            SidebarMsg::PickVault => self.pick_vault(),
-            SidebarMsg::SwitchVault { path } => self.show_vault(Some(path)),
-            SidebarMsg::Open { path, tab, beside } => {
-                let place = if beside { Place::Beside } else if tab { Place::NewTab } else { Place::Here };
-                self.open_in(path, place);
-            }
-            SidebarMsg::CreateNote { dir, name } => match self.create_note(&dir, &name) {
-                Ok(()) => self.sidebar.note_created(),
-                Err(e) => self.sidebar.note_error(&e),
-            },
-            SidebarMsg::CreateFolder { dir, name } => match self.create_folder(&dir, &name) {
-                Ok(()) => self.sidebar.note_created(),
-                Err(e) => self.sidebar.note_error(&e),
-            },
-            SidebarMsg::Trash { path } => {
-                let result = self.open_vault().and_then(|v| files::trash(&v, &path));
-                match result {
-                    Ok(()) => {
-                        self.sidebar.notice(&trf!("«{path}» está en la papelera.", "«{path}» is in the trash."), false);
-                        self.retarget(&path, None);
-                    }
-                    Err(e) => self.sidebar.notice(&e, true),
-                }
-            }
-            SidebarMsg::OpenElsewhere { path } => {
-                // `resolve` also refuses a link that points out of the vault.
-                let file = self.open_vault().and_then(|v| {
-                    if v.entry(&path)?.is_dir() {
-                        return Err(trf!("«{path}» es una carpeta, no un archivo.", "«{path}» is a folder, not a file."));
-                    }
-                    v.resolve(&path).ok_or_else(|| trf!("No existe: {path}", "Does not exist: {path}"))
-                });
-                match file {
-                    Ok(file) => {
-                        if !open_elsewhere(&file) {
-                            self.sidebar.notice(&no_application(&path), true);
-                        }
-                    }
-                    Err(e) => self.sidebar.notice(&e, true),
-                }
-            }
-            SidebarMsg::Move { path, dir } => {
-                let result = self.open_vault().and_then(|v| files::move_to(&v, &path, &dir));
-                match result {
-                    Ok(Some(new)) => {
-                        let root = self.vault().map(|v| v.path().to_path_buf()).unwrap_or_default();
-                        match links::relink(&root, &path, &new) {
-                            Ok(changed) if !changed.is_empty() => {
-                                let n = changed.len();
-                                let text = if n == 1 {
-                                    tr("Se actualizaron los enlaces de 1 nota.", "Updated the links in 1 note.").to_string()
-                                } else {
-                                    trf!("Se actualizaron los enlaces de {n} notas.", "Updated the links in {n} notes.")
-                                };
-                                self.sidebar.notice(&text, false);
-                            }
-                            Ok(_) => {}
-                            Err(e) => self.sidebar.notice(&e, true),
-                        }
-                        self.retarget(&path, Some(&new));
-                    }
-                    Ok(None) => {}
-                    Err(e) => self.sidebar.notice(&e, true),
-                }
-            }
-            SidebarMsg::DragStart { path } => {
-                let split = self.panes.len() == 2;
-                for pane in &self.panes {
-                    pane.show_drop(true, split);
-                }
-                self.dragging = Some(path);
-            }
-            SidebarMsg::DragEnd => self.end_drag(),
-            SidebarMsg::RemoveVault { path } => {
-                self.cfg_mut(|c| {
-                    c.vaults.retain(|v| *v != path);
-                    c.last.remove(&path);
-                    c.workspaces.remove(&path);
-                    c.open_folders.remove(&path);
-                });
-                if self.vault().is_some_and(|v| v.path() == path) {
-                    self.cfg_mut(|c| c.current = c.vaults.first().cloned());
-                    self.save_config_soon();
-                    self.leave_removed_vault();
-                } else {
-                    self.save_config_soon();
-                    self.refresh_sidebar();
-                }
-            }
-        }
     }
 
     /// Points the tabs showing `old`, or a file inside the folder `old`, at
@@ -1658,7 +1085,7 @@ impl App {
                 }
             }
             PageMsg::CreateNote { dir, name } if trusted => {
-                if let Err(e) = self.create_note(&dir, files::wiki_note_name(&name)) {
+                if let Err(e) = self.create_note(&dir, vault_files::wiki_note_name(&name)) {
                     eprintln!("{}", trf!("No se pudo crear la nota: {e}", "Could not create the note: {e}"));
                     reply(self, page_calls::note_create_failed(&e));
                 }
@@ -1670,10 +1097,10 @@ impl App {
                 match file {
                     Ok(file) => {
                         if !open_elsewhere(&file) {
-                            self.sidebar.notice(&no_application(&name), true);
+                            self.notice(&files::no_application(&name), true);
                         }
                     }
-                    Err(e) => self.sidebar.notice(&e, true),
+                    Err(e) => self.notice(&e, true),
                 }
             }
             PageMsg::Console { level, text } if local => {
@@ -1771,7 +1198,7 @@ impl App {
     /// Creates `name`.md in `dir` and opens it in the editor.
     fn create_note(&mut self, dir: &str, name: &str) -> Result<(), String> {
         let vault = self.open_vault()?;
-        let (folder, name) = files::note_target(&vault, dir, name)?;
+        let (folder, name) = vault_files::note_target(&vault, dir, name)?;
         let file = if name.to_lowercase().ends_with(".md") { name.to_string() } else { format!("{name}.md") };
         let path = folder.join(&file);
         if path.exists() {
@@ -1803,7 +1230,7 @@ impl App {
             None if vault::is_html(&path) || vault::is_pdf(&path) || (loose && vault::is_markdown(&path)) => {
                 // Turning its folder into a vault would list and watch all of it, maybe a whole home.
                 if self.vault().is_none() {
-                    self.sidebar.root.hide();
+                    self.sidebar_shown = false;
                 }
                 path.to_string_lossy().into_owned()
             }
@@ -1968,7 +1395,7 @@ impl App {
             }
         }
         if reaction.refresh_tree {
-            self.sidebar.set_tree(Some(vault.tree()));
+            self.refresh_tree();
         }
         for (view, action) in reaction.pages {
             let Some(v) = self.view_of(view) else { continue };
@@ -1989,7 +1416,7 @@ impl App {
 
 /// Opens `file` in another application. Visor itself may be the system's
 /// default for the file's type, and would only open it again, so it is skipped.
-fn open_elsewhere(file: &Path) -> bool {
+pub(super) fn open_elsewhere(file: &Path) -> bool {
     use gtk::gio;
     let (kind, _) = gio::content_type_guess(Some(file), &[]);
     let target = gio::File::for_path(file);
