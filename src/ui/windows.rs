@@ -1,0 +1,275 @@
+#![allow(dead_code)] // Wired into the app in a later step of #39.
+
+//! The model of visor's windows: which are open, in which order, and which one
+//! has the focus. It knows no GTK and no webview; a window is only its id.
+//!
+//! Agents act on the focused window unless they ask for another one.
+
+use crate::trf;
+use std::path::{Path, PathBuf};
+
+pub type WinId = u64;
+
+/// First view id of a window's tabs. Each window owns a 2^40 range, so view
+/// ids never collide across windows.
+pub fn first_view_id(w: WinId) -> u64 {
+    w << 40
+}
+
+#[derive(Default)]
+pub struct Windows {
+    /// Open windows, in opening order.
+    list: Vec<WinId>,
+    /// The last window that had focus. `None` only when no window is open.
+    focused: Option<WinId>,
+    /// The next id to hand out. Ids are never reused, so an agent's `--window`
+    /// number never points at a different window later.
+    next: WinId,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Closed {
+    /// It was the only window; none is open now.
+    Last,
+    /// Other windows remain. `focus` is the window with the focus now.
+    Other { focus: Option<WinId> },
+}
+
+impl Windows {
+    pub fn new() -> Self {
+        Windows { next: 1, ..Default::default() }
+    }
+
+    /// Opens a window at the end of the list and gives it the focus.
+    pub fn open(&mut self) -> WinId {
+        // `Default` leaves `next` at 0; ids must start at 1.
+        let id = self.next.max(1);
+        self.next = id + 1;
+        self.list.push(id);
+        self.focused = Some(id);
+        id
+    }
+
+    /// Gives the focus to `w`. Returns false if `w` is unknown or already focused.
+    pub fn focus(&mut self, w: WinId) -> bool {
+        if !self.contains(w) || self.focused == Some(w) {
+            return false;
+        }
+        self.focused = Some(w);
+        true
+    }
+
+    pub fn focused(&self) -> Option<WinId> {
+        self.focused
+    }
+
+    /// Open windows, in opening order.
+    pub fn ids(&self) -> &[WinId] {
+        &self.list
+    }
+
+    pub fn contains(&self, w: WinId) -> bool {
+        self.list.contains(&w)
+    }
+
+    /// Removes `w`. An unknown id changes nothing.
+    pub fn close(&mut self, w: WinId) -> Closed {
+        let Some(at) = self.list.iter().position(|&x| x == w) else {
+            return Closed::Other { focus: self.focused };
+        };
+        self.list.remove(at);
+        if self.list.is_empty() {
+            self.focused = None;
+            return Closed::Last;
+        }
+        if self.focused == Some(w) {
+            // The newest window takes over, as the one opened last is the most
+            // likely to be where the person was working.
+            self.focused = self.list.last().copied();
+        }
+        Closed::Other { focus: self.focused }
+    }
+
+    /// The window an agent's request goes to: the one asked for, or the focused one.
+    pub fn target(&self, asked: Option<u64>) -> Result<WinId, String> {
+        let Some(focused) = self.focused else {
+            return Err(crate::i18n::tr("No hay ninguna ventana abierta", "No window is open").into());
+        };
+        match asked {
+            None => Ok(focused),
+            Some(n) if self.contains(n) => Ok(n),
+            Some(n) => Err(trf!("No hay ninguna ventana con el número {n}", "There is no window number {n}")),
+        }
+    }
+
+    /// The window for `visor open <file>` without `--window`: a window that
+    /// already shows `vault`, the focused one first if it does. Without a
+    /// window showing it, the focused one. `vault_of` says what each window shows.
+    pub fn for_vault(&self, vault: Option<&Path>, vault_of: impl Fn(WinId) -> Option<PathBuf>) -> Option<WinId> {
+        let shows = |w: WinId| vault.is_some() && vault_of(w).as_deref() == vault;
+        if let Some(f) = self.focused.filter(|&f| shows(f)) {
+            return Some(f);
+        }
+        self.list.iter().copied().find(|&w| shows(w)).or(self.focused)
+    }
+
+    /// The windows in the order they are saved to config, and the index of the
+    /// focused one in that list.
+    pub fn to_save(&self) -> (Vec<WinId>, usize) {
+        let index = self.focused.and_then(|f| self.list.iter().position(|&w| w == f)).unwrap_or(0);
+        (self.list.clone(), index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn three() -> Windows {
+        let mut w = Windows::new();
+        for _ in 0..3 {
+            w.open();
+        }
+        w
+    }
+
+    #[test]
+    fn ids_start_at_one_and_are_never_reused() {
+        let mut w = Windows::new();
+        assert_eq!(w.open(), 1);
+        assert_eq!(w.open(), 2);
+        assert_eq!(w.close(1), Closed::Other { focus: Some(2) });
+        assert_eq!(w.open(), 3);
+        assert_eq!(w.ids(), &[2, 3]);
+    }
+
+    #[test]
+    fn default_also_starts_at_one() {
+        let mut w = Windows::default();
+        assert_eq!(w.open(), 1);
+    }
+
+    #[test]
+    fn open_focuses_the_new_window() {
+        let w = three();
+        assert_eq!(w.focused(), Some(3));
+        assert_eq!(w.ids(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn focus_reports_unknown_and_already_focused() {
+        let mut w = three();
+        assert!(w.focus(1));
+        assert_eq!(w.focused(), Some(1));
+        assert!(!w.focus(1));
+        assert!(!w.focus(9));
+        assert_eq!(w.focused(), Some(1));
+    }
+
+    #[test]
+    fn closing_the_last_window_says_last() {
+        let mut w = Windows::new();
+        w.open();
+        assert_eq!(w.close(1), Closed::Last);
+        assert!(w.ids().is_empty());
+        assert_eq!(w.focused(), None);
+    }
+
+    #[test]
+    fn closing_the_focused_window_moves_focus_to_the_most_recent_remaining() {
+        let mut w = three();
+        w.focus(1);
+        assert_eq!(w.close(1), Closed::Other { focus: Some(3) });
+        assert_eq!(w.focused(), Some(3));
+    }
+
+    #[test]
+    fn closing_an_unfocused_window_keeps_focus() {
+        let mut w = three();
+        assert_eq!(w.close(1), Closed::Other { focus: Some(3) });
+        assert_eq!(w.focused(), Some(3));
+        assert_eq!(w.close(9), Closed::Other { focus: Some(3) });
+    }
+
+    #[test]
+    fn target_none_is_the_focused_window() {
+        let mut w = three();
+        assert_eq!(w.target(None), Ok(3));
+        w.focus(2);
+        assert_eq!(w.target(None), Ok(2));
+    }
+
+    #[test]
+    fn target_known_id_wins_over_focus() {
+        let w = three();
+        assert_eq!(w.target(Some(1)), Ok(1));
+    }
+
+    #[test]
+    fn target_unknown_id_is_an_error() {
+        let w = three();
+        assert_eq!(w.target(Some(7)).unwrap_err(), "No hay ninguna ventana con el número 7");
+    }
+
+    #[test]
+    fn target_with_no_window_is_an_error() {
+        let w = Windows::new();
+        assert_eq!(w.target(None).unwrap_err(), "No hay ninguna ventana abierta");
+        assert_eq!(w.target(Some(1)).unwrap_err(), "No hay ninguna ventana abierta");
+    }
+
+    #[test]
+    fn for_vault_prefers_the_focused_window_when_it_shows_the_vault() {
+        // 1 and 3 show A, 2 shows B; 3 is focused.
+        let shows = |w: WinId| match w {
+            1 | 3 => Some(PathBuf::from("/a")),
+            2 => Some(PathBuf::from("/b")),
+            _ => None,
+        };
+        let w = three();
+        assert_eq!(w.for_vault(Some(Path::new("/a")), shows), Some(3));
+    }
+
+    #[test]
+    fn for_vault_takes_another_window_showing_the_vault_before_the_focused_one() {
+        let shows = |w: WinId| match w {
+            1 | 3 => Some(PathBuf::from("/a")),
+            2 => Some(PathBuf::from("/b")),
+            _ => None,
+        };
+        let mut w = three();
+        w.focus(2);
+        assert_eq!(w.for_vault(Some(Path::new("/a")), shows), Some(1));
+    }
+
+    #[test]
+    fn for_vault_falls_back_to_the_focused_window() {
+        let shows = |w: WinId| match w {
+            1 | 3 => Some(PathBuf::from("/a")),
+            2 => Some(PathBuf::from("/b")),
+            _ => None,
+        };
+        let mut w = three();
+        w.focus(2);
+        assert_eq!(w.for_vault(Some(Path::new("/c")), shows), Some(2));
+        assert_eq!(w.for_vault(None, shows), Some(2));
+        assert_eq!(Windows::new().for_vault(Some(Path::new("/a")), shows), None);
+    }
+
+    #[test]
+    fn to_save_gives_the_order_and_the_focused_index() {
+        let mut w = three();
+        assert_eq!(w.to_save(), (vec![1, 2, 3], 2));
+        w.focus(2);
+        assert_eq!(w.to_save(), (vec![1, 2, 3], 1));
+        assert_eq!(Windows::new().to_save(), (vec![], 0));
+    }
+
+    #[test]
+    fn first_view_id_gives_each_window_its_own_range() {
+        assert_eq!(first_view_id(1), 1 << 40);
+        assert_ne!(first_view_id(1), first_view_id(2));
+        // A window with a million views still stays below the next window's range.
+        assert!(first_view_id(1) + 1_000_000 < first_view_id(2));
+    }
+}
