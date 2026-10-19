@@ -50,3 +50,12 @@ export function useHole(side: number) {
     [side],
   )
 }
+
+/** The side whose pages are under a point of the frame, and their rectangle. */
+export function holeAt(x: number, y: number) {
+  for (const [side, el] of holes) {
+    const r = el.getBoundingClientRect()
+    if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return { side, rect: r }
+  }
+  return null
+}

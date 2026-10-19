@@ -1,16 +1,31 @@
 //! Area A, the panel: what the frame's panel asks and what it shows. Frame
 //! side: `marco/src/areas/files/`. The GTK panel this replaces is
-//! `ui/sidebar.rs` before the frame (its pure helpers too: `placeholder`,
-//! `cannot_open`, `reveal_on_arrival`).
+//! `ui/sidebar.rs` before the frame.
 
 use super::{App, open_elsewhere};
 use crate::i18n::tr;
 use crate::session::Place;
 use crate::trf;
 use crate::ui::action::{SidebarMsg, UserEvent};
-use crate::ui::protocol::files::{self, State, Tree};
-use crate::vault::{files as vault_files, links};
+use crate::ui::protocol::files::{self, Form, Notice, State, Tree, VaultItem};
+use crate::vault::{self, files as vault_files, links};
 use std::path::Path;
+
+/// What the panel shows besides the tree.
+#[derive(Default)]
+pub(super) struct Panel {
+    form: Option<Form>,
+    notice: Option<Notice>,
+    /// Numbers the notices and the name fields, so each one is new to the frame.
+    count: u64,
+}
+
+impl Panel {
+    fn next(&mut self) -> u64 {
+        self.count += 1;
+        self.count
+    }
+}
 
 impl App {
     pub(super) fn pick_vault(&self) {
@@ -34,6 +49,12 @@ impl App {
             SidebarMsg::PickVault => self.pick_vault(),
             SidebarMsg::DragStart { path } => self.drag_start(path),
             SidebarMsg::DragEnd => self.drag_end(),
+            SidebarMsg::DropHover { side, zone } => self.drop_hover(side, zone.filter(|z| *z <= 2)),
+            SidebarMsg::DropOn { side, half } => {
+                if half.is_none_or(|h| h <= 1) {
+                    self.dropped(side, half);
+                }
+            }
             // The frame names a vault from the list it was sent; any other path is refused.
             SidebarMsg::SwitchVault { path } => {
                 if self.cfg(|c| c.vaults.contains(&path)) {
@@ -41,17 +62,41 @@ impl App {
                 }
             }
             SidebarMsg::Open { path, tab, beside } => {
+                // A file visor does not show is listed but not opened: the notice says why.
+                if let Some(v) = self.vault()
+                    && v.entry(&path).is_ok_and(|p| p.is_file() && !opens(&p))
+                {
+                    let text = files::cannot_open(&path);
+                    self.show_notice(&text, false, Some(path));
+                    return;
+                }
                 let place = if beside { Place::Beside } else if tab { Place::NewTab } else { Place::Here };
                 self.open_in(path, place);
             }
             SidebarMsg::CreateNote { dir, name } => match self.create_note(&dir, &name) {
                 Ok(()) => self.note_created(),
-                Err(e) => self.notice(&e, true),
+                Err(e) => self.name_refused(e),
             },
             SidebarMsg::CreateFolder { dir, name } => match self.create_folder(&dir, &name) {
                 Ok(()) => self.note_created(),
-                Err(e) => self.notice(&e, true),
+                Err(e) => self.name_refused(e),
             },
+            SidebarMsg::AskName { dir, folder } => {
+                if self.vault().is_none() {
+                    return self.pick_vault();
+                }
+                self.new_note(dir, folder);
+            }
+            SidebarMsg::CancelName => self.note_created(),
+            SidebarMsg::Width { width } => {
+                self.sidebar_width = Some(files::clamp_width(width));
+                self.layout_changed = true;
+            }
+            SidebarMsg::ShowOther { on } => {
+                self.cfg_mut(|c| c.show_other_files = Some(on).filter(|on| !on));
+                self.save_config_soon();
+                self.refresh_tree();
+            }
             SidebarMsg::Trash { path } => {
                 let result = self.open_vault().and_then(|v| vault_files::trash(&v, &path));
                 match result {
@@ -124,21 +169,41 @@ impl App {
 
     /// A message for the person about something done in the panel.
     pub(super) fn notice(&mut self, text: &str, error: bool) {
-        // Phase 1 shows it in the panel.
-        let _ = error;
-        eprintln!("{text}");
+        self.show_notice(text, error, None);
     }
 
-    /// A note or folder typed in the panel was created.
+    /// A notice; with `elsewhere`, it offers to open that file with another application.
+    fn show_notice(&mut self, text: &str, error: bool, elsewhere: Option<String>) {
+        let id = self.panel.next();
+        self.panel.notice = Some(Notice { id, text: text.to_string(), error, elsewhere });
+        // The panel is hidden, and the notice with it.
+        if !self.sidebar_shown {
+            eprintln!("{text}");
+        }
+    }
+
+    /// A note or folder typed in the panel was created, or the person gave up.
     fn note_created(&mut self) {
-        // Phase 1 closes the panel's name field.
+        self.panel.form = None;
     }
 
-    /// Ctrl+N: asks for the name of a new note in `dir`.
-    pub(super) fn new_note(&mut self, dir: &str) {
-        // Phase 1 opens the panel's name field.
-        let _ = dir;
+    /// The name typed was refused: the field stays open and says why.
+    fn name_refused(&mut self, error: String) {
+        match &mut self.panel.form {
+            Some(form) => form.error = Some(error),
+            None => self.notice(&error, true),
+        }
+    }
+
+    /// Ctrl+N and the panel's buttons: asks for the name of a new note, or
+    /// folder, in `dir`, or else next to the file on the focused side.
+    pub(super) fn new_note(&mut self, dir: Option<String>, folder: bool) {
+        let dir = dir.unwrap_or_else(|| files::folder_of(self.focused_file().as_deref()));
+        let id = self.panel.next();
+        self.panel.form = Some(Form { dir, folder, error: None, id });
         self.sidebar_shown = true;
+        // Ctrl+N may come while a page has the keyboard.
+        self.host.focus_frame();
     }
 
     /// The tree changed on disk, or what it lists: it is sent again after the event.
@@ -149,13 +214,34 @@ impl App {
     /// The vault's tree as the panel lists it. Reads the disk.
     pub(super) fn tree(&self) -> Tree {
         let show_other = self.cfg(|c| c.show_other_files != Some(false));
-        Tree { root: self.vault().map(|v| files::visible(v.tree(), show_other)) }
+        let Some(v) = self.vault() else { return Tree { vault: None, root: None, open: vec![] } };
+        let open = self.cfg(|c| c.open_folders.get(v.path()).cloned().unwrap_or_default());
+        Tree { vault: Some(v.path().to_string_lossy().into_owned()), root: Some(files::visible(v.tree(), show_other)), open }
     }
 
     pub(super) fn files_state(&self) -> State {
-        let vault = self.vault().map(|v| name_of(v.path()));
-        State { shown: self.sidebar_shown, vault, current: self.focused_file() }
+        let current = self.vault().map(|v| v.path().to_path_buf());
+        let (list, show_other) = self.cfg(|c| (c.vaults.clone(), c.show_other_files != Some(false)));
+        let vaults = list
+            .iter()
+            .map(|p| VaultItem { path: p.to_string_lossy().into_owned(), name: name_of(p), current: current.as_deref() == Some(p.as_path()) })
+            .collect();
+        State {
+            shown: self.sidebar_shown,
+            vault: current.as_deref().map(name_of),
+            current: self.focused_file(),
+            vaults,
+            form: self.panel.form.clone(),
+            notice: self.panel.notice.clone(),
+            width: self.sidebar_width,
+            show_other,
+        }
     }
+}
+
+/// Whether visor shows this file: a page, a PDF or an image.
+fn opens(path: &Path) -> bool {
+    vault::is_page(path) || vault::is_pdf(path) || vault::is_image(path)
 }
 
 pub(super) fn name_of(path: &Path) -> String {
@@ -175,5 +261,15 @@ mod tests {
     fn names_the_file_no_program_opens() {
         assert_eq!(no_application("datos/Libro.xlsx"), "No hay ninguna aplicación para abrir «Libro.xlsx».");
         assert_eq!(no_application("Makefile"), "No hay ninguna aplicación para abrir «Makefile».");
+    }
+
+    #[test]
+    fn opens_pages_pdfs_and_images_only() {
+        for name in ["a.md", "a.html", "a.pdf", "a.png", "a.excalidraw.md"] {
+            assert!(opens(Path::new(name)), "{name}");
+        }
+        for name in ["a.zip", "Makefile", "a.xlsx"] {
+            assert!(!opens(Path::new(name)), "{name}");
+        }
     }
 }
