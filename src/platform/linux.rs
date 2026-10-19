@@ -34,6 +34,12 @@ pub fn real_name(path: &Path) -> Option<OsString> {
     path.file_name().map(OsString::from)
 }
 
+/// Whether the system marks `entry` as hidden. Linux has no such mark: only
+/// the leading dot, which the caller checks.
+pub fn hidden_entry(_entry: &fs::DirEntry) -> bool {
+    false
+}
+
 /// The folder where the app keeps its state (logs, last update check).
 pub fn state_dir() -> Option<PathBuf> {
     dirs::state_dir()

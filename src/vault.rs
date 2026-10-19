@@ -194,7 +194,7 @@ impl Walk {
         let mut real = vec![];
         let mut linked = vec![];
         for entry in fs::read_dir(dir).ok()?.flatten() {
-            if hidden(&entry.file_name().to_string_lossy()) {
+            if hidden(&entry.file_name().to_string_lossy()) || platform::hidden_entry(&entry) {
                 continue;
             }
             let path = entry.path();
@@ -1182,6 +1182,44 @@ mod windows_tests {
         platform::trash(&file).unwrap();
         assert!(!file.exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folders_windows_marks_hidden_are_not_walked() {
+        let (vault, dir) = make("attrib");
+        let marked = vault.root().join("marcada");
+        fs::create_dir_all(&marked).unwrap();
+        fs::write(marked.join("n.md"), "").unwrap();
+        assert!(Command::new("attrib").arg("+h").arg(&marked).status().unwrap().success());
+        let found = files(vault.root(), vault.root(), |_| true);
+        assert!(found.iter().all(|p| !p.starts_with(&marked)), "{found:?}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `.oculta` may also answer to a short name such as `OCULTA~1`, which has no dot.
+    #[test]
+    fn a_short_name_does_not_open_a_hidden_folder() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        let (vault, dir) = make("short");
+        let long = vault.root().join(".oculta");
+        let wide: Vec<u16> = long.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut buf = vec![0u16; 1024];
+        // SAFETY: `wide` is NUL-terminated and `buf` is writable for its length.
+        let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+        let short = PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+        let short_name = short.file_name().unwrap().to_string_lossy().into_owned();
+        if short_name.starts_with('.') {
+            eprintln!("8.3 names are off on this volume; nothing to check");
+            fs::remove_dir_all(dir).unwrap();
+            return;
+        }
+        eprintln!("short name of .oculta: {short_name}");
+        let allowed = [vault.root().to_path_buf()];
+        assert!(loose_file(&vault.root().join(&short_name).join("x.md"), &allowed).is_none());
+        assert!(vault.page_at(&format!("{short_name}/x.md")).is_err());
+        assert!(vault.entry(&format!("{short_name}/x.md")).is_err());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -56,12 +56,12 @@ jobs:
           # Tests that reach a todo!() stub panic: the list of failures is the
           # Windows work still left, not a broken job.
           dir="$RUNNER_TEMP/w1-sin-interfaz"
-          (cd "$dir" && cargo test --no-fail-fast > "$out/test.txt" 2>&1) || echo "cargo test sale con código $?"
+          (cd "$dir" && cargo test --no-fail-fast -- --show-output > "$out/test.txt" 2>&1) || echo "cargo test sale con código $?"
           {
             echo "## cargo test en Windows (sin interfaz)"
             echo
             echo '```'
-            grep -E "^test result|FAILED|panicked at" "$out/test.txt" | head -n 80
+            grep -E "^test result|FAILED|panicked at|8.3 names|short name of" "$out/test.txt" | head -n 80
             echo '```'
           } >> "$out/resumen.md"
 

@@ -131,6 +131,14 @@ pub fn state_dir() -> Option<PathBuf> {
     dirs::data_local_dir()
 }
 
+/// Whether Windows marks `entry` hidden or system, as Explorer hides it. Reading
+/// the attributes costs nothing: the folder listing already brought them.
+pub fn hidden_entry(entry: &std::fs::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const HIDDEN_OR_SYSTEM: u32 = 0x2 | 0x4;
+    entry.metadata().is_ok_and(|m| m.file_attributes() & HIDDEN_OR_SYSTEM != 0)
+}
+
 /// The socket path when `VISOR_SOCKET` is not set. The folder may not exist yet.
 pub fn default_socket() -> PathBuf {
     dirs::data_local_dir()
