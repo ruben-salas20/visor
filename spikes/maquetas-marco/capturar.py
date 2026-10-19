@@ -13,7 +13,7 @@ from gi.repository import GLib, Gtk, WebKit2  # noqa: E402
 html, carpeta, pedidos = sys.argv[1], sys.argv[2], sys.argv[3:]
 
 casos = []
-for v in "abc":
+for v in "abcd":
     casos += [
         (f"{v}-normal", f"v={v}&tema=actual&estado=normal"),
         (f"{v}-claro", f"v={v}&tema=claro&estado=normal"),
