@@ -88,6 +88,9 @@ pub struct Shared {
     pub windows: BTreeMap<WinId, WindowShared>,
     /// The window with the focus: the one agents act on unless they name another.
     pub focused_window: Option<WinId>,
+    /// While the saved windows reopen at startup. Requests wait for all of
+    /// them, or `open` would pick a window before the one showing its vault exists.
+    pub restoring: bool,
     pub events: Vec<Value>,
     pub next_id: u64,
 }
@@ -154,7 +157,8 @@ impl Shared {
 
     /// Like [`Shared::target`], for a request about `file`: without a window
     /// asked for, a window that shows the vault the file is in, the focused
-    /// one first.
+    /// one first. `file` must come from [`real_path`], or `a/../b/x.md` would
+    /// count as inside `a`.
     pub fn target_for(&self, asked: Option<u64>, file: Option<&Path>) -> Result<WinId, String> {
         let focused = self.target(asked)?;
         let Some(file) = file.filter(|_| asked.is_none()) else { return Ok(focused) };
@@ -268,6 +272,12 @@ fn append_event(event: &Value) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{event}");
     }
+}
+
+/// `path` without `..` or links, for [`Shared::target_for`]. A file that does
+/// not exist (a tab whose file was deleted) resolves through its folder.
+pub fn real_path(path: &Path) -> Option<PathBuf> {
+    path.canonicalize().ok().or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
 }
 
 #[cfg(test)]
@@ -384,6 +394,25 @@ mod tests {
         shared.window_mut(1).loose = vec![PathBuf::from("/a"), PathBuf::from("/b")];
         shared.window_mut(2).loose = vec![PathBuf::from("/b"), PathBuf::from("/c")];
         assert_eq!(shared.loose_folders(), vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]);
+    }
+
+    #[test]
+    fn a_path_through_another_vault_goes_to_the_vault_it_ends_in() {
+        let dir = temp("real-path");
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("x.md"), "").unwrap();
+        let mut shared = with_windows(&[1, 2]);
+        shared.focused_window = Some(1);
+        shared.window_mut(1).vault = Some(Arc::new(Vault::open(&a)));
+        shared.window_mut(2).vault = Some(Arc::new(Vault::open(&b)));
+        let through = real_path(&a.join("../b/x.md")).unwrap();
+        assert_eq!(shared.target_for(None, Some(&through)), Ok(2));
+        let gone = real_path(&a.join("../b/borrada.md")).unwrap();
+        assert_eq!(shared.target_for(None, Some(&gone)), Ok(2), "a deleted file resolves through its folder");
+        assert_eq!(real_path(&dir.join("no-existe/x.md")), None);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

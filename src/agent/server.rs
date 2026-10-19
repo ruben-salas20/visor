@@ -1,5 +1,5 @@
 use crate::i18n::tr;
-use crate::session::{LOADED, Place, AgentRequest, SharedRef};
+use crate::session::{LOADED, Place, AgentRequest, SharedRef, real_path};
 use crate::trf;
 use crate::agent::command::{Command, Level, NotesScope, OpenPlace, Page, Request, Target};
 use crate::ui::windows::WinId;
@@ -72,7 +72,7 @@ fn respond(request: Request, shared: &SharedRef, send: &dyn Fn(WinId, AgentReque
         command => {
             // `open <file>` and `close <file>` go to a window that shows the file's vault, if one does.
             let file = match &command {
-                Command::Open { target: Target::Path(page), .. } | Command::Close { target: Some(page) } => page.path.clone(),
+                Command::Open { target: Target::Path(page), .. } | Command::Close { target: Some(page) } => page.path.as_deref().and_then(real_path),
                 _ => None,
             };
             let target = target_once_open(shared, window, file.as_deref());
@@ -219,13 +219,13 @@ fn run_script(code: String, win: WinId, send: &dyn Fn(WinId, AgentRequest)) -> V
 }
 
 /// Waits until `view` finishes loading and reports the problems it logged.
-/// The window for a request. At startup the socket answers before the first
-/// window exists, and `visor open` on a closed visor asks at once: it waits
-/// for that window instead of failing.
+/// The window for a request. At startup the socket answers before the saved
+/// windows reopen, and `visor open` on a closed visor asks at once: it waits
+/// for them instead of failing or picking a window too early.
 fn target_once_open(shared: &SharedRef, window: Option<u64>, file: Option<&std::path::Path>) -> Result<WinId, String> {
     let deadline = Instant::now() + LOAD_TIMEOUT;
     let mut s = shared.lock().unwrap();
-    while s.windows.is_empty() {
+    while s.windows.is_empty() || s.restoring {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             break;
@@ -239,6 +239,9 @@ fn wait_for_load(shared: &SharedRef, win: WinId, view: u64, before: u64) -> Valu
     let deadline = Instant::now() + LOAD_TIMEOUT;
     let mut s = shared.lock().unwrap();
     loop {
+        if s.window(win).is_none() {
+            return fail(trf!("La ventana {win} se cerró antes de que la página cargara.", "Window {win} closed before the page loaded."));
+        }
         let loaded = s.page_of(win, view).load_seq > before;
         let left = deadline.saturating_duration_since(Instant::now());
         if loaded || left.is_zero() {
@@ -318,5 +321,48 @@ fn events(after: Option<u64>, wait: Option<f64>, limit: Option<u64>, shared: &Sh
             }
         }
         thread::sleep(POLL * 4);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::Shared;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn waiting_for_a_page_stops_when_its_window_is_gone() {
+        let shared: SharedRef = Arc::new(Mutex::new(Shared::default()));
+        let start = Instant::now();
+        let out = wait_for_load(&shared, 2, 7, 0);
+        assert!(start.elapsed() < LOAD_TIMEOUT, "it did not wait for the timeout");
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["error"], "La ventana 2 se cerró antes de que la página cargara.");
+    }
+
+    #[test]
+    fn requests_wait_for_every_saved_window_to_reopen() {
+        use crate::vault::Vault;
+        use std::path::Path;
+        let shared: SharedRef = Arc::new(Mutex::new(Shared::default()));
+        {
+            let mut s = shared.lock().unwrap();
+            s.restoring = true;
+            s.window_mut(1).vault = Some(Arc::new(Vault::open(Path::new("/tmp/visor-a"))));
+            s.focused_window = Some(1);
+        }
+        let restorer = {
+            let shared = shared.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                let mut s = shared.lock().unwrap();
+                s.window_mut(2).vault = Some(Arc::new(Vault::open(Path::new("/tmp/visor-b"))));
+                s.restoring = false;
+                LOADED.notify_all();
+            })
+        };
+        let target = target_once_open(&shared, None, Some(Path::new("/tmp/visor-b/x.md")));
+        restorer.join().unwrap();
+        assert_eq!(target, Ok(2));
     }
 }

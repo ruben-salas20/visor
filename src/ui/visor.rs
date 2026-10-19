@@ -98,6 +98,7 @@ pub fn launch() -> i32 {
         claim: Some(claim),
         loose,
     };
+    visor.shared.lock().unwrap().restoring = true;
     for state in states {
         let workspace = Some(state.workspace.clone()).filter(|w| !w.panes.is_empty());
         visor.open_window(&event_loop, state, workspace, loose, None);
@@ -106,6 +107,8 @@ pub fn launch() -> i32 {
         visor.focus(w);
         visor.apps[&w].present(None);
     }
+    visor.shared.lock().unwrap().restoring = false;
+    LOADED.notify_all();
     let _theme_watcher = theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, process, |_| UserEvent::ThemeChanged));
     // Once the windows and their first pages exist, so the check never delays them.
     if auto_update {
@@ -190,8 +193,6 @@ impl Visor {
             let mut shared = self.shared.lock().unwrap();
             shared.window_mut(w);
             shared.focused_window = Some(w);
-            // A request that came in before the first window waits for it.
-            LOADED.notify_all();
         }
         let proxy = Proxy::new(w, self.loop_proxy.clone());
         let mut app = App::new(target, proxy, self.shared.clone(), self.common.clone(), &state, loose);
