@@ -1,0 +1,49 @@
+// The frame's copy of what Rust sent. Each snapshot replaces its area whole;
+// components read their area with `useArea`.
+
+import { useSyncExternalStore } from 'react'
+import type { BarState } from './areas/bar/protocol'
+import type { FilesState, Tree } from './areas/files/protocol'
+import type { Status } from './areas/settings/protocol'
+import type { SidesState } from './areas/sides/protocol'
+import { listen, type Colors, type ToFrame } from './protocol'
+import { applyColors } from './theme'
+
+export type Store = {
+  tree: Tree
+  files: FilesState
+  sides: SidesState
+  bar: BarState
+  status: Status
+}
+
+let state: Store = {
+  tree: { root: null },
+  files: { shown: true, vault: null, current: null },
+  sides: { sides: [], focused: 0 },
+  bar: { sides: [] },
+  status: { vault: null, kind: 'empty', zoom: 1, version: '', update: null },
+}
+
+const listeners = new Set<() => void>()
+
+function receive(m: ToFrame) {
+  const { area, ...rest } = m
+  if (area === 'theme') {
+    applyColors(rest as Colors)
+    return
+  }
+  state = { ...state, [area]: rest }
+  for (const f of listeners) f()
+}
+
+listen(receive)
+
+function subscribe(f: () => void) {
+  listeners.add(f)
+  return () => listeners.delete(f)
+}
+
+export function useArea<K extends keyof Store>(area: K): Store[K] {
+  return useSyncExternalStore(subscribe, () => state[area])
+}
