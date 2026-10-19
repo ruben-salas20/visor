@@ -1,0 +1,88 @@
+name: W4 funciones de WebView2 (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "spikes/w4-funciones/**"
+      - "!spikes/w4-funciones/README.md"
+      - ".github/workflows/windows-w4.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probar:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: spikes/w4-funciones
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar WebView2 Runtime
+        id: runtime
+        run: |
+          $clave = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          if (-not $pv) {
+            Write-Host 'WebView2 Runtime no encontrado; instalando el bootstrapper.'
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe"
+            Start-Process -Wait -FilePath "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent','/install'
+            $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          }
+          Write-Host "WebView2 Runtime pv: $pv"
+          "pv=$pv" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/w4-funciones
+
+      - name: Compilar (release)
+        run: cargo build --release
+
+      # One run per test. External limit of 120 s; the program gives up at 90 s.
+      - name: Ejecutar pruebas
+        run: |
+          New-Item -ItemType Directory -Force -Path resultados | Out-Null
+          $pruebas = @('captura', 'pantalla', 'fallos', 'estilo', 'zoom', 'foco', 'lateral')
+          foreach ($nombre in $pruebas) {
+            $base = "resultados\$nombre"
+            $p = Start-Process -FilePath .\target\release\w4-funciones.exe `
+              -ArgumentList @('--auto', "$base.json", '--prueba', $nombre) -PassThru -NoNewWindow `
+              -RedirectStandardOutput "$base.stdout.txt" -RedirectStandardError "$base.stderr.txt"
+            Wait-Process -Id $p.Id -Timeout 120 -ErrorAction SilentlyContinue
+            if (-not $p.HasExited) {
+              taskkill /T /F /PID $p.Id | Out-Null
+              $estado = 'colgado'
+            } elseif ($p.ExitCode -eq 0) { $estado = 'ok' }
+            else { $estado = "salida $($p.ExitCode)" }
+            Write-Host "$nombre -> $estado"
+            Set-Content -Path "$base.estado.txt" -Value $estado -Encoding utf8
+          }
+
+      - name: Resumen
+        if: always()
+        run: |
+          $salida = @("WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}", '', '| prueba | estado | ok | resultado | motivo |', '|---|---|---|---|---|')
+          foreach ($nombre in @('captura', 'pantalla', 'fallos', 'estilo', 'zoom', 'foco', 'lateral')) {
+            $f = "resultados\$nombre.estado.txt"
+            $estado = if (Test-Path $f) { (Get-Content $f -Raw).Trim() } else { 'sin ejecutar' }
+            $d = $null
+            if (Test-Path "resultados\$nombre.json") { $d = Get-Content "resultados\$nombre.json" -Raw | ConvertFrom-Json }
+            $motivo = if ($d) { ($d.motivo -replace '\|', '/') } else { '' }
+            $salida += "| $nombre | $estado | $(if ($d) { $d.ok } else { 'sin JSON' }) | $(if ($d) { $d.resultado } else { '' }) | $motivo |"
+          }
+          $salida -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $salida -join "`n" | Out-File -FilePath resultados\resumen.md -Encoding utf8
+          $salida -join "`n" | Write-Host
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w4-funciones-resultados
+          path: spikes/w4-funciones/resultados/
