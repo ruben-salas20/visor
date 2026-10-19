@@ -898,6 +898,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn wire_survives_paths_that_are_not_utf8() {
         use std::os::unix::ffi::OsStringExt;

@@ -8,7 +8,7 @@ pub(crate) mod front_matter;
 pub mod links;
 pub mod markdown;
 pub mod pdf;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod walk_tests;
 
 use crate::i18n::tr;
@@ -773,6 +773,7 @@ mod tests {
     }
 
     /// A vault in a temporary folder, plus a file outside it that links try to reach.
+    #[cfg(unix)]
     fn make(name: &str) -> (Vault, PathBuf) {
         use std::os::unix::fs::symlink;
         let dir = std::env::temp_dir().join(format!("visor-vault-{name}-{}", std::process::id()));
@@ -791,6 +792,7 @@ mod tests {
         (Vault::open(&root), dir)
     }
 
+    #[cfg(unix)]
     #[test]
     fn resolve_stays_inside() {
         let (vault, dir) = make("resolve");
@@ -810,6 +812,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn nfd_names_are_found_by_nfc_and_back() {
         bases();
@@ -837,6 +840,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn entry_and_folder() {
         let (vault, dir) = make("entry");
@@ -854,6 +858,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn page_and_note() {
         bases();
@@ -886,6 +891,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn pdf_is_annotable_but_not_editable() {
         bases();
@@ -926,6 +932,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn access_by_url() {
         bases();
@@ -967,6 +974,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn agents_read_only_visor_pages() {
         bases();
@@ -982,6 +990,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn new_in_checks_name_and_folder() {
         let (vault, dir) = make("new");
@@ -1011,6 +1020,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn write_atomic_goes_through_links_and_keeps_permissions() {
         use std::os::unix::fs::{PermissionsExt, symlink};

@@ -337,6 +337,7 @@ mod tests {
         assert!(!data_too_big(&json!({ "annotation": { "text": "x".repeat(MAX_EVENT_DATA * 2) } })));
     }
 
+    #[cfg(unix)]
     #[test]
     fn status_survives_a_vault_path_that_is_not_utf8() {
         use std::os::unix::ffi::OsStringExt;

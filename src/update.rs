@@ -274,6 +274,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
     fn installs_only_a_matching_download() {
         let dir = std::env::temp_dir().join(format!("visor-update-{}", std::process::id()));

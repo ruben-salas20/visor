@@ -310,6 +310,7 @@ mod tests {
         fs::remove_dir_all(home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn non_utf8_vault_is_refused_and_saving_does_not_panic() {
         use std::os::unix::ffi::OsStringExt;

@@ -303,6 +303,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn loose_pages_read_their_folder_but_nothing_hidden() {
         let dir = std::env::temp_dir().join(format!("visor-loose-{}", std::process::id()));

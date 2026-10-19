@@ -155,6 +155,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn note_target_refuses_bad_paths_and_creates_nothing() {
         use std::os::unix::fs::symlink;
