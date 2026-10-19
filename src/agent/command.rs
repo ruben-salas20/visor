@@ -490,9 +490,7 @@ impl Request {
         Ok(Self { command: Command::from_mcp(tool, &Value::Object(map))?, window })
     }
 
-    /// Reads a request from the socket. Only the tests read it for now: the server
-    /// still uses `Command::from_wire` until it selects windows.
-    #[allow(dead_code)]
+    /// Reads a request from the socket line.
     pub fn from_wire(request: &Value) -> Result<Self, String> {
         let command = Command::from_wire(request)?;
         let window = match &request["window"] {

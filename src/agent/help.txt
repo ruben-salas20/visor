@@ -41,8 +41,10 @@ USE
                              loading), "errors" (errors in its console),
                              "sides" (tabs of each side: "list" from left
                              to right, and "active"), "focused" (the side
-                             with focus) and "last_event_id" (for
-                             events --after).
+                             with focus), "window" (the window it describes),
+                             "windows" (every open window: its "window",
+                             whether it is "focused" and its "vault") and
+                             "last_event_id" (for events --after).
   visor reload               Reloads the current page. Returns the same
                              as open.
   visor console [--errors] [--clear]
@@ -69,7 +71,8 @@ USE
                              annotations. With no options, the last 20
                              (1000 are kept, also after a restart). With
                              --wait, waits up to SEC seconds (maximum 600)
-                             for a new one to arrive.
+                             for a new one to arrive. Each event has
+                             "window": the number of the window it came from.
   visor notes [path|--all]   Annotations of the open page, of another
                              page or of the whole vault (a path and --all
                              cannot be combined). For the open page,

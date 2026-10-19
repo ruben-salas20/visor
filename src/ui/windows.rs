@@ -16,6 +16,18 @@ pub fn first_view_id(w: WinId) -> u64 {
     w << 40
 }
 
+/// `Windows::target` for any owner of the windows: `open` tells whether a window exists.
+pub fn target_in(focused: Option<WinId>, open: impl Fn(WinId) -> bool, asked: Option<u64>) -> Result<WinId, String> {
+    let Some(focused) = focused else {
+        return Err(crate::i18n::tr("No hay ninguna ventana abierta", "No window is open").into());
+    };
+    match asked {
+        None => Ok(focused),
+        Some(n) if open(n) => Ok(n),
+        Some(n) => Err(trf!("No hay ninguna ventana con el número {n}", "There is no window number {n}")),
+    }
+}
+
 #[derive(Default)]
 pub struct Windows {
     /// Open windows, in opening order.
@@ -92,14 +104,7 @@ impl Windows {
 
     /// The window an agent's request goes to: the one asked for, or the focused one.
     pub fn target(&self, asked: Option<u64>) -> Result<WinId, String> {
-        let Some(focused) = self.focused else {
-            return Err(crate::i18n::tr("No hay ninguna ventana abierta", "No window is open").into());
-        };
-        match asked {
-            None => Ok(focused),
-            Some(n) if self.contains(n) => Ok(n),
-            Some(n) => Err(trf!("No hay ninguna ventana con el número {n}", "There is no window number {n}")),
-        }
+        target_in(self.focused, |w| self.contains(w), asked)
     }
 
     /// The window for `visor open <file>` without `--window`: a window that

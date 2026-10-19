@@ -2,6 +2,7 @@ use crate::i18n::tr;
 use crate::trf;
 use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, Shared, SharedRef, SizeReply, ValueReply, push_console, push_event};
+use crate::ui::windows::{WinId, Windows};
 use crate::ui::action::{Action, LoadFailure, RestartCheck, SidebarMsg, UserEvent};
 use crate::ui::address::{self, Engine, Plan};
 use crate::ui::bar::Bar;
@@ -90,10 +91,15 @@ pub fn launch() -> i32 {
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
-    let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
+    // One window for now. The socket server already addresses windows by id.
+    let win = Windows::new().open();
+    let mut state = Shared::with_saved_events();
+    state.focused_window = Some(win);
+    state.window_mut(win);
+    let shared: SharedRef = Arc::new(Mutex::new(state));
     let agent_proxy = proxy.clone();
-    crate::agent::server::spawn(listener, shared.clone(), move |request| {
-        let _ = agent_proxy.send_event(UserEvent::Agent(request));
+    crate::agent::server::spawn(listener, shared.clone(), move |window, request| {
+        let _ = agent_proxy.send_event(UserEvent::Agent(window, request));
     });
 
     let mut config = Config::load();
@@ -194,6 +200,7 @@ pub fn launch() -> i32 {
         paned,
         styles,
         shared,
+        win,
         proxy: proxy.clone(),
         config,
         config_dirty: false,
@@ -363,6 +370,8 @@ struct App {
     paned: gtk::Paned,
     styles: gtk::CssProvider,
     shared: SharedRef,
+    /// The window this app runs. Agents address it by id.
+    win: WinId,
     proxy: EventLoopProxy<UserEvent>,
     config: Config,
     /// Changes in `config` not yet written, and whether a write is already scheduled.
@@ -377,7 +386,7 @@ struct App {
 
 impl App {
     fn vault(&self) -> Option<Arc<Vault>> {
-        self.shared.lock().unwrap().vault.clone()
+        self.shared.lock().unwrap().window(self.win).and_then(|w| w.vault.clone())
     }
 
     /// The URL prefix of the open vault's pages. With no vault open, the default base.
@@ -411,7 +420,7 @@ impl App {
 
     fn focused_file(&self) -> Option<String> {
         let shared = self.shared.lock().unwrap();
-        shared.page().file.clone()
+        shared.focused_page(self.win).file.clone()
     }
 
     fn view_of(&self, view: u64) -> Option<&WebView> {
@@ -479,8 +488,9 @@ impl App {
         self.publish();
         {
             let mut shared = self.shared.lock().unwrap();
-            shared.vault = root.as_deref().map(|r| Arc::new(Vault::open(r)));
-            shared.pages.clear();
+            let w = shared.window_mut(self.win);
+            w.vault = root.as_deref().map(|r| Arc::new(Vault::open(r)));
+            w.pages.clear();
         }
         self.watcher = None;
         if let Some(root) = &root {
@@ -510,9 +520,10 @@ impl App {
         let focused = self.tabs.focused_view().unwrap_or(0);
         let root = {
             let mut shared = self.shared.lock().unwrap();
-            shared.layout = self.tabs.layout();
-            shared.focused = focused;
-            shared.vault.as_ref().map(|v| v.path().to_path_buf())
+            let w = shared.window_mut(self.win);
+            w.layout = self.tabs.layout();
+            w.focused = focused;
+            w.vault.as_ref().map(|v| v.path().to_path_buf())
         };
         self.watch_loose();
         let Some(root) = root else { return };
@@ -572,7 +583,7 @@ impl App {
                     self.find_forget_all(view);
                     self.views.retain(|(id, _)| *id != view);
                     self.documents.remove(&view);
-                    self.shared.lock().unwrap().pages.remove(&view);
+                    self.shared.lock().unwrap().window_mut(self.win).pages.remove(&view);
                 }
                 Effect::MoveView { view, from, to } => {
                     // Views move to the other side's container; WebKit keeps the page loaded.
@@ -585,7 +596,7 @@ impl App {
                 }
                 Effect::Navigate { view, target, fragment } => {
                     if let Some(v) = self.view_of(view) {
-                        let before = self.shared.lock().unwrap().page_of(view).load_seq;
+                        let before = self.shared.lock().unwrap().page_of(self.win, view).load_seq;
                         self.load_into(v, &target, &fragment);
                         loading.get_or_insert((view, before));
                     }
@@ -634,7 +645,7 @@ impl App {
         view.webview().set_visible(false);
         self.style_view(&view);
         view.webview().set_zoom_level(self.config.zoom.unwrap_or(1.0));
-        self.shared.lock().unwrap().pages.insert(id, Page::default());
+        self.shared.lock().unwrap().window_mut(self.win).pages.insert(id, Page::default());
         self.load_into(&view, target, fragment);
         self.views.push((id, view));
         true
@@ -673,8 +684,9 @@ impl App {
         } else if vault::is_loose(target) {
             if let Some(dir) = Path::new(target).parent() {
                 let mut shared = self.shared.lock().unwrap();
-                if !shared.loose.iter().any(|d| d == dir) {
-                    shared.loose.push(dir.to_path_buf());
+                let loose = &mut shared.window_mut(self.win).loose;
+                if !loose.iter().any(|d| d == dir) {
+                    loose.push(dir.to_path_buf());
                 }
             }
             let _ = view.load_url(&format!("{}{fragment}", vault::loose_url(target)));
@@ -786,7 +798,7 @@ impl App {
     }
 
     fn is_pdf_view(&self, id: u64) -> bool {
-        self.shared.lock().unwrap().page_of(id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)))
+        self.shared.lock().unwrap().page_of(self.win, id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)))
     }
 
     /// A PDF has the zoom of its own viewer, which draws the canvases at the
@@ -836,7 +848,7 @@ impl App {
         let code = page_calls::theme_changed(theme.dark);
         let shared = self.shared.lock().unwrap();
         for (id, view) in &self.views {
-            if shared.page_of(*id).file.is_some() {
+            if shared.page_of(self.win, *id).file.is_some() {
                 let _ = view.evaluate_script(&code);
             }
         }
@@ -847,7 +859,7 @@ impl App {
     /// because its address or error text could carry instructions for agents.
     fn resource_failed(&self, view: u64, uri: &str, reason: LoadFailure) {
         let mut shared = self.shared.lock().unwrap();
-        if shared.page_of(view).file.is_none() {
+        if shared.page_of(self.win, view).file.is_none() {
             return;
         }
         let why = match reason {
@@ -869,7 +881,7 @@ impl App {
         } else {
             trf!("No se pudo cargar un recurso de {} ({why})", "Could not load a resource from {} ({why})", host_of(uri))
         };
-        push_console(&mut shared, view, "error", &text);
+        push_console(&mut shared, self.win, view, "error", &text);
     }
 
     /// Marks the settings as changed and writes them once, shortly after,
@@ -936,7 +948,7 @@ impl App {
             UserEvent::PageLoaded(view) => {
                 {
                     let mut shared = self.shared.lock().unwrap();
-                    let Some(page) = shared.pages.get_mut(&view) else { return };
+                    let Some(page) = shared.windows.get_mut(&self.win).and_then(|w| w.pages.get_mut(&view)) else { return };
                     page.loaded = true;
                     page.load_seq += 1;
                     crate::session::LOADED.notify_all();
@@ -958,18 +970,23 @@ impl App {
                     self.focus_pane(p, false);
                 }
             }
-            UserEvent::Agent(AgentRequest::Open { path, raw, place, loose, reply }) => {
-                let _ = reply.send(self.open(path, &raw, place, loose));
+            UserEvent::Agent(window, request) => {
+                debug_assert_eq!(window, self.win, "an agent order reached the wrong window");
+                match request {
+                    AgentRequest::Open { path, raw, place, loose, reply } => {
+                        let _ = reply.send(self.open(path, &raw, place, loose));
+                    }
+                    AgentRequest::OpenUrl { url, place, reply } => {
+                        let _ = reply.send(Ok(self.open_in(url, place)));
+                    }
+                    AgentRequest::Close { target, reply } => {
+                        let _ = reply.send(self.close_for_agent(target));
+                    }
+                    AgentRequest::Reload => self.act(Action::Reload),
+                    AgentRequest::Eval { code, reply } => self.eval_for_agent(&code, reply),
+                    AgentRequest::Screenshot { path, reply } => self.screenshot_for_agent(path, reply),
+                }
             }
-            UserEvent::Agent(AgentRequest::OpenUrl { url, place, reply }) => {
-                let _ = reply.send(Ok(self.open_in(url, place)));
-            }
-            UserEvent::Agent(AgentRequest::Close { target, reply }) => {
-                let _ = reply.send(self.close_for_agent(target));
-            }
-            UserEvent::Agent(AgentRequest::Reload) => self.act(Action::Reload),
-            UserEvent::Agent(AgentRequest::Eval { code, reply }) => self.eval_for_agent(&code, reply),
-            UserEvent::Agent(AgentRequest::Screenshot { path, reply }) => self.screenshot_for_agent(path, reply),
             UserEvent::Picked(Some(path)) => self.show_vault(Some(path)),
             UserEvent::Picked(None) => {}
             UserEvent::VaultChanged(changed) => self.vault_changed(changed),
@@ -1361,7 +1378,7 @@ impl App {
         }
         {
             let mut shared = self.shared.lock().unwrap();
-            if let Some(page) = shared.pages.get_mut(&view) {
+            if let Some(page) = shared.windows.get_mut(&self.win).and_then(|w| w.pages.get_mut(&view)) {
                 page.file = file.clone();
                 page.url = (file.is_none() && is_web(&url)).then(|| url.clone());
                 page.loaded = false;
@@ -1479,7 +1496,7 @@ impl App {
                     self.config.current = self.config.vaults.first().cloned();
                     self.save_config_soon();
                     // The removed vault must not get its workspace saved back.
-                    self.shared.lock().unwrap().vault = None;
+                    self.shared.lock().unwrap().window_mut(self.win).vault = None;
                     let next = self.config.current.clone();
                     self.show_vault(next);
                 } else {
@@ -1572,7 +1589,7 @@ impl App {
                 }
             }
             PageMsg::AnnotStatus { orphans, total } if trusted => {
-                if let Some(page) = self.shared.lock().unwrap().pages.get_mut(&view) {
+                if let Some(page) = self.shared.lock().unwrap().windows.get_mut(&self.win).and_then(|w| w.pages.get_mut(&view)) {
                     page.orphans = (total > 0).then_some(orphans);
                 }
             }
@@ -1596,12 +1613,12 @@ impl App {
                 }
             }
             PageMsg::Console { level, text } if local => {
-                push_console(&mut self.shared.lock().unwrap(), view, &level, &text);
+                push_console(&mut self.shared.lock().unwrap(), self.win, view, &level, &text);
             }
             PageMsg::Event { data } if local => {
                 let mut shared = self.shared.lock().unwrap();
-                let file = shared.page_of(view).file.clone();
-                push_event(&mut shared, json!({ "file": file, "data": data }));
+                let file = shared.page_of(self.win, view).file.clone();
+                push_event(&mut shared, json!({ "file": file, "data": data }), Some(self.win));
             }
             _ => {}
         }
@@ -1612,7 +1629,7 @@ impl App {
     /// so it cannot pass as one of these.
     fn note_annotation(&self, file: &str, id: &str, action: &str, text: &str) {
         let mut shared = self.shared.lock().unwrap();
-        push_event(&mut shared, json!({ "file": file, "annotation": { "id": id, "action": action, "text": text } }));
+        push_event(&mut shared, json!({ "file": file, "annotation": { "id": id, "action": action, "text": text } }), Some(self.win));
     }
 
     /// Runs an annotation change for the page at `url`, which must be a real
@@ -1628,7 +1645,7 @@ impl App {
     /// The note a page loaded from `url` may write: one of the vault, or a loose note's own file.
     fn note_path(&mut self, url: &str) -> Result<PathBuf, String> {
         if vault::access(url, self.vault().as_deref()) == Access::Local {
-            return vault::loose_note(url, &self.shared.lock().unwrap().loose);
+            return vault::loose_note(url, &self.shared.lock().unwrap().loose_folders());
         }
         Ok(self.open_vault()?.note(url)?.1)
     }
@@ -1853,7 +1870,7 @@ impl App {
             }
         }
         self.loose_watchers.sync(&dirs, &self.proxy);
-        self.shared.lock().unwrap().loose = dirs;
+        self.shared.lock().unwrap().window_mut(self.win).loose = dirs;
     }
 
     fn live_pages(&self) -> Vec<(u64, Option<String>, &str)> {

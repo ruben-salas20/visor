@@ -135,7 +135,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         return;
     }
     if realm == Realm::Loose {
-        let allowed = shared.lock().unwrap().loose.clone();
+        let allowed = shared.lock().unwrap().loose_folders();
         let range = value("Range");
         match vault::loose_file(Path::new(&rel), &allowed) {
             Some((path, folder)) if vault::is_markdown(&path) => {
@@ -148,7 +148,7 @@ fn handle(request: Request, realm: Realm, shared: &SharedRef, prefix: &str, host
         }
         return;
     }
-    let Some(vault) = shared.lock().unwrap().vault.clone() else {
+    let Some(vault) = shared.lock().unwrap().served_vault() else {
         let _ = request.respond(text(404, tr("No hay ninguna bóveda abierta", "No vault is open")));
         return;
     };

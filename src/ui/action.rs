@@ -2,6 +2,7 @@
 //! agent server and the file watchers, and the actions the controls trigger.
 
 use crate::session::AgentRequest;
+use crate::ui::windows::WinId;
 use std::path::PathBuf;
 
 /// What the person did in the panel. Paths are relative to the vault and
@@ -32,8 +33,8 @@ pub enum UserEvent {
     PageLoaded(u64),
     /// A page view got the keyboard focus.
     Focused(u64),
-    /// An order from the agent socket server.
-    Agent(AgentRequest),
+    /// An order from the agent socket server, for the window it names.
+    Agent(WinId, AgentRequest),
     Picked(Option<PathBuf>),
     VaultChanged(Vec<PathBuf>),
     LooseChanged(Vec<PathBuf>),
