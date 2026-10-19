@@ -151,6 +151,8 @@ pub(super) struct App {
     host: Host,
     /// What the frame was last sent; see `app/frame.rs`.
     frame: frame::Sent,
+    /// The address fields' counts, by side; see `app/bar.rs`.
+    address: HashMap<u64, bar::Marks>,
     tabs: Tabs,
     /// The live pages' views, by view id.
     views: Vec<(u64, WebView)>,
@@ -221,6 +223,7 @@ impl App {
         App {
             host,
             frame: frame::Sent::default(),
+            address: HashMap::new(),
             tabs,
             views: vec![],
             documents: HashMap::new(),
@@ -841,7 +844,6 @@ impl App {
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => self.sidebar_shown = !self.sidebar_shown,
             Action::FocusAddress => self.focus_address(),
-            Action::AddressDone => {}
             Action::ToggleBar => {
                 self.cfg_mut(|c| c.bar_shown = !c.bar_shown);
                 self.save_config_soon();
@@ -893,11 +895,6 @@ impl App {
             Action::Find => self.find(),
             Action::FindNative => self.open_find(),
             Action::Settings => self.open_settings(),
-            Action::LeaveAddress => {
-                if let Some(view) = self.view() {
-                    view.webview().grab_focus();
-                }
-            }
             Action::Go(text) => self.go(&text),
             Action::PickElement => self.page_call(page_calls::annot_pick_element()),
             Action::ToggleAnnotations => self.page_call(page_calls::annot_toggle_panel()),

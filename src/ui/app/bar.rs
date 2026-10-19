@@ -1,6 +1,6 @@
 //! Area C, the address row of each side: back, forward, reload, the path of
-//! the page and the annotation buttons. Frame side: `marco/src/areas/bar/`.
-//! Still to come: typing an address (`go`, Ctrl+L) and its error state.
+//! the page, the address field and the annotation buttons. Frame side:
+//! `marco/src/areas/bar/`, which draws the field and sends what was typed.
 
 use super::App;
 use crate::session::Place;
@@ -12,6 +12,13 @@ use std::path::PathBuf;
 use webkit2gtk::WebViewExt;
 use wry::WebViewExtUnix;
 
+/// Counts the two things the frame must react to, per side. Each count only goes up.
+#[derive(Default, Clone, Copy)]
+pub(super) struct Marks {
+    edit: u64,
+    refused: u64,
+}
+
 impl App {
     pub(super) fn on_bar(&mut self, msg: Msg) {
         let (side, action) = match msg {
@@ -20,10 +27,24 @@ impl App {
             Msg::Reload { side } => (side, Action::Reload),
             Msg::PickElement { side } => (side, Action::PickElement),
             Msg::ToggleAnnotations { side } => (side, Action::ToggleAnnotations),
+            Msg::Go { side, text } => (side, Action::Go(text)),
+            Msg::Leave { side } => {
+                if let Some(p) = self.side_index(side) {
+                    self.focus_pane(p, true);
+                }
+                return;
+            }
         };
         let Some(p) = self.side_index(side) else { return };
         self.focus_pane(p, false);
+        let go = matches!(action, Action::Go(_));
+        let refused = self.address.get(&side).map_or(0, |m| m.refused);
         self.act(action);
+        // Like a browser, the keys go back to the page once it is on its way;
+        // a refused address keeps them in the field, which stays open.
+        if go && self.address.get(&side).map_or(0, |m| m.refused) == refused {
+            self.focus_pane(p, true);
+        }
     }
 
     pub(super) fn bar_state(&self) -> State {
@@ -34,21 +55,26 @@ impl App {
             .map(|side| {
                 let target = side.tab().target();
                 let view = side.tab().view().and_then(|id| self.view_of(id)).map(|v| v.webview());
+                let marks = self.address.get(&side.id()).copied().unwrap_or_default();
                 Address {
                     side: side.id(),
                     target: target.to_string(),
                     back: view.as_ref().is_some_and(WebViewExt::can_go_back),
                     forward: view.as_ref().is_some_and(WebViewExt::can_go_forward),
                     annotations: !target.is_empty() && !vault::is_web(target) && !vault::is_loose(target),
+                    edit: marks.edit,
+                    refused: marks.refused,
                 }
             })
             .collect();
         State { sides }
     }
 
-    /// Ctrl+L and Ctrl+T: the cursor goes to the focused side's address.
+    /// Ctrl+L and Ctrl+T: the keys go to the frame, and the focused side's address field opens.
     pub(super) fn focus_address(&mut self) {
-        // Phase 1.
+        let side = self.tabs.focused_side().id();
+        self.address.entry(side).or_default().edit += 1;
+        self.host.focus_frame();
     }
 
     /// Resolves what was typed in the address field: a URL, a vault path, an
@@ -83,8 +109,9 @@ impl App {
         }
     }
 
-    /// What was typed in the address leads nowhere.
+    /// What was typed in the address leads nowhere: the frame marks the focused side's field.
     fn address_error(&mut self) {
-        // Phase 1 marks the field.
+        let side = self.tabs.focused_side().id();
+        self.address.entry(side).or_default().refused += 1;
     }
 }

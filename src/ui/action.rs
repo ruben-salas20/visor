@@ -144,17 +144,11 @@ pub enum Action {
     Back,
     Forward,
     FocusAddress,
-    // Phase 1, area C: typing in the address.
-    #[allow(dead_code)]
-    LeaveAddress,
-    /// The address field lost focus; a hidden bar hides again.
-    #[allow(dead_code)]
-    AddressDone,
     NewNote,
     ToggleEdit,
     PickElement,
     ToggleAnnotations,
-    #[allow(dead_code)]
+    /// The text typed in the address field, from the frame.
     Go(String),
     NewTab,
     /// Closes the tab with this id, or the focused one.

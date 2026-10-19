@@ -199,7 +199,7 @@ impl App {
         self.panel.form = Some(Form { dir, folder, error: None, id });
         self.sidebar_shown = true;
         // Ctrl+N may come while a page has the keyboard.
-        self.host.focus();
+        self.host.focus_frame();
     }
 
     /// The tree changed on disk, or what it lists: it is sent again after the event.

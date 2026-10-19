@@ -98,8 +98,8 @@ impl Host {
         let _ = self.frame.evaluate_script(&format!("window.__visorFrame.receive({json})"));
     }
 
-    /// Gives the frame the keyboard, so a field in it can take what is typed.
-    pub fn focus(&self) {
+    /// Gives the keyboard focus to the frame, so its fields take the typing.
+    pub fn focus_frame(&self) {
         self.frame.webview().grab_focus();
     }
 
