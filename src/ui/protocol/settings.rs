@@ -42,6 +42,8 @@ pub struct Status {
     /// The pages' zoom, 1.0 for 100 %.
     pub zoom: f64,
     pub version: &'static str,
+    /// The interface language in use, `"es"` or `"en"`: the frame's texts follow it.
+    pub lang: &'static str,
     /// The last result of an update check or a restart, if any.
     pub update: Option<String>,
     /// An update check is running: its button waits.
@@ -84,6 +86,34 @@ mod tests {
     fn a_closed_panel_names_the_panel() {
         let msg: Msg = serde_json::from_str(r#"{"type":"closed","panel":"shortcuts"}"#).unwrap();
         assert_eq!(msg, Msg::Closed { panel: Panel::Shortcuts });
+    }
+
+    /// The frame picks its texts from `lang`, so the status must always carry it.
+    #[test]
+    fn the_status_carries_the_language() {
+        let status = Status {
+            vault: None,
+            kind: crate::ui::protocol::sides::Kind::Empty,
+            zoom: 1.0,
+            version: "test",
+            lang: "en",
+            update: None,
+            update_busy: false,
+            update_restart: false,
+            language_pending: false,
+            prefs: Prefs {
+                theme: None,
+                language: None,
+                search_engine: "duckduckgo".into(),
+                engines: Vec::new(),
+                auto_update: true,
+                show_other: true,
+            },
+            settings_open: false,
+            shortcuts_open: false,
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["lang"], "en");
     }
 
     #[test]
