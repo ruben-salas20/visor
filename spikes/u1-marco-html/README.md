@@ -58,3 +58,12 @@ Causa probable del problema 1: el entorno, no el marco. En el sway sin pantalla 
 ## Siguiente paso propuesto
 
 Aislar por qué el puntero no llega al marco. Un buen primer paso es repetir el clic en una ventana GTK vacía dentro del mismo sway. Si esa ventana sí recibe el clic, el problema está en el marco. Esto no está hecho.
+
+## Después de la revisión (2026-10-19)
+
+- **Prueba a mano en Hyprland (usuario):** clic en el árbol, arrastre del árbol a una página, Ctrl+W con el foco en una página y redimensionar funcionan. Al encoger la ventana, el contenido salía estrechado y quedaba una franja vacía abajo.
+- **Arreglo del encogido:** el marco es ahora el hijo principal de un `gtk::Overlay` (sigue el tamaño de la ventana) y las páginas van en un `gtk::Fixed` superpuesto con `set_overlay_pass_through`. Comprobado en sway sin pantalla a escala 1,25 y a media pantalla, y por el usuario en Hyprland.
+- **Tres marcos con el mismo protocolo:** `--marco simple` (`web/marco.html`), `--marco react` (React 19 + shadcn/ui + Tailwind 4, fuente en `marcos/react/`) y `--marco svelte` (Svelte 5 + shadcn-svelte, fuente en `marcos/svelte/`). Los tres pasan a–e. Capturas con prefijo `react-` y `svelte-`.
+- **Un solo `WebContext`** para todas las vistas, como visor: con uno por vista, wry arranca más procesos y la memoria no es comparable.
+- **Medidas** (`pruebas/medir.py` y `pruebas/medir_visor.py`): ver la tabla «Resultados» de `docs/plan-multiplataforma.md`.
+- **Decisión del usuario:** opción A con React, cargando solo los componentes que se ven.

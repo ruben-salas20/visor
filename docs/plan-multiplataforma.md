@@ -21,9 +21,17 @@ Reglas del proyecto que se mantienen:
 
 - **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`, ya subida a GitHub. Se fusionó con `main` el 2026-10-19, después de las varias ventanas (#39). Si `main` ha avanzado, `git merge main` (no `rebase`: la rama ya está publicada).
 - **Qué leer:** `AGENTS.md`, `CONTEXT.md`, `docs/informe-multiplataforma.md`, este plan y `docs/pruebas.md`. El ADR 0001 (por qué wry y no GPUI) y los 0002, 0003, 0033 y 0035 son los que más se tocan.
-- **Estado (2026-10-19):** L1, L2, W1, W2 y W3 hechos; resultados en «Resultados» y decisiones en «Decisiones del usuario». G1 y G3 decididas; G2 (qué interfaz) sigue abierta.
-- **Siguiente paso:** dividir la construcción en tareas (ver «Siguiente fase»), y después W4, W5, W6, U1 y U2.
-- **Permisos:** subir la rama del worktree y lanzar su CI está autorizado. **Sin permiso explícito:** tocar `main`, instalar nada con `sudo`, cambiar ADR, comentar en el issue 35 (el repositorio es público) y abrir visor en el escritorio del usuario o medir rendimiento.
+- **Estado (2026-10-19):** L1, L2, L3 (parcial), W1, W2, W3, U1 y U2 hechos; resultados en «Resultados» y decisiones en «Decisiones del usuario». **Las tres puertas están decididas:** G1 pasa con winit en Windows, G2 es la opción A (marco en HTML con React + shadcn/ui, cargando solo los componentes que se ven) y G3 deja fuera RHEL 9 y Alpine.
+- **Siguiente paso:** el usuario elige por dónde seguir (ver «Siguiente fase»): probar el prototipo U1 en Windows en CI con winit, empezar la fase 1 (costuras) o proponer los cambios de los ADR 0001 y 0004.
+- **Permisos:** subir la rama del worktree y lanzar su CI está autorizado. **Sin permiso explícito:** tocar `main`, instalar nada con `sudo`, cambiar ADR, comentar en el issue 35 (el repositorio es público), abrir ventanas en el escritorio del usuario (Hyprland) y medir rendimiento. Las pruebas funcionales en un sway sin pantalla y `cargo test` no necesitan permiso.
+- **Prototipos útiles:**
+  - `spikes/u1-marco-html/`: marco en HTML con dos páginas. `--marco simple|react|svelte` elige la implementación (fuentes en `marcos/`, compilados en `web/`; `npm install && npm run build` en cada `marcos/*`). `pruebas/ejecutar.sh --marco X` pasa las pruebas a–g en un sway sin pantalla; `pruebas/medir.py` mide los tres marcos y `pruebas/medir_visor.py VISOR` los compara con visor.
+  - `spikes/u2-toolkit-rust/`, `spikes/w2-webviews/`, `spikes/w3-committed/`, `spikes/w1-check/`, `spikes/linux/`: ver su README o la cabecera de sus scripts.
+- **Lecciones de esta fase:**
+  - El sway sin pantalla no tiene ratón (`swaymsg -t get_seats` muestra `seat0` sin dispositivos): el clic, el arrastre y parte del foco solo se prueban a mano en el escritorio del usuario, con su permiso. `wtype` sí da teclado.
+  - Dos agentes en paralelo no deben escribir en la misma carpeta con los mismos nombres de archivo: en U1 se cruzaron las capturas de React y Svelte.
+  - wry crea un contexto web por vista si no se le pasa uno; visor comparte uno. Para comparar memoria, compartir siempre un `WebContext`.
+  - El prototipo U1 valida `--marco` después de abrir la ventana: no lanzarlo fuera del sway sin pantalla para probar opciones.
 - **Probar en esta máquina:** el usuario suele tener visor abierto. Aislar siempre con `VISOR_SOCKET` y `XDG_*` propios (ver `docs/pruebas.md`) y cerrar por PID.
 - **Idioma:** textos de interfaz en español; commits y títulos de PR en inglés; comentarios del código en inglés y solo para el porqué (`AGENTS.md`, `CONTRIBUTING.md`).
 
@@ -146,13 +154,24 @@ Cada prototipo es un proyecto Rust independiente en `spikes/` más un flujo de t
 
 **Criterio para G2:** se elige A salvo que B ahorre más de ~50 MB y funcione en Wayland con arrastre y lector de pantalla sin parches. Después se repite W2 en CI con la interfaz elegida.
 
-## Siguiente fase (propuesta, sin aprobar)
+## Siguiente fase
+
+Aprobado por el usuario: repartir la construcción en tareas paralelas con subagentes, una rama por tarea. El orden de abajo es una propuesta; el usuario elige por dónde empezar. Antes de construir, falta repetir U1 en Windows (CI, winit) para confirmar que el marco funciona allí igual.
 
 La construcción se reparte en tareas paralelas, una rama por tarea, solo donde los archivos no se cruzan:
 
 1. **En serie, primero:** definir las costuras que separan lo común de lo propio de cada plataforma: canal del CLI (`agent/socket.rs`), identidad de archivo (`dev`/`ino` en `vault.rs`), papelera, proceso de la ventana (`ui/action.rs`). Sin esto, las ramas paralelas chocan en los mismos archivos.
 2. **En paralelo, después:** canal del CLI en Windows (W5, tubería con nombre), rutas y nombres reservados de Windows (`vault.rs`, `paths.rs`), `update.rs` y `getrandom`, empaquetado en CI (Flatpak, `.deb`, `.exe` instalador y portable) y W4.
-3. **Bloqueado por G2:** la interfaz de Windows (y la compartida, si se elige A). Es la parte grande y no se reparte hasta decidir G2.
+3. **La interfaz compartida (opción A, React):** es la parte grande. Sustituye la interfaz GTK también en Linux. El marco se compila aparte con Vite, como CodeMirror (ADR 0028), y va dentro del binario. Rust conserva la lógica (`tabs.rs`, bóveda, frontera de confianza); el marco solo dibuja y envía órdenes. Cada vista de página sigue aislada del marco, y el marco usa su propio proceso web.
+4. **ADR a actualizar (con consulta):** 0001 (tao, wry y GTK; winit en Windows; interfaz en HTML) y 0004 (iconos con cairo, pasarían a SVG).
+
+Ideas para recuperar memoria y arranque (sin medir todavía):
+
+- Cargar solo los componentes que se ven (`React.lazy`); decidido por el usuario.
+- Pintar el marco en HTML al compilar (prerenderizado), para que aparezca antes de que arranque React.
+- Guardar el árbol de la última bóveda y pintarlo al abrir.
+- Probar el límite de memoria de los procesos de WebKit (`WebKitMemoryPressureSettings`).
+- Preact como sustituto ligero de React, si `lazy` no basta.
 
 ## Experimentos diferidos (Mac)
 
@@ -183,11 +202,14 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
   - **Formatos:** en Windows, `.exe` instalador y `.exe` portable. En Linux, Flatpak y `.deb`; AppImage se descarta (registro de descartes).
   - **Linux Mint:** probar en un escritorio X11 real. Si no se consigue, publicar con un aviso de que no está probado en Mint e invitar a colaborar con esa prueba.
   - **La construcción se reparte en tareas paralelas,** con subagentes, cada uno en su rama.
+  - **G2: opción A, el marco en HTML, con React + shadcn/ui** (Tailwind, Radix). React y Svelte costaron casi lo mismo (ver «Resultados»); el usuario prefiere el ecosistema de React, que tiene más componentes para un futuro chat con IA. El diseño del prototipo Svelte le gustó más y se puede llevar a React. Acepta el coste medido (+97 a +110 MB frente a visor con GTK) y quiere **cargar solo los componentes que se ven**.
+  - **Objetivo futuro:** un chat con IA dentro de visor con la clave o el servidor del usuario (BYOK/BYOS). El marco debe permitirlo. Condiciones ya acordadas: la clave la guarda Rust, nunca el JavaScript del marco, y lo que aporte una página al chat se trata como no confiable (`AGENTS.md`). Componentes de terceros solo con licencia compatible con MIT (AICSS Pro no es público: revisar su licencia antes de usarlo).
+  - **Mejorar el aspecto de las «conversaciones» de las notas** se puede hacer ya, aparte del port (`src/page/`).
 
 ## Decisiones pendientes del usuario
 
-1. **G2:** qué interfaz compartida (A, HTML; B, egui o slint). Hace falta U1 y U2.
-2. Se decide G2 antes de empezar la fase 1 de «Siguiente fase» (usuario, 2026-10-19).
+1. Por dónde seguir: U1 en Windows (CI), fase 1 (costuras) o ADR 0001 y 0004.
+2. Los cambios concretos de los ADR 0001 y 0004, cuando se propongan.
 
 ## Registro de descartes
 
@@ -195,14 +217,15 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 |---|---|---|
 | GPUI | Descartada | Sin webviews en Wayland nativo: `build_as_child` solo X11 en wry 0.57; gpui-kit PR 3395; el crate `gpui` oficial es 0.2.2 de oct. 2025 y el ecosistema usa instantáneas semanales [V]. Revisado el 2026-10-19: `gpui` sigue en 0.2.2; `rgpui-webview` 0.5.0 (agosto de 2026, 113 descargas) monta en Linux un `gtk::Fixed` sin ventana y su propio código dice «aún no funciona del todo» [V] |
 | Tauri 2 como base | Descartada | Su multiwebview (`add_child`) sigue tras la feature `unstable` [V]. Se puede usar su empaquetador sin migrar [S] |
-| Opción D (GTK en Linux + interfaz aparte en Windows) | Descartada salvo que G2 falle | Dos bases de UI: mantenimiento muy alto |
+| Opción D (GTK en Linux + interfaz aparte en Windows) | Descartada | Dos bases de UI: mantenimiento muy alto |
 | AppImage | Descartada (usuario, 2026-10-19) | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
 | Snap | Descartada | Confinamiento parecido a Flatpak, poca adopción fuera de Ubuntu [S] |
 | Mac | Aplazada | Sin cuenta de Apple de pago |
 | Firma de código en Windows | Descartada por ahora | El usuario no pagará; se acepta SmartScreen. SignPath Foundation es gratis para código abierto y se puede retomar si cambia la decisión [S] |
 | RHEL/Alma/Rocky 9, Alpine | Descartadas (usuario, 2026-10-19) | L2: AlmaLinux 9 no trae WebKitGTK 4.1; Alpine usa musl [V] |
 | tao en Windows | Descartado (usuario, 2026-10-19) | W2: el bucle se bloquea con varios webviews hijos; winit no [V] |
-| Opción A (interfaz en HTML) | Viva | Pendiente de U1 |
+| Opción A (interfaz en HTML) | Elegida (usuario, 2026-10-19), con React | U1: funciona en Linux, frontera de seguridad intacta, +54 MB el marco y +43 MB React frente a visor |
+| Svelte + shadcn-svelte | Descartado (usuario, 2026-10-19) | U1: mismo coste que React (+8 MB y +3 ms); menos componentes para IA |
 | Opción B (egui/slint) | Descartada en Wayland (U2, 2026-10-19) | eframe 0.33 y slint 1.18 dan un manejador Wayland y `build_as_child` de wry 0.57 devuelve `UnsupportedWindowHandle` (`webkitgtk/mod.rs:125-153`, solo Xlib). `build_gtk` funciona, pero en una ventana GTK aparte. `spikes/u2-toolkit-rust/` [V] |
 | Windows | Viva | W3: 14 de 14; G1 pasa con winit |
 | Flatpak | Elegida, a probar | Pendiente de L5 (socket del CLI dentro del sandbox) |
