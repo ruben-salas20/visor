@@ -113,6 +113,9 @@ struct Searched {
     engine: Engine,
     /// Only with `Engine::WebKit`.
     controller: Option<FindController>,
+    /// True once the page answered with `window.__visorFind` in it: the next
+    /// calls go to the page without the script again. Only with `Engine::Page`.
+    loaded: Cell<bool>,
     /// Connected to `controller`; disconnected in `detach` so the cycle of
     /// clones through the handlers ends with the search.
     handlers: Vec<SignalHandlerId>,
@@ -233,7 +236,7 @@ impl FindBar {
         if let Some(s) = self.0.searched.borrow().as_ref() {
             match &s.controller {
                 Some(controller) => controller.search_finish(),
-                None => evaluate(&s.web, &page_calls::find_clear(), |_| {}),
+                None => evaluate(&s.web, &page_calls::find_clear(s.loaded.get()), |_| {}),
             }
             if focus {
                 s.web.grab_focus();
@@ -262,7 +265,8 @@ impl FindBar {
         }
         self.detach();
         if engine == Engine::Page {
-            *self.0.searched.borrow_mut() = Some(Searched { view, web: web.clone(), engine, controller: None, handlers: Vec::new() });
+            *self.0.searched.borrow_mut() =
+                Some(Searched { view, web: web.clone(), engine, controller: None, loaded: Cell::new(false), handlers: Vec::new() });
             return true;
         }
         let Some(controller) = web.find_controller() else { return false };
@@ -285,6 +289,7 @@ impl FindBar {
             web: web.clone(),
             engine,
             controller: Some(controller),
+            loaded: Cell::new(false),
             handlers: vec![found, missed],
         });
         true
@@ -361,7 +366,7 @@ impl FindBar {
         let inner = &self.0;
         self.cancel();
         if text.is_empty() {
-            evaluate(&s.web, &page_calls::find_clear(), |_| {});
+            evaluate(&s.web, &page_calls::find_clear(s.loaded.get()), |_| {});
             inner.current.set(0);
             inner.total.set(0);
             inner.more.set(false);
@@ -369,13 +374,21 @@ impl FindBar {
         }
         let request = inner.request.get();
         let script = match step_to {
-            None => page_calls::find_search(text, inner.match_case.is_active(), inner.whole_word.is_active()),
-            Some(forward) => page_calls::find_step(forward),
+            None => page_calls::find_search(text, inner.match_case.is_active(), inner.whole_word.is_active(), s.loaded.get()),
+            Some(forward) => page_calls::find_step(forward, s.loaded.get()),
         };
         let b = self.clone();
+        let view = s.view;
         evaluate(&s.web, &script, move |answer| {
             if b.0.request.get() != request {
                 return;
+            }
+            if answer.is_ok() {
+                // The page answered, so the search is in it: the next call
+                // carries no script again.
+                if let Some(s) = b.0.searched.borrow().as_ref().filter(|s| s.view == view) {
+                    s.loaded.set(true);
+                }
             }
             let (current, total, more) = answer.map(|raw| parse_answer(&raw)).unwrap_or((0, 0, false));
             b.0.current.set(current);

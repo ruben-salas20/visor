@@ -47,28 +47,33 @@ pub fn note_find() -> &'static str {
 }
 
 /// The page's own search (`find.js`), for the pages of the vault and loose
-/// files. Every call carries the script; it only runs the first time, when
-/// `window.__visorFind` is not there yet.
+/// files. `loaded` says whether the page answered before, with
+/// `window.__visorFind` in it: then the call goes straight to it and carries
+/// no script again.
 const FIND: &str = include_str!("../page/find.js");
 
-fn find_call(call: &str) -> String {
-    format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return JSON.stringify(window.__visorFind.{call}); }})()")
+fn find_call(call: &str, loaded: bool) -> String {
+    if loaded {
+        format!("JSON.stringify(window.__visorFind.{call})")
+    } else {
+        format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return JSON.stringify(window.__visorFind.{call}); }})()")
+    }
 }
 
 /// Searches the page for `text` and shows its first match. The answer is the
 /// JSON `{current, total}` that `find::parse_answer` reads.
-pub fn find_search(text: &str, match_case: bool, whole_word: bool) -> String {
-    find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)))
+pub fn find_search(text: &str, match_case: bool, whole_word: bool, loaded: bool) -> String {
+    find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)), loaded)
 }
 
 /// Shows the next match (`forward`) or the previous one, wrapping around.
-pub fn find_step(forward: bool) -> String {
-    find_call(if forward { "next()" } else { "previous()" })
+pub fn find_step(forward: bool, loaded: bool) -> String {
+    find_call(if forward { "next()" } else { "previous()" }, loaded)
 }
 
 /// Removes the highlights of the page's search.
-pub fn find_clear() -> String {
-    find_call("clear()")
+pub fn find_clear(loaded: bool) -> String {
+    find_call("clear()", loaded)
 }
 
 /// Ctrl+E: opens or closes the editor of a note or a drawing.
@@ -218,16 +223,20 @@ mod tests {
 
     #[test]
     fn find_search_quotes_the_text_and_loads_the_script_once() {
-        let call = find_search(r#"a "b""#, true, false);
+        let call = find_search(r#"a "b""#, true, false, false);
         assert!(call.starts_with("(() => { if (!window.__visorFind) {"));
         assert!(call.ends_with(r#"return JSON.stringify(window.__visorFind.search("a \"b\"", true, false)); })()"#));
     }
 
     #[test]
-    fn find_step_and_clear_name_the_call() {
-        assert!(find_step(true).ends_with("window.__visorFind.next()); })()"));
-        assert!(find_step(false).ends_with("window.__visorFind.previous()); })()"));
-        assert!(find_clear().ends_with("window.__visorFind.clear()); })()"));
+    fn a_page_that_answered_carries_no_script_again() {
+        assert_eq!(
+            find_search("b", true, false, true),
+            r#"JSON.stringify(window.__visorFind.search("b", true, false))"#
+        );
+        assert_eq!(find_step(true, true), "JSON.stringify(window.__visorFind.next())");
+        assert_eq!(find_step(false, true), "JSON.stringify(window.__visorFind.previous())");
+        assert_eq!(find_clear(true), "JSON.stringify(window.__visorFind.clear())");
     }
 
     #[test]

@@ -1,7 +1,9 @@
-// Ctrl+F inside visor's own pages (vault and loose HTML). WebKit's find cannot
+// Ctrl+F inside visor's own pages (vault and loose HTML, and stand-alone .svg
+// documents, whose root is `document.documentElement`). WebKit's find cannot
 // say which match is current, so the page searches its text itself and marks
-// the matches with CSS Custom Highlights. Injected by `ui/page_calls.rs` on the
-// first search.
+// the matches with CSS Custom Highlights. Injected by `ui/page_calls.rs` on
+// the first search. `foldChar`, `foldRuns`, `locate` and `findAll` take no
+// DOM: tests in tools/find/test.
 (() => {
   "use strict";
 
@@ -9,88 +11,58 @@
   const SKIPPED = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"]);
   const WORD_CHAR = /[\p{L}\p{N}]/u;
   const MARKS = /\p{M}/gu;
+  const SVG_NS = "http://www.w3.org/2000/svg";
 
   // Accents and case are ignored, as WebKit does: "camión" finds "CAMION".
-  // Folding a code point may give more than one character, and each of them
-  // points back to the same place in the text.
+  // Folding one code point may give several characters, and all of them come
+  // from the same place of the text.
   function foldChar(ch) {
     return ch.normalize("NFD").replace(MARKS, "").toLowerCase();
   }
 
-  // Walks the text nodes under `root` and returns the folded text with, for
-  // each folded character, the node and offset where it came from. Text in
-  // different blocks, or on both sides of a <br>, is kept apart by a line
-  // break: the whitespace between blocks has no boxes and is skipped, so
-  // without it "<h2>Resumen</h2><p>El" would read "ResumenEl".
-  function foldWithMap(root, matchCase) {
-    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-      acceptNode(node) {
-        if (node.nodeType === Node.ELEMENT_NODE) return node.tagName === "BR" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-        const parent = node.parentElement;
-        if (!parent || SKIPPED.has(parent.tagName) || !visible(parent) || !drawn(node)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
+  // Folds the text of `runs`, in the order the page walked it, into the one
+  // string `findAll` looks in. Every run brings `sep` (a <br>, or a line of
+  // the layout, went between it and the run before) and `block` (whatever
+  // stands for its block: text on the same one reads as one run). Instead of
+  // one object per character, each run carries two integers per folded
+  // character (`starts` and `lens`, next to the node that owns the run), so a
+  // match far into the page does not cost a heap of small objects.
+  function foldRuns(runs, matchCase) {
     const parts = [];
-    const map = [];
+    const nodes = [];
     let block = null;
-    let broken = false;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        broken = true;
-        continue;
-      }
-      const here = blockOf(node.parentElement);
-      if (parts.length && (broken || here !== block)) {
-        parts.push("\n");
-        map.push(map[map.length - 1]);
-      }
-      block = here;
-      broken = false;
-      const text = node.data;
+    for (const run of runs) {
+      if (parts.length && (run.sep || run.block !== block)) parts.push("\n");
+      block = run.block;
+      const entry = { node: run.node, at: parts.length, starts: [], lens: [] };
       let offset = 0;
-      for (const ch of text) {
+      for (const ch of run.text) {
         const folded = matchCase ? ch : foldChar(ch);
         for (let i = 0; i < folded.length; i++) {
           parts.push(folded[i]);
-          map.push({ node, start: offset, end: offset + ch.length });
+          entry.starts.push(offset);
+          entry.lens.push(ch.length);
         }
         offset += ch.length;
       }
+      if (entry.starts.length) nodes.push(entry);
     }
-    return { text: parts.join(""), map };
+    return { text: parts.join(""), nodes };
   }
 
-  // visor's own boxes (notices, the editor's status) and text nobody can see
-  // would count as matches the person cannot reach.
-  const seen = new Map();
-  function visible(element) {
-    if (!seen.has(element)) {
-      seen.set(element, !element.closest("[data-visor-skip]") && (!element.checkVisibility || element.checkVisibility()));
+  // The node, the offset and the length in it of folded position `at`; null on
+  // a newline between blocks, where a match can neither start nor end.
+  function locate(nodes, at) {
+    let low = 0;
+    for (let high = nodes.length - 1; low < high; ) {
+      const middle = (low + high + 1) >> 1;
+      if (nodes[middle].at <= at) low = middle; else high = middle - 1;
     }
-    return seen.get(element);
-  }
-
-  // The nearest ancestor laid out as a block, table cell, list item…: text
-  // in the same one reads as one run.
-  const blocks = new Map();
-  function blockOf(element) {
-    let block = blocks.get(element);
-    if (block === undefined) {
-      const display = getComputedStyle(element).display;
-      const inline = display === "inline" || display === "contents";
-      block = inline && element.parentElement ? blockOf(element.parentElement) : element;
-      blocks.set(element, block);
-    }
-    return block;
-  }
-
-  // checkVisibility() says yes to text placed straight in a closed <details>;
-  // text that is not laid out has no boxes.
-  const probe = new Range();
-  function drawn(node) {
-    probe.selectNodeContents(node);
-    return probe.getClientRects().length > 0;
+    const entry = nodes[low];
+    if (!entry) return null;
+    const local = at - entry.at;
+    if (local < 0 || local >= entry.starts.length) return null;
+    return { node: entry.node, start: entry.starts[local], end: entry.starts[local] + entry.lens[local] };
   }
 
   function isWordChar(ch) {
@@ -114,16 +86,17 @@
     return found;
   }
 
-  const state = { ranges: [], current: 0, more: false };
-
   function rangeFor(folded, [start, end]) {
-    const first = folded.map[start];
-    const last = folded.map[end - 1];
+    const first = locate(folded.nodes, start);
+    const last = locate(folded.nodes, end - 1);
+    if (!first || !last) return null;
     const range = new Range();
     range.setStart(first.node, first.start);
     range.setEnd(last.node, last.end);
     return range;
   }
+
+  const state = { ranges: [], current: 0, more: false };
 
   function paint() {
     if (!("highlights" in CSS)) return;
@@ -137,9 +110,19 @@
   function show() {
     const range = state.ranges[state.current - 1];
     if (!range) return;
-    const node = range.startContainer;
-    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-    if (element) element.scrollIntoView({ block: "center", inline: "nearest" });
+    // Scrolled by the box of the match itself, not by the one of the element
+    // that holds it: with the element, a match at the end of a <pre> taller
+    // than the window could stay out of sight while the counter said «5 de 12».
+    const box = range.getBoundingClientRect();
+    if (box.width || box.height) {
+      const height = window.innerHeight;
+      // A match taller than the window is placed with its top edge at the top.
+      const gap = box.height < height ? (height - box.height) / 2 : 0;
+      let left = window.scrollX;
+      if (box.left < 0) left += box.left;
+      else if (box.right > window.innerWidth) left += box.right - window.innerWidth;
+      window.scrollTo({ top: window.scrollY + box.top - gap, left, behavior: "instant" });
+    }
     paint();
   }
 
@@ -147,28 +130,122 @@
     return { current: state.ranges.length ? state.current : 0, total: state.ranges.length, more: state.more };
   }
 
+  // -- What only a page can do -------------------------------------------------
+
+  // The container of the text to walk: an .svg has its root there.
+  function root() {
+    return document.body || document.documentElement;
+  }
+
+  // Walks the text nodes under `root` and makes one run of each one, with the
+  // block and the <br>s around it already resolved.
+  function foldAll(root, matchCase) {
+    // The answers are kept per walk: every `checkVisibility()` and every
+    // `getClientRects()`, if asked for one key and then the next, gets the
+    // same layout once WebKit has gone through it, so the only cost is the
+    // first one.
+    const seen = new WeakMap();
+    const blocks = new WeakMap();
+    const laid = new WeakMap();
+
+    // visor's own boxes (notices, the editor's status) and text nobody can see
+    // would count as matches the person cannot reach.
+    const visible = (element) => {
+      let yes = seen.get(element);
+      if (yes === undefined) {
+        yes = !element.closest("[data-visor-skip]") && (!element.checkVisibility || element.checkVisibility());
+        seen.set(element, yes);
+      }
+      return yes;
+    };
+
+    // The nearest ancestor laid out as a block, table cell, list item…: text
+    // in the same one reads as one run.
+    const blockOf = (element) => {
+      let block = blocks.get(element);
+      if (block === undefined) {
+        const display = getComputedStyle(element).display;
+        const inline = display === "inline" || display === "contents";
+        block = inline && element.parentElement ? blockOf(element.parentElement) : element;
+        blocks.set(element, block);
+      }
+      return block;
+    };
+
+    // checkVisibility() says yes to text placed straight in a closed <details>;
+    // text that is not laid out has no boxes.
+    const probe = new Range();
+    const drawn = (node) => {
+      let yes = laid.get(node);
+      if (yes === undefined) {
+        probe.selectNodeContents(node);
+        yes = probe.getClientRects().length > 0;
+        laid.set(node, yes);
+      }
+      return yes;
+    };
+
+    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+      acceptNode(node) {
+        if (node.nodeType === Node.ELEMENT_NODE) return node.tagName === "BR" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        const parent = node.parentElement;
+        if (!parent || SKIPPED.has(parent.tagName) || !visible(parent) || !drawn(node)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const runs = [];
+    let broken = false;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        broken = true;
+        continue;
+      }
+      runs.push({ sep: broken, text: node.data, node, block: blockOf(node.parentElement) });
+      broken = false;
+    }
+    return foldRuns(runs, matchCase);
+  }
+
+  // The folded text is worth what one walk costs, not one per key: it is kept
+  // until the page changes, and any change of tree or attributes (a class or
+  // a style can also hide text) throws it away. Between keys, `search` reads
+  // the tree only once again. Only a page has changes; the watcher starts
+  // with the search, below.
+  let cached = null;
+
+  function pageText(matchCase) {
+    if (!cached || cached.matchCase !== matchCase) {
+      cached = foldAll(root(), matchCase);
+      cached.matchCase = matchCase;
+    }
+    return cached;
+  }
+
   // The highlight colours are set here, not in the page CSS, so the pages that
-  // never search carry no extra rules.
+  // never search carry no extra rules. An .svg has no <head>: its `<style>`
+  // goes into the root svg.
   function style() {
-    const sheet = document.createElement("style");
+    const sheet = root().namespaceURI === SVG_NS
+      ? document.createElementNS(SVG_NS, "style")
+      : document.createElement("style");
     sheet.id = "visor-find-style";
     sheet.textContent =
       "::highlight(visor-find){background-color:#ffe066;color:#000}" +
       "::highlight(visor-find-current){background-color:#ff8c1a;color:#000}";
-    document.head.appendChild(sheet);
+    (document.head || root()).appendChild(sheet);
   }
 
   const api = {
-    // Searches the whole page for `text` and shows the first match.
+    // Searches the whole page for `text` and shows the first match. Between
+    // keys only the text typed changed, so the folded text of the page does
+    // not change with them.
     search(text, matchCase, wholeWord) {
-      seen.clear();
-      blocks.clear();
-      const folded = foldWithMap(document.body, !!matchCase);
+      const folded = pageText(!!matchCase);
       const needle = matchCase ? text : foldChar(text);
       const hits = findAll(folded.text, needle, !!wholeWord);
       state.more = hits.length > MAX_MATCHES;
       hits.length = Math.min(hits.length, MAX_MATCHES);
-      state.ranges = hits.map((hit) => rangeFor(folded, hit));
+      state.ranges = hits.map((hit) => rangeFor(folded, hit)).filter(Boolean);
       // From where the person is reading, not from the top of the page.
       const below = state.ranges.findIndex((range) => range.getBoundingClientRect().bottom >= 0);
       state.current = state.ranges.length ? Math.max(below, 0) + 1 : 0;
@@ -202,6 +279,19 @@
     },
   };
 
-  if (!document.getElementById("visor-find-style")) style();
-  window.__visorFind = api;
+  if (typeof module !== "undefined") {
+    // Node tests: only the DOM-free engine.
+    module.exports = { foldChar, foldRuns, locate, findAll };
+  } else {
+    // One walk per change of the page: any change of tree or attributes
+    // throws the folded text away.
+    new MutationObserver(() => { cached = null; }).observe(document, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+    if (!document.getElementById("visor-find-style")) style();
+    window.__visorFind = api;
+  }
 })();
