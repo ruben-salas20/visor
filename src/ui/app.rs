@@ -160,6 +160,8 @@ pub(super) struct App {
     in_drawing: Rc<Cell<bool>>,
     /// Whether the panel shows: not for a loose page started alone, and Ctrl+B flips it.
     sidebar_shown: bool,
+    /// What the panel shows besides the tree; see `app/files.rs`.
+    panel: files::Panel,
     /// The last result of an update check, for the status bar.
     update_message: Option<String>,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
@@ -175,7 +177,7 @@ pub(super) struct App {
     /// One per folder of the loose pages in the tabs, without subfolders.
     loose_watchers: LooseWatchers,
     /// This window's sidebar width and divider share, saved with the window.
-    /// The frame does not use them yet; they are kept for phase 1.
+    /// The frame does not use the share yet; it is kept for phase 1.
     sidebar_width: Option<i32>,
     split_ratio: Option<f64>,
     /// Started for a loose page: until a vault opens, the window is not remembered.
@@ -226,6 +228,7 @@ impl App {
             // Started for a page outside every vault: that page alone, without the
             // last vault and its tabs. See cli::start.
             sidebar_shown: !loose,
+            panel: files::Panel::default(),
             update_message: None,
             own_write: None,
             shared,
@@ -381,12 +384,12 @@ impl App {
     /// Like `show_vault`, with the tabs to restore instead of the vault's last ones.
     pub(super) fn show_vault_with(&mut self, root: Option<PathBuf>, workspace: Option<Workspace>) {
         if let Some(Err(e)) = root.as_deref().map(Config::check_vault) {
-            eprintln!("{e}");
+            self.notice(&e, true);
             return;
         }
         let opened = match root.as_deref().map(|r| self.common.borrow_mut().vault(r, &self.shared)) {
             Some(Err(e)) => {
-                eprintln!("{e}");
+                self.notice(&e, true);
                 return;
             }
             opened => opened.and_then(Result::ok),
@@ -903,8 +906,7 @@ impl App {
                 if self.vault().is_none() {
                     return;
                 }
-                let dir = self.focused_file().as_deref().and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d).to_string();
-                self.new_note(&dir);
+                self.new_note(None, false);
             }
             Action::NewTab => {
                 self.open_in(String::new(), Place::NewTab);

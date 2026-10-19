@@ -27,6 +27,16 @@ pub enum SidebarMsg {
     Move { path: String, dir: String },
     /// The folders now open in the tree, to restore them next time.
     OpenFolders { folders: Vec<String> },
+    /// Opens the field for the name of a new note or folder in `dir`; without
+    /// `dir`, in the folder of the file on the focused side.
+    AskName { dir: Option<String>, folder: bool },
+    CancelName,
+    /// A file is being dragged from the tree, maybe to a side (ADR 0014).
+    DragStart { path: String },
+    DragEnd,
+    /// The person dragged the panel's edge.
+    Width { width: i32 },
+    ShowOther { on: bool },
 }
 
 /// An event and the window it is for.
