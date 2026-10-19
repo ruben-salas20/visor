@@ -8,6 +8,10 @@ export type Address = {
   forward: boolean
   /** Only vault pages have annotations. */
   annotations: boolean
+  /** Goes up each time Rust asks for the field (Ctrl+L). */
+  edit: number
+  /** Goes up each time a typed address led nowhere. */
+  refused: number
 }
 
 export type BarState = { sides: Address[] }
@@ -18,3 +22,4 @@ export type BarMsg =
   | { type: 'reload'; side: number }
   | { type: 'pick_element'; side: number }
   | { type: 'toggle_annotations'; side: number }
+  | { type: 'go'; side: number; text: string }
