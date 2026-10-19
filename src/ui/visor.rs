@@ -193,6 +193,8 @@ impl Visor {
             let mut shared = self.shared.lock().unwrap();
             shared.window_mut(w);
             shared.focused_window = Some(w);
+            // A request that came in before the first window waits for it.
+            LOADED.notify_all();
         }
         let proxy = Proxy::new(w, self.loop_proxy.clone());
         let mut app = App::new(target, proxy, self.shared.clone(), self.common.clone(), &state, loose);

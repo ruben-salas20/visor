@@ -75,8 +75,7 @@ fn respond(request: Request, shared: &SharedRef, send: &dyn Fn(WinId, AgentReque
                 Command::Open { target: Target::Path(page), .. } | Command::Close { target: Some(page) } => page.path.clone(),
                 _ => None,
             };
-            // The lock is released before `respond_in` takes it again.
-            let target = shared.lock().unwrap().target_for(window, file.as_deref());
+            let target = target_once_open(shared, window, file.as_deref());
             match target {
                 Ok(win) => respond_in(command, win, shared, send),
                 Err(e) => fail(e),
@@ -220,6 +219,22 @@ fn run_script(code: String, win: WinId, send: &dyn Fn(WinId, AgentRequest)) -> V
 }
 
 /// Waits until `view` finishes loading and reports the problems it logged.
+/// The window for a request. At startup the socket answers before the first
+/// window exists, and `visor open` on a closed visor asks at once: it waits
+/// for that window instead of failing.
+fn target_once_open(shared: &SharedRef, window: Option<u64>, file: Option<&std::path::Path>) -> Result<WinId, String> {
+    let deadline = Instant::now() + LOAD_TIMEOUT;
+    let mut s = shared.lock().unwrap();
+    while s.windows.is_empty() {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        s = LOADED.wait_timeout(s, left).unwrap().0;
+    }
+    s.target_for(window, file)
+}
+
 fn wait_for_load(shared: &SharedRef, win: WinId, view: u64, before: u64) -> Value {
     let deadline = Instant::now() + LOAD_TIMEOUT;
     let mut s = shared.lock().unwrap();
