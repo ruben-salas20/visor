@@ -199,7 +199,7 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 | RHEL/Alma/Rocky 9, Alpine | Descartadas (usuario, 2026-10-19) | L2: AlmaLinux 9 no trae WebKitGTK 4.1; Alpine usa musl [V] |
 | tao en Windows | Descartado (usuario, 2026-10-19) | W2: el bucle se bloquea con varios webviews hijos; winit no [V] |
 | Opción A (interfaz en HTML) | Viva | Pendiente de U1 |
-| Opción B (egui/slint) | Viva, poco probable | Sin ejemplos con wry en Wayland [V]; pendiente de U2 |
+| Opción B (egui/slint) | Descartada en Wayland (U2, 2026-10-19) | eframe 0.33 y slint 1.18 dan un manejador Wayland y `build_as_child` de wry 0.57 devuelve `UnsupportedWindowHandle` (`webkitgtk/mod.rs:125-153`, solo Xlib). `build_gtk` funciona, pero en una ventana GTK aparte. `spikes/u2-toolkit-rust/` [V] |
 | Windows | Viva | W3: 14 de 14; G1 pasa con winit |
 | Flatpak | Elegida, a probar | Pendiente de L5 (socket del CLI dentro del sandbox) |
 | `.deb` | Elegida (usuario, 2026-10-19) | Usa el WebKitGTK del sistema; L5 lo prueba en Ubuntu 22.04 |
