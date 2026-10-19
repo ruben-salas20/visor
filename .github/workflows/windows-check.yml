@@ -5,7 +5,7 @@ name: Windows check (W1)
 on:
   workflow_dispatch:
   push:
-    branches: [worktree-port-multiplataforma]
+    branches: [worktree-port-multiplataforma, "port-*"]
     paths:
       - "src/**"
       - "Cargo.toml"
