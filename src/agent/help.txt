@@ -105,6 +105,7 @@ WINDOWS
   sends the command to window N. Without it, the command goes to the
   focused window (the last one the person used), and `open <path>` goes
   to a window that already shows the vault of that path, if one does.
+  events and update belong to the whole app and do not take --window.
   Ctrl+Q closes every window and visor opens them all again next time;
   closing a window while others stay open forgets it.
 
@@ -123,7 +124,8 @@ MCP
       notes_reply  id, text
       update       checks for a new version and installs it; does not restart
       guide        returns this text
-  Every tool but guide also takes window (a number, as in --window).
+  Every tool but events, update and guide also takes window (a number,
+  as in --window).
 
 TABS AND SIDES
   The window can be split into two sides, each with its own tabs.

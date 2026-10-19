@@ -96,6 +96,10 @@ const WIRE_NAMES: [&str; 13] = [
     "new_window",
 ];
 
+/// Orders that do not act on a window: events and the update are the whole
+/// process's, and guide is fixed text. They refuse `--window` and `window`.
+pub const WINDOWLESS: [&str; 3] = ["events", "update", "guide"];
+
 fn is_web(text: &str) -> bool {
     text.starts_with("http://") || text.starts_with("https://")
 }
@@ -473,13 +477,17 @@ impl Request {
             }
             window = Some(take_window(&mut rest, 1)?);
         }
-        Ok(Self { command: Command::from_args(&rest)?, window })
+        let command = Command::from_args(&rest)?;
+        if let Some(name) = rest.first().filter(|n| window.is_some() && WINDOWLESS.contains(&n.as_str())) {
+            return Err(trf!("{name} no va a una ventana: no acepta --window.", "{name} does not go to a window: it does not take --window."));
+        }
+        Ok(Self { command, window })
     }
 
-    /// Reads an MCP tool call. Every tool but `guide` accepts `window`.
+    /// Reads an MCP tool call. Every tool but those in [`WINDOWLESS`] accepts `window`.
     pub fn from_mcp(tool: &str, arguments: &Value) -> Result<Self, String> {
-        // `guide` keeps its own checks, which refuse `window` as an unknown argument.
-        let Some(map) = arguments.as_object().filter(|_| tool != "guide") else {
+        // The windowless ones keep their own checks, which refuse `window` as an unknown argument.
+        let Some(map) = arguments.as_object().filter(|_| !WINDOWLESS.contains(&tool)) else {
             return Ok(Self { command: Command::from_mcp(tool, arguments)?, window: None });
         };
         let mut map = map.clone();
@@ -1062,6 +1070,15 @@ mod tests {
             Request::from_args(&args("--window 2 status --window 3")).unwrap_err(),
             "--window solo puede aparecer una vez."
         );
+    }
+
+    #[test]
+    fn windowless_orders_refuse_a_window() {
+        assert_eq!(Request::from_args(&args("--window 2 events")).unwrap_err(), "events no va a una ventana: no acepta --window.");
+        assert_eq!(Request::from_args(&args("update --window 2")).unwrap_err(), "update no va a una ventana: no acepta --window.");
+        assert!(Request::from_args(&args("events")).is_ok());
+        assert_eq!(Request::from_mcp("events", &json!({ "window": 2 })), Err("Argumento desconocido: window.".into()));
+        assert_eq!(Request::from_mcp("update", &json!({ "window": 2 })), Err("Argumento desconocido: window.".into()));
     }
 
     #[test]

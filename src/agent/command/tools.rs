@@ -6,13 +6,18 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": input_schema })
 }
 
-/// Every tool but `guide` takes `window`: which visor window the order goes to.
+/// A tool that takes `window`: which visor window the order goes to.
 fn object(mut properties: Value, required: &[&str]) -> Value {
     properties["window"] = json!({
         "type": "integer",
         "minimum": 1,
         "description": "Number of the window, as status lists it. Without it, the focused window.",
     });
+    windowless(properties, required)
+}
+
+/// A tool in [`WINDOWLESS`](crate::agent::command::WINDOWLESS), without `window`.
+fn windowless(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
@@ -107,7 +112,7 @@ pub fn list() -> Vec<Value> {
         tool(
             "events",
             "Returns the data pages sent with visor.send() and the messages the person writes in their annotations (annotation instead of data; action says whether it is a comment or a reply). Without arguments, the last 20. With after, only those after that id. With wait, waits for a new one to arrive: use it when a page asks the person for something, or to follow their annotations.",
-            object(
+            windowless(
                 json!({
                     "after": {
                         "type": "integer",
@@ -158,12 +163,12 @@ pub fn list() -> Vec<Value> {
         tool(
             "update",
             "Checks whether a new version of visor is available and installs it. Returns the result as text. Does not restart visor: the new version is used when it is opened again. Does not replace a build copy (target/).",
-            object(json!({}), &[]),
+            windowless(json!({}), &[]),
         ),
         tool(
             "guide",
             "Returns the visor guide: how to write HTML pages and notes for visor, which data the person sends, and which commands exist. Read it before writing pages or notes for visor.",
-            json!({ "type": "object", "properties": {}, "required": [], "additionalProperties": false }),
+            windowless(json!({}), &[]),
         ),
     ]
 }
@@ -220,12 +225,12 @@ mod tests {
     }
 
     #[test]
-    fn every_tool_but_guide_takes_a_window() {
+    fn every_tool_but_the_windowless_takes_a_window() {
         for tool in list() {
             let name = tool["name"].as_str().unwrap();
             let schema = &tool["inputSchema"];
             let has_window = schema["properties"].get("window").is_some();
-            assert_eq!(has_window, name != "guide", "{name}");
+            assert_eq!(has_window, !crate::agent::command::WINDOWLESS.contains(&name), "{name}");
             if !has_window {
                 continue;
             }
