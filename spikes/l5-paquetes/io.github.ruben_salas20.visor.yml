@@ -1,0 +1,35 @@
+# Experimento L5 (docs/plan-multiplataforma.md): ¿arranca visor como Flatpak?
+# No es el manifiesto de publicación. La CI cambia runtime-version al runtime
+# estable más nuevo de Flathub antes de compilar.
+id: io.github.ruben_salas20.visor
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: visor
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/visor/cargo
+  # Solo para el experimento: cargo descarga los crates. Un paquete real vendería las dependencias.
+  build-args:
+    - --share=network
+modules:
+  - name: visor
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked
+      - install -Dm755 target/release/visor /app/bin/visor
+      - sed 's/^Icon=visor$/Icon=io.github.ruben_salas20.visor/' spikes/l5-paquetes/visor.desktop > io.github.ruben_salas20.visor.desktop
+      - install -Dm644 io.github.ruben_salas20.visor.desktop /app/share/applications/io.github.ruben_salas20.visor.desktop
+      - install -Dm644 docs/img/logo/simbolo.svg /app/share/icons/hicolor/scalable/apps/io.github.ruben_salas20.visor.svg
+    sources:
+      - type: dir
+        path: ../..
