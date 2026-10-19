@@ -27,7 +27,9 @@ fn main() {
     let qh = cola.handle();
     let gestor: Gestor = globals.bind(&qh, 1..=2, ()).expect("zwlr_virtual_pointer_manager_v1");
     let p = gestor.create_virtual_pointer(None, &qh, ());
-    let (w, h) = (1920u32, 1080u32);
+    // Absolute motion maps onto the layout, in logical pixels: 1920x1080 / scale.
+    let escala: f64 = std::env::var("ESCALA").ok().and_then(|e| e.parse().ok()).unwrap_or(1.0);
+    let (w, h) = ((1920.0 / escala).round() as u32, (1080.0 / escala).round() as u32);
     let t0 = Instant::now();
     cola.roundtrip(&mut S).unwrap();
     for linea in std::io::stdin().lock().lines() {

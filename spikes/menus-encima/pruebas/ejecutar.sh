@@ -9,7 +9,7 @@ TMP=$(mktemp -d)
 UNIDAD=menus-sway-$$
 
 cat > "$TMP/sway.conf" <<EOF
-output HEADLESS-1 resolution 1920x1080 scale 1
+output HEADLESS-1 resolution 1920x1080 scale ${ESCALA:-1}
 xwayland disable
 default_border none
 default_floating_border none
@@ -34,6 +34,7 @@ WAYLAND_DISPLAY=$(cat "$TMP/display")
 export WAYLAND_DISPLAY
 export SWAYSOCK="$TMP/sway.sock"
 unset DISPLAY
+export ESCALA="${ESCALA:-1}"
 
 cd "$ORIGEN"
 estado=0
