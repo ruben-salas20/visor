@@ -30,11 +30,3 @@ emit tamano_instalado_kib "$(dpkg-query -W -f='${Installed-Size}' visor)"
 # Arranque: misma prueba que L2 (smoke.sh). Instala también xvfb y WebKit, ya presentes.
 bash /linux/smoke.sh "$distro" /usr/bin/visor "$out/smoke.json" > "$out/smoke.txt" 2>&1
 emit arranque "$(grep -m1 '^RESULTADO' "$out/smoke.txt" | sed 's/^RESULTADO [^:]*: //')"
-
-# `update` no llega a la red en una copia de paquete: debe dar el aviso de paquete.
-update=$(env -u VISOR_NO_UPDATE /usr/bin/visor update 2>&1)
-if grep -q 'actualiza su paquete' <<<"$update"; then
-  emit actualizacion_gestionada funciona
-else
-  emit actualizacion_gestionada "falla: $(tr '\n' ' ' <<<"$update")"
-fi

@@ -104,7 +104,8 @@ else
   emit e_sin_archivo_escritorio "falla: se escribió $escrito"
 fi
 upd=$(env -u VISOR_NO_UPDATE "${V[@]}" update 2>&1)
-if grep -q 'actualiza su paquete' <<<"$upd"; then
+emit idioma "LANG=${LANG:-sin definir}"
+if grep -qE 'actualiza su paquete|updated by its package' <<<"$upd"; then
   emit e_aviso_actualizacion "funciona"
 else
   emit e_aviso_actualizacion "falla: $(tr '\n' ' ' <<<"$upd" | cut -c1-300)"
