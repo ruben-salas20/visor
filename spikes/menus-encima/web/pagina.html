@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>pagina</title>
+<style>
+  html, body { margin: 0; background: #f0d0d0; font: 16px serif; }
+  #boton { position: fixed; left: 0; top: 0; width: 400px; height: 300px; background: #2e7d32; color: #fff; border: 0; font-size: 20px; }
+  #campo { position: fixed; left: 420px; top: 20px; width: 200px; height: 30px; }
+  #largo { height: 3000px; padding-top: 320px; }
+</style></head>
+<body>
+<button id="boton">Botón de la página</button>
+<input id="campo" placeholder="escribe aquí">
+<div id="largo"><p>Texto de una página viva. Tiene que recibir clics, rueda y teclado cuando el menú está cerrado.</p></div>
+<script>
+  const post = (m) => window.ipc.postMessage(JSON.stringify(m));
+  document.getElementById('boton').onclick = () => post({ tipo: 'clic-pagina' });
+  document.getElementById('campo').oninput = (e) => post({ tipo: 'texto', valor: e.target.value });
+  let t; addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => post({ tipo: 'scroll', y: scrollY }), 150); });
+  document.addEventListener('keydown', (e) => post({ tipo: 'tecla-pagina', key: e.key }));
+  addEventListener('focus', () => post({ tipo: 'foco-pagina' }));
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', (e) => { e.preventDefault(); post({ tipo: 'soltar-en-pagina' }); });
+  // Hostile attempts: forge a frame order and look for the frame.
+  post({ tipo: 'item', n: 0, falsificado: true });
+  const alcanza = [];
+  try { if (window.top !== window) alcanza.push('top'); } catch (e) {}
+  try { if (window.parent !== window) alcanza.push('parent'); } catch (e) {}
+  try { if (window.opener) alcanza.push('opener'); } catch (e) {}
+  try { if (window.__marco) alcanza.push('__marco'); } catch (e) {}
+  post({ tipo: 'listo', alcanza });
+</script>
+</body></html>
