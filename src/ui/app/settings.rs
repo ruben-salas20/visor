@@ -1,12 +1,12 @@
-//! Area E: the settings, updates and restart, the list of shortcuts and the
-//! status bar. Frame side: `marco/src/areas/settings/`. Still to come: the
-//! settings popover and the shortcuts list, which the frame loads when opened.
+//! Area E: the settings panel, the shortcuts panel, updates and restart, and
+//! the status bar. Frame side: `marco/src/areas/settings/`.
 
 use super::App;
 use crate::i18n::tr;
-use crate::ui::action::{RestartCheck, UserEvent};
+use crate::ui::action::{Action, RestartCheck, UserEvent};
+use crate::ui::address::Engine;
 use crate::ui::page_calls;
-use crate::ui::protocol::settings::Status;
+use crate::ui::protocol::settings::{Choice, Msg, Panel, Prefs, Status};
 use crate::ui::protocol::sides::kind_of;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -17,40 +17,66 @@ const RESTART_WAIT: Duration = Duration::from_secs(3);
 
 impl App {
     pub(super) fn status(&self) -> Status {
+        let (theme, language, engine, auto_update, show_other) = self.cfg(|c| {
+            (
+                c.theme.clone(),
+                c.language.clone(),
+                c.search_engine.clone(),
+                c.auto_update.unwrap_or(true),
+                c.show_other_files.unwrap_or(true),
+            )
+        });
         Status {
             vault: self.vault().map(|v| super::files::name_of(v.path())),
             kind: kind_of(self.tabs.focused_side().tab().target()),
             zoom: self.cfg(|c| c.zoom.unwrap_or(1.0)),
             version: env!("CARGO_PKG_VERSION"),
             update: self.update_message.clone(),
+            update_busy: self.update_busy,
+            update_restart: self.update_restart,
+            language_pending: self.language_pending,
+            prefs: Prefs {
+                theme,
+                language,
+                search_engine: Engine::from_id(engine.as_deref()).id(),
+                engines: Engine::ALL.into_iter().map(|e| Choice { id: e.id(), label: e.label() }).collect(),
+                auto_update,
+                show_other,
+            },
+            settings_open: self.settings_open,
+            shortcuts_open: self.shortcuts_open,
         }
     }
 
-    /// Ctrl+K.
+    /// Ctrl+K and the keyboard button of the status bar.
     pub(super) fn toggle_shortcuts(&mut self) {
-        // Phase 1.
+        self.shortcuts_open = !self.shortcuts_open;
+        if !self.shortcuts_open {
+            self.return_to_page();
+        }
     }
 
     /// Ctrl+,.
     pub(super) fn open_settings(&mut self) {
-        // Phase 1.
+        self.settings_open = true;
     }
 
-    /// The language changes on the next start; the settings say so.
+    /// The language chosen differs from the one in use: it applies on restart.
     pub(super) fn language_pending(&mut self, pending: bool) {
-        // Phase 1.
-        let _ = pending;
+        self.language_pending = pending;
     }
 
     /// An update check, or a restart, ended with `message`. `installed` offers the restart.
     pub(super) fn update_done(&mut self, message: &str, installed: bool) {
-        let _ = installed;
+        self.update_busy = false;
+        self.update_restart = installed;
         self.update_message = Some(message.to_string());
     }
 
     /// Checks for a new version on a thread, so the window keeps answering; the
     /// result comes back as `UpdateDone`.
     pub(super) fn check_updates(&mut self) {
+        self.update_busy = true;
         self.update_message = Some(tr("Buscando…", "Checking…").to_string());
         let proxy = self.proxy.clone();
         std::thread::spawn(move || {
@@ -115,5 +141,34 @@ impl App {
     pub(super) fn restart(&mut self) {
         // The process saves every window first; see `Visor::restart`.
         self.proxy.to(0).send(UserEvent::Restart { from: self.win });
+    }
+
+    /// What the settings and shortcuts panels ask for.
+    pub(super) fn on_settings(&mut self, msg: Msg) {
+        match msg {
+            Msg::Open { panel: Panel::Settings } => self.settings_open = true,
+            Msg::Open { panel: Panel::Shortcuts } => self.shortcuts_open = true,
+            Msg::Closed { panel } => {
+                match panel {
+                    Panel::Settings => self.settings_open = false,
+                    Panel::Shortcuts => self.shortcuts_open = false,
+                }
+                self.return_to_page();
+            }
+            Msg::SetTheme { choice } => self.act(Action::SetTheme(choice)),
+            Msg::SetLanguage { choice } => self.act(Action::SetLanguage(choice)),
+            Msg::Zoom { step } => self.act(Action::Zoom(step)),
+            Msg::SetSearchEngine { id } => self.act(Action::SetSearchEngine(Engine::from_id(Some(&id)))),
+            Msg::SetAutoUpdate { on } => self.act(Action::SetAutoUpdate(on)),
+            Msg::SetShowOther { on } => self.act(Action::SetShowOtherFiles(on)),
+            Msg::CheckUpdates => self.act(Action::CheckUpdates),
+            Msg::Restart => self.act(Action::Restart),
+        }
+    }
+
+    /// After a panel closes, the keys go back to the page on the focused side.
+    fn return_to_page(&mut self) {
+        let side = self.tabs.focused();
+        self.focus_pane(side, true);
     }
 }

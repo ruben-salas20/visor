@@ -28,7 +28,7 @@ impl App {
             FrameMsg::Sides(msg) => self.on_sides(msg),
             FrameMsg::Bar(msg) => self.on_bar(msg),
             FrameMsg::Find(msg) => match msg {},
-            FrameMsg::Settings(msg) => match msg {},
+            FrameMsg::Settings(msg) => self.on_settings(msg),
         }
     }
 

@@ -166,6 +166,15 @@ pub(super) struct App {
     panel: files::Panel,
     /// The last result of an update check, for the status bar.
     update_message: Option<String>,
+    /// An update check is running: its button waits.
+    update_busy: bool,
+    /// A new version is on disk: the settings offer a restart.
+    update_restart: bool,
+    /// The language chosen differs from the one in use: it applies on restart.
+    language_pending: bool,
+    /// Whether the settings and shortcuts panels show; the frame obeys the status.
+    settings_open: bool,
+    shortcuts_open: bool,
     /// The last file the app wrote and a hash of what it wrote. A change on disk
     /// that still matches is the app's own; anything else came from outside.
     own_write: Option<OwnWrite>,
@@ -235,6 +244,11 @@ impl App {
             sidebar_shown: !loose,
             panel: files::Panel::default(),
             update_message: None,
+            update_busy: false,
+            update_restart: false,
+            language_pending: false,
+            settings_open: false,
+            shortcuts_open: false,
             own_write: None,
             shared,
             win,
