@@ -30,6 +30,7 @@ let state: Store = {
     kind: 'empty',
     zoom: 1,
     version: '',
+    lang: 'es',
     update: null,
     update_busy: false,
     update_restart: false,

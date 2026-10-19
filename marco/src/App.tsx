@@ -4,8 +4,11 @@
 import { Panel } from './areas/files/Panel'
 import { StatusBar } from './areas/settings/StatusBar'
 import { Sides } from './areas/sides/Sides'
+import { useArea } from './store'
 
 export function App() {
+  // `tr` reads the store without subscribing: this re-renders the tree when the status (and so the language) arrives.
+  useArea('status')
   return (
     <div className="flex h-full flex-col text-[12px]">
       <div className="flex min-h-0 flex-1">

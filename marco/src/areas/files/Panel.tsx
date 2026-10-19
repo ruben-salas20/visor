@@ -13,6 +13,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { tr } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { post } from '@/protocol'
 import { useArea } from '@/store'
@@ -27,13 +28,13 @@ function Vaults({ files }: { files: FilesState }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-6 min-w-0 flex-1 justify-start px-2 text-[13px] font-semibold" title="Cambiar de bóveda">
-          <span className="truncate">{files.vault ?? 'Sin bóveda'}</span>
+        <Button variant="ghost" size="sm" className="h-6 min-w-0 flex-1 justify-start px-2 text-[13px] font-semibold" title={tr('Cambiar de bóveda', 'Switch vault')}>
+          <span className="truncate">{files.vault ?? tr('Sin bóveda', 'No vault')}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
-        {files.vaults.length > 0 && <DropdownMenuLabel>Bóvedas</DropdownMenuLabel>}
+        {files.vaults.length > 0 && <DropdownMenuLabel>{tr('Bóvedas', 'Vaults')}</DropdownMenuLabel>}
         {files.vaults.map((v) => (
           <DropdownMenuItem key={v.path} onSelect={() => !v.current && post({ area: 'files', type: 'switch_vault', path: v.path })} className="group pr-1">
             <div className="min-w-0 flex-1">
@@ -45,8 +46,8 @@ function Vaults({ files }: { files: FilesState }) {
             </div>
             <button
               type="button"
-              title="Quitar de la lista (no borra la carpeta)"
-              aria-label={`Quitar ${v.name} de la lista`}
+              title={tr('Quitar de la lista (no borra la carpeta)', 'Remove from the list (does not delete the folder)')}
+              aria-label={tr(`Quitar ${v.name} de la lista`, `Remove ${v.name} from the list`)}
               onClick={(e) => {
                 e.stopPropagation()
                 post({ area: 'files', type: 'remove_vault', path: v.path })
@@ -59,7 +60,7 @@ function Vaults({ files }: { files: FilesState }) {
         ))}
         {files.vaults.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onSelect={() => post({ area: 'files', type: 'pick_vault' })}>
-          Abrir carpeta…<DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
+          {tr('Abrir carpeta…', 'Open folder…')}<DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -74,7 +75,7 @@ function NameField({ form, folders }: { form: Form; folders: Folders }) {
     setName('')
     field.current?.focus()
   }, [form.id])
-  const place = form.dir || 'la raíz de la bóveda'
+  const place = form.dir || tr('la raíz de la bóveda', 'the root of the vault')
   const cancel = () => post({ area: 'files', type: 'cancel_name' })
   const create = () => {
     const typed = name.trim()
@@ -90,7 +91,7 @@ function NameField({ form, folders }: { form: Form; folders: Folders }) {
   return (
     <div className="flex shrink-0 flex-col gap-1 border-b px-3 py-2">
       <label htmlFor="visor-nombre" className="text-xs text-muted-foreground">
-        {form.folder ? `Nueva carpeta en ${place}` : `Nueva nota en ${place}`}
+        {form.folder ? tr(`Nueva carpeta en ${place}`, `New folder in ${place}`) : tr(`Nueva nota en ${place}`, `New note in ${place}`)}
       </label>
       <input
         id="visor-nombre"
@@ -104,7 +105,7 @@ function NameField({ form, folders }: { form: Form; folders: Folders }) {
           e.preventDefault()
         }}
         onBlur={() => !name && cancel()}
-        placeholder={form.folder ? 'Nombre de la carpeta' : 'Nombre de la nota'}
+        placeholder={form.folder ? tr('Nombre de la carpeta', 'Folder name') : tr('Nombre de la nota', 'Note name')}
         aria-invalid={!!form.error}
         aria-describedby={form.error ? 'visor-nombre-error' : undefined}
         className="h-7 rounded-md border bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-invalid:border-destructive"
@@ -114,7 +115,7 @@ function NameField({ form, folders }: { form: Form; folders: Folders }) {
           {form.error}
         </p>
       )}
-      <p className="text-[11px] text-muted-foreground">Intro para crear, Esc para cancelar.</p>
+      <p className="text-[11px] text-muted-foreground">{tr('Intro para crear, Esc para cancelar.', 'Enter to create, Esc to cancel.')}</p>
     </div>
   )
 }
@@ -138,11 +139,11 @@ function NoticeBox({ notice }: { notice: Notice | null }) {
         <p className="break-words">{notice.text}</p>
         {elsewhere && (
           <Button variant="outline" size="xs" onClick={() => post({ area: 'files', type: 'open_elsewhere', path: elsewhere })}>
-            Abrir con otra aplicación
+            {tr('Abrir con otra aplicación', 'Open with another application')}
           </Button>
         )}
       </div>
-      <button type="button" title="Cerrar el aviso" onClick={() => setGone(notice.id)} className="text-muted-foreground hover:text-foreground">
+      <button type="button" title={tr('Cerrar el aviso', 'Close the notice')} onClick={() => setGone(notice.id)} className="text-muted-foreground hover:text-foreground">
         <X className="size-3.5" />
       </button>
     </div>
@@ -164,8 +165,8 @@ function Edge({ width, onDrag }: { width: number; onDrag: (w: number | null) => 
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Ancho del panel"
-      title="Arrastra para cambiar el ancho"
+      aria-label={tr('Ancho del panel', 'Panel width')}
+      title={tr('Arrastra para cambiar el ancho', 'Drag to change the width')}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
         start.current = { x: e.clientX, w: width }
@@ -192,25 +193,25 @@ export function Panel() {
     <aside style={{ width }} className="relative flex h-full shrink-0 flex-col border-r bg-sidebar">
       <div className="flex h-[30px] shrink-0 items-center gap-0.5 border-b px-1.5">
         <Vaults files={files} />
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" title="Nueva nota (Ctrl+N)" onClick={() => ask(false)}>
+        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" title={tr('Nueva nota (Ctrl+N)', 'New note (Ctrl+N)')} onClick={() => ask(false)}>
           <FilePlus2 />
         </Button>
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" title="Nueva carpeta" onClick={() => ask(true)}>
+        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" title={tr('Nueva carpeta', 'New folder')} onClick={() => ask(true)}>
           <FolderPlus />
         </Button>
       </div>
       {files.form && <NameField form={files.form} folders={folders} />}
       <div className="flex items-center pt-2 pr-1.5 pb-1 pl-4">
-        <span className="flex-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Archivos</span>
+        <span className="flex-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{tr('Archivos', 'Files')}</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-xs" className="text-muted-foreground" title="Opciones del panel">
+            <Button variant="ghost" size="icon-xs" className="text-muted-foreground" title={tr('Opciones del panel', 'Panel options')}>
               <Ellipsis />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuCheckboxItem checked={files.show_other} onCheckedChange={(on) => post({ area: 'files', type: 'show_other', on })}>
-              Mostrar archivos que visor no abre
+              {tr('Mostrar archivos que visor no abre', 'Show files visor does not open')}
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -219,13 +220,13 @@ export function Panel() {
         tree.root.dirs.length + tree.root.files.length > 0 ? (
           <Tree root={tree.root} folders={folders} current={files.current} />
         ) : (
-          <p className="flex-1 px-4 py-2 text-xs text-muted-foreground italic">{tree.root.empty ?? 'Carpeta vacía'}</p>
+          <p className="flex-1 px-4 py-2 text-xs text-muted-foreground italic">{tree.root.empty ?? tr('Carpeta vacía', 'Empty folder')}</p>
         )
       ) : (
         <div className="flex flex-1 flex-col items-start gap-2 px-4 py-2 text-xs text-muted-foreground">
-          <p>No hay ninguna bóveda abierta.</p>
+          <p>{tr('No hay ninguna bóveda abierta.', 'No vault is open.')}</p>
           <Button variant="outline" size="xs" onClick={() => post({ area: 'files', type: 'pick_vault' })}>
-            Abrir carpeta…
+            {tr('Abrir carpeta…', 'Open folder…')}
           </Button>
         </div>
       )}

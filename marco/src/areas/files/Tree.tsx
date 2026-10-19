@@ -13,6 +13,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { tr } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { post } from '@/protocol'
 import { listenDrag, pressRow, type Drag } from './drag'
@@ -131,13 +132,13 @@ function Menu({ target }: { target: Target | null }) {
   if (kind === 'root' || kind === 'dir') {
     return (
       <>
-        <ContextMenuItem onSelect={() => ask(false)}>{kind === 'root' ? 'Nueva nota' : 'Nueva nota aquí'}</ContextMenuItem>
-        <ContextMenuItem onSelect={() => ask(true)}>{kind === 'root' ? 'Nueva carpeta' : 'Nueva carpeta aquí'}</ContextMenuItem>
+        <ContextMenuItem onSelect={() => ask(false)}>{kind === 'root' ? tr('Nueva nota', 'New note') : tr('Nueva nota aquí', 'New note here')}</ContextMenuItem>
+        <ContextMenuItem onSelect={() => ask(true)}>{kind === 'root' ? tr('Nueva carpeta', 'New folder') : tr('Nueva carpeta aquí', 'New folder here')}</ContextMenuItem>
         {kind === 'dir' && (
           <>
             <ContextMenuSeparator />
             <ContextMenuItem variant="destructive" onSelect={() => files({ type: 'trash', path })}>
-              Mover a la papelera<ContextMenuShortcut>Supr</ContextMenuShortcut>
+              {tr('Mover a la papelera', 'Move to trash')}<ContextMenuShortcut>{tr('Supr', 'Del')}</ContextMenuShortcut>
             </ContextMenuItem>
           </>
         )}
@@ -148,19 +149,19 @@ function Menu({ target }: { target: Target | null }) {
     <>
       {kind === 'file' && (
         <>
-          <ContextMenuItem onSelect={() => open(path, null)}>Abrir</ContextMenuItem>
+          <ContextMenuItem onSelect={() => open(path, null)}>{tr('Abrir', 'Open')}</ContextMenuItem>
           <ContextMenuItem onSelect={() => post({ area: 'files', type: 'open', path, tab: true, beside: false })}>
-            Abrir en una pestaña nueva<ContextMenuShortcut>Ctrl+clic</ContextMenuShortcut>
+            {tr('Abrir en una pestaña nueva', 'Open in a new tab')}<ContextMenuShortcut>Ctrl+clic</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => post({ area: 'files', type: 'open', path, tab: false, beside: true })}>
-            Abrir en el otro lado<ContextMenuShortcut>Ctrl+Alt+clic</ContextMenuShortcut>
+            {tr('Abrir en el otro lado', 'Open on the other side')}<ContextMenuShortcut>Ctrl+Alt+clic</ContextMenuShortcut>
           </ContextMenuItem>
         </>
       )}
-      <ContextMenuItem onSelect={() => files({ type: 'open_elsewhere', path })}>Abrir con otra aplicación</ContextMenuItem>
+      <ContextMenuItem onSelect={() => files({ type: 'open_elsewhere', path })}>{tr('Abrir con otra aplicación', 'Open with another application')}</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onSelect={() => files({ type: 'trash', path })}>
-        Mover a la papelera<ContextMenuShortcut>Supr</ContextMenuShortcut>
+        {tr('Mover a la papelera', 'Move to trash')}<ContextMenuShortcut>{tr('Supr', 'Del')}</ContextMenuShortcut>
       </ContextMenuItem>
     </>
   )
