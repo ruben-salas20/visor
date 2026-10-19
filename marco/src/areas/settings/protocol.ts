@@ -2,6 +2,20 @@
 
 import type { TabKind } from '../sides/protocol'
 
+export type Choice = { id: string; label: string }
+
+/** The choices of the settings panel, as they are saved. `null` is the system's. */
+export type Prefs = {
+  theme: string | null
+  language: string | null
+  search_engine: string
+  engines: Choice[]
+  auto_update: boolean
+  show_other: boolean
+}
+
+export type Panel = 'settings' | 'shortcuts'
+
 export type Status = {
   vault: string | null
   /** What the focused side shows. */
@@ -9,9 +23,25 @@ export type Status = {
   /** 1 for 100 %. */
   zoom: number
   version: string
-  /** The last result of an update check, if any. */
+  /** The last result of an update check or a restart, if any. */
   update: string | null
+  update_busy: boolean
+  update_restart: boolean
+  language_pending: boolean
+  prefs: Prefs
+  settings_open: boolean
+  shortcuts_open: boolean
 }
 
-/** Nothing yet: settings and shortcuts come in phase 1. */
-export type SettingsMsg = never
+/** What the frame asks for. Rust decides and answers with the status. */
+export type SettingsMsg =
+  | { type: 'open'; panel: Panel }
+  | { type: 'closed'; panel: Panel }
+  | { type: 'set_theme'; choice: string | null }
+  | { type: 'set_language'; choice: string | null }
+  | { type: 'zoom'; step: number }
+  | { type: 'set_search_engine'; id: string }
+  | { type: 'set_auto_update'; on: boolean }
+  | { type: 'set_show_other'; on: boolean }
+  | { type: 'check_updates' }
+  | { type: 'restart' }
