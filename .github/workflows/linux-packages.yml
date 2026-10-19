@@ -182,7 +182,7 @@ jobs:
         run: |
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder xvfb xauth dbus-x11
+            flatpak flatpak-builder librsvg2-common xvfb xauth dbus-x11
 
       - name: Remoto Flathub y runtime estable más nuevo
         run: |
