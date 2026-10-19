@@ -33,6 +33,16 @@ pub enum Command {
     Update,
     /// Answered by `visor mcp` itself, never sent to the app.
     Guide,
+    /// Opens another window; sent by a second `visor` launch. `token` is the XDG
+    /// activation token, so the compositor gives the new window focus.
+    NewWindow { token: Option<String> },
+}
+
+/// A command and the window it goes to; `None` is the focused window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Request {
+    pub command: Command,
+    pub window: Option<u64>,
 }
 
 /// What `open` shows: a web, or a path as the caller wrote it.
@@ -70,11 +80,41 @@ pub enum NotesScope {
     Page(Page),
 }
 
-const WIRE_NAMES: [&str; 12] =
-    ["ping", "status", "reload", "open", "close", "console", "screenshot", "eval", "events", "notes", "notes_reply", "update"];
+const WIRE_NAMES: [&str; 13] = [
+    "ping",
+    "status",
+    "reload",
+    "open",
+    "close",
+    "console",
+    "screenshot",
+    "eval",
+    "events",
+    "notes",
+    "notes_reply",
+    "update",
+    "new_window",
+];
+
+/// Orders that do not act on a window: events and the update are the whole
+/// process's, and guide is fixed text. They refuse `--window` and `window`.
+pub const WINDOWLESS: [&str; 3] = ["events", "update", "guide"];
 
 fn is_web(text: &str) -> bool {
     text.starts_with("http://") || text.starts_with("https://")
+}
+
+/// The error for a socket field that is missing or of the wrong kind.
+fn invalid_field(field: &str) -> String {
+    trf!("Petición no válida: el campo {field} no es válido.", "Invalid request: field {field} is not valid.")
+}
+
+/// Removes `--window N` at `at` and returns N. Window numbers start at 1.
+fn take_window(args: &mut Vec<String>, at: usize) -> Result<u64, String> {
+    let number = args.get(at + 1).and_then(|v| v.parse::<u64>().ok()).filter(|n| *n > 0);
+    let number = number.ok_or_else(|| tr("--window necesita un número de ventana.", "--window needs a window number.").to_string())?;
+    args.drain(at..=at + 1);
+    Ok(number)
 }
 
 impl Page {
@@ -277,9 +317,7 @@ impl Command {
         if !WIRE_NAMES.contains(&name) {
             return Err(trf!("Comando desconocido: {name}", "Unknown command: {name}"));
         }
-        let invalid = |field: &str| {
-            trf!("Petición no válida: el campo {field} no es válido.", "Invalid request: field {field} is not valid.")
-        };
+        let invalid = invalid_field;
         let text = |field: &str| request[field].as_str().map(String::from).ok_or_else(|| invalid(field));
         let optional = |field: &str| match &request[field] {
             Value::Null => Ok(None),
@@ -349,12 +387,18 @@ impl Command {
                     NotesScope::Current
                 },
             },
+            "new_window" => Self::NewWindow { token: optional("token")?.filter(|t| !t.is_empty()).map(String::from) },
             _ => Self::NotesReply { id: text("id")?, text: text("text")? },
         })
     }
 
-    /// The JSON line sent through the socket.
+    /// The JSON line for a command without a window. Tests only: the CLI sends a `Request`.
+    #[cfg(test)]
     pub fn to_wire(&self) -> String {
+        self.wire_value().to_string()
+    }
+
+    fn wire_value(&self) -> Value {
         let place = |place: &Option<OpenPlace>| {
             place.map(|p| match p {
                 OpenPlace::Here => "here",
@@ -364,7 +408,7 @@ impl Command {
         };
         // No resolved path travels as "".
         let page = |page: &Page| json!({ "path": page.path.as_deref().unwrap_or(Path::new("")).to_string_lossy(), "raw": page.raw });
-        let wire = match self {
+        match self {
             Self::Ping => json!({ "cmd": "ping" }),
             Self::Status => json!({ "cmd": "status" }),
             Self::Reload => json!({ "cmd": "reload" }),
@@ -412,7 +456,65 @@ impl Command {
             },
             Self::NotesReply { id, text } => json!({ "cmd": "notes_reply", "id": id, "text": text }),
             Self::Guide => json!({ "cmd": "guide" }),
+            Self::NewWindow { token } => json!({ "cmd": "new_window", "token": token }),
+        }
+    }
+}
+
+impl Request {
+    /// Reads the command line. `--window N` goes before the command name, or right
+    /// after it. Not after `eval`: its code may contain that text.
+    pub fn from_args(args: &[String]) -> Result<Self, String> {
+        let mut rest = args.to_vec();
+        let mut window = None;
+        if rest.first().map(String::as_str) == Some("--window") {
+            window = Some(take_window(&mut rest, 0)?);
+        }
+        let after_name = rest.first().map(String::as_str) != Some("eval") && rest.get(1).map(String::as_str) == Some("--window");
+        if after_name {
+            if window.is_some() {
+                return Err(tr("--window solo puede aparecer una vez.", "--window can appear only once.").into());
+            }
+            window = Some(take_window(&mut rest, 1)?);
+        }
+        let command = Command::from_args(&rest)?;
+        if let Some(name) = rest.first().filter(|n| window.is_some() && WINDOWLESS.contains(&n.as_str())) {
+            return Err(trf!("{name} no va a una ventana: no acepta --window.", "{name} does not go to a window: it does not take --window."));
+        }
+        Ok(Self { command, window })
+    }
+
+    /// Reads an MCP tool call. Every tool but those in [`WINDOWLESS`] accepts `window`.
+    pub fn from_mcp(tool: &str, arguments: &Value) -> Result<Self, String> {
+        // The windowless ones keep their own checks, which refuse `window` as an unknown argument.
+        let Some(map) = arguments.as_object().filter(|_| !WINDOWLESS.contains(&tool)) else {
+            return Ok(Self { command: Command::from_mcp(tool, arguments)?, window: None });
         };
+        let mut map = map.clone();
+        let window = match map.remove("window") {
+            None => None,
+            Some(value) => Some(value.as_u64().filter(|n| *n > 0).ok_or_else(|| Args::invalid("window"))?),
+        };
+        Ok(Self { command: Command::from_mcp(tool, &Value::Object(map))?, window })
+    }
+
+    /// Reads a request from the socket line.
+    pub fn from_wire(request: &Value) -> Result<Self, String> {
+        let command = Command::from_wire(request)?;
+        let window = match &request["window"] {
+            Value::Null => None,
+            value => Some(value.as_u64().filter(|n| *n > 0).ok_or_else(|| invalid_field("window"))?),
+        };
+        Ok(Self { command, window })
+    }
+
+    /// The JSON line sent through the socket. Without a window, no `window` key:
+    /// the line is the same one older apps have always read.
+    pub fn to_wire(&self) -> String {
+        let mut wire = self.command.wire_value();
+        if let Some(window) = self.window {
+            wire["window"] = json!(window);
+        }
         wire.to_string()
     }
 }
@@ -936,5 +1038,104 @@ mod tests {
         // guide is never a socket order.
         assert_eq!(Command::from_wire(&json!({ "cmd": "guide" })).unwrap_err(), "Comando desconocido: guide");
         assert!(Command::from_wire(&json!({ "cmd": "notes_reply" })).unwrap_err().starts_with("Petición no válida"));
+    }
+
+    fn windowed(command: Command, window: u64) -> Request {
+        Request { command, window: Some(window) }
+    }
+
+    #[test]
+    fn window_goes_before_or_after_the_name() {
+        let status = Request::from_args(&args("--window 2 status")).unwrap();
+        assert_eq!(status, windowed(Command::Status, 2));
+        assert_eq!(Request::from_args(&args("status --window 2")).unwrap(), status);
+        assert_eq!(Request::from_args(&args("status")).unwrap(), Request { command: Command::Status, window: None });
+    }
+
+    #[test]
+    fn eval_keeps_window_text_in_its_code() {
+        let request = Request::from_args(&args("eval --window 3")).unwrap();
+        assert_eq!(request, Request { command: Command::Eval { code: "--window 3".into() }, window: None });
+    }
+
+    #[test]
+    fn window_must_be_a_positive_number_once() {
+        let missing = "--window necesita un número de ventana.";
+        assert_eq!(Request::from_args(&args("--window")).unwrap_err(), missing);
+        assert_eq!(Request::from_args(&args("status --window")).unwrap_err(), missing);
+        assert_eq!(Request::from_args(&args("--window 0 status")).unwrap_err(), missing);
+        assert_eq!(Request::from_args(&args("--window x status")).unwrap_err(), missing);
+        assert_eq!(Request::from_args(&args("--window -1 status")).unwrap_err(), missing);
+        assert_eq!(
+            Request::from_args(&args("--window 2 status --window 3")).unwrap_err(),
+            "--window solo puede aparecer una vez."
+        );
+    }
+
+    #[test]
+    fn windowless_orders_refuse_a_window() {
+        assert_eq!(Request::from_args(&args("--window 2 events")).unwrap_err(), "events no va a una ventana: no acepta --window.");
+        assert_eq!(Request::from_args(&args("update --window 2")).unwrap_err(), "update no va a una ventana: no acepta --window.");
+        assert!(Request::from_args(&args("events")).is_ok());
+        assert_eq!(Request::from_mcp("events", &json!({ "window": 2 })), Err("Argumento desconocido: window.".into()));
+        assert_eq!(Request::from_mcp("update", &json!({ "window": 2 })), Err("Argumento desconocido: window.".into()));
+    }
+
+    #[test]
+    fn new_window_is_not_a_command_line_order() {
+        assert!(Request::from_args(&args("new_window")).is_err());
+        assert!(Request::from_args(&args("--window 2 new_window")).is_err());
+    }
+
+    #[test]
+    fn mcp_window_argument() {
+        let open = Request::from_mcp("open", &json!({ "target": "/a.html", "window": 3 })).unwrap();
+        assert_eq!(open.window, Some(3));
+        assert_eq!(open.command, Command::from_mcp("open", &json!({ "target": "/a.html" })).unwrap());
+        assert_eq!(Request::from_mcp("status", &json!({})).unwrap(), Request { command: Command::Status, window: None });
+        assert_eq!(Request::from_mcp("status", &json!({ "window": 0 })).unwrap_err(), "El argumento window no es válido.");
+        assert_eq!(Request::from_mcp("status", &json!({ "window": "2" })).unwrap_err(), "El argumento window no es válido.");
+        // guide has no window: its own check refuses the argument.
+        assert_eq!(Request::from_mcp("guide", &json!({ "window": 2 })).unwrap_err(), "Argumento desconocido: window.");
+    }
+
+    #[test]
+    fn wire_carries_the_window_only_when_set() {
+        let with = windowed(Command::Status, 2);
+        let line: Value = serde_json::from_str(&with.to_wire()).unwrap();
+        assert_eq!(line, json!({ "cmd": "status", "window": 2 }));
+        assert_eq!(Request::from_wire(&line).unwrap(), with);
+
+        let without: Value = serde_json::from_str(&Request { command: Command::Status, window: None }.to_wire()).unwrap();
+        assert_eq!(without, json!({ "cmd": "status" }));
+    }
+
+    #[test]
+    fn wire_window_must_be_a_positive_integer_or_null() {
+        let read = |window: Value| Request::from_wire(&json!({ "cmd": "status", "window": window }));
+        assert_eq!(read(json!(null)).unwrap(), Request { command: Command::Status, window: None });
+        assert_eq!(read(json!(0)).unwrap_err(), "Petición no válida: el campo window no es válido.");
+        assert_eq!(read(json!("2")).unwrap_err(), "Petición no válida: el campo window no es válido.");
+        assert_eq!(read(json!(-1)).unwrap_err(), "Petición no válida: el campo window no es válido.");
+    }
+
+    #[test]
+    fn new_window_is_wire_only() {
+        assert_eq!(
+            Command::from_wire(&json!({ "cmd": "new_window" })).unwrap(),
+            Command::NewWindow { token: None }
+        );
+        assert_eq!(
+            Command::from_wire(&json!({ "cmd": "new_window", "token": "abc" })).unwrap(),
+            Command::NewWindow { token: Some("abc".into()) }
+        );
+        assert_eq!(
+            Command::from_wire(&json!({ "cmd": "new_window", "token": "" })).unwrap(),
+            Command::NewWindow { token: None }
+        );
+        assert!(Command::from_wire(&json!({ "cmd": "new_window", "token": 4 })).is_err());
+
+        let line: Value = serde_json::from_str(&Request { command: Command::NewWindow { token: Some("t".into()) }, window: None }.to_wire()).unwrap();
+        assert_eq!(line, json!({ "cmd": "new_window", "token": "t" }));
     }
 }

@@ -5,7 +5,8 @@ Excalidraw drawings) in a tree and renders the one you pick. If a
 file changes on disk, the view updates by itself.
 
 USE
-  visor                      Opens the app.
+  visor                      Opens the app. If it is already open, opens
+                             another window on the vault of the focused one.
   visor open <path|URL> [--tab | --beside] [--loose]
                              Opens a folder as a vault, shows a file or
                              loads a web page (http or https). Starts the
@@ -41,8 +42,10 @@ USE
                              loading), "errors" (errors in its console),
                              "sides" (tabs of each side: "list" from left
                              to right, and "active"), "focused" (the side
-                             with focus) and "last_event_id" (for
-                             events --after).
+                             with focus), "window" (the window it describes),
+                             "windows" (every open window: its "window",
+                             whether it is "focused" and its "vault") and
+                             "last_event_id" (for events --after).
   visor reload               Reloads the current page. Returns the same
                              as open.
   visor console [--errors] [--clear]
@@ -69,12 +72,15 @@ USE
                              annotations. With no options, the last 20
                              (1000 are kept, also after a restart). With
                              --wait, waits up to SEC seconds (maximum 600)
-                             for a new one to arrive.
+                             for a new one to arrive. Each event has
+                             "window": the number of the window it came from.
   visor notes [path|--all]   Annotations of the open page, of another
                              page or of the whole vault (a path and --all
                              cannot be combined). For the open page,
                              "anchored" says whether each one still finds
-                             its text or element.
+                             its text or element. In a PDF, a note whose
+                             page is not shown yet is not reported as lost:
+                             it waits until the page is drawn.
   visor notes reply <id> <text>
                              Replies to an annotation; the person sees it
                              at once in their note.
@@ -91,6 +97,18 @@ Every command answers in JSON. "ok": false means an error, and the
 command exits with code 1. <path> can be relative to the current folder
 or to the open vault.
 
+WINDOWS
+  visor can have several windows, each with its own vault and tabs (two
+  windows may show the same vault). `visor status` lists them in
+  "windows". Window numbers start at 1 and are never reused.
+  --window N (before or right after the command name, not after eval)
+  sends the command to window N. Without it, the command goes to the
+  focused window (the last one the person used), and `open <path>` goes
+  to a window that already shows the vault of that path, if one does.
+  events and update belong to the whole app and do not take --window.
+  Ctrl+Q closes every window and visor opens them all again next time;
+  closing a window while others stay open forgets it.
+
 MCP
   Register the server with: claude mcp add visor -- visor mcp
   Each tool is equivalent to a command. Arguments:
@@ -106,6 +124,8 @@ MCP
       notes_reply  id, text
       update       checks for a new version and installs it; does not restart
       guide        returns this text
+  Every tool but events, update and guide also takes window (a number,
+  as in --window).
 
 TABS AND SIDES
   The window can be split into two sides, each with its own tabs.
@@ -134,7 +154,7 @@ MARKDOWN NOTES
   - .md files appear in the tree next to the .html files and are shown
     rendered with the theme. They support tables, footnotes, task lists,
     alerts (> [!NOTE]), formulas ($...$ and $$...$$, KaTeX), syntax-
-    highlighted code and diagrams (```mermaid blocks).
+    highlighted code and diagrams (```mermaid blocks, drawn with Pele).
   - YAML front matter is shown as a property table above the text. Top-
     level keys with text, lists ([a, b] or lines starting with "- ") and
     multi-line text (> or |) are read; anything nested is shown as text.
@@ -150,10 +170,11 @@ MARKDOWN NOTES
     created from the vault root, and any missing folders are created too.
     ![[photo.png]] shows an image looked up by name.
   - PDF files: [[report.pdf]] and [text](report.pdf) open the PDF in visor,
-    looked up by name like a note, with WebKit's own viewer. ![[report.pdf]]
+    looked up by name like a note, in visor's PDF viewer (see PDF FILES). ![[report.pdf]]
     does not embed it. A link to a PDF that does not exist is not created:
-    it is shown as a dead link. PDFs have no annotations and cannot be
-    edited. In the tree, a PDF opens like a page (Ctrl: new tab).
+    it is shown as a dead link. The person can highlight and comment on the
+    text of a PDF, but visor never changes the PDF file and cannot edit it.
+    In the tree, a PDF opens like a page (Ctrl: new tab).
   - The person ticks tasks (- [ ] / - [x]) with a click and visor saves it
     to the .md. It reads the file again before changing it.
   - It warns the person before you edit a note that is open in the editor:
@@ -183,14 +204,33 @@ EXCALIDRAW DRAWINGS
     drawing is not saved until you delete the image.
   - `visor screenshot` is useful to check the result.
 
+PDF FILES
+  - A .pdf of a vault opens in visor's viewer: the full viewer of PDF.js
+    (the one in Firefox), in the person's language. Its toolbar has the
+    sidebar (thumbnails, outline), Find (Ctrl+F), the page number, the
+    zoom (Ctrl+plus, Ctrl+minus, Ctrl+0 change it while the PDF is in
+    front), print and download. Its menu has rotate, presentation mode,
+    scroll and spread modes and document properties.
+  - The viewer's own drawing and highlighting tools are off: the person
+    annotates with visor's annotations, which never change the file.
+  - Scripts inside a PDF do not run. "Open with another application", in
+    the viewer's menu, opens the file with the system's PDF program
+    (visor is skipped if it is the default).
+  - A PDF with a password is not opened: the viewer says it failed.
+  - A PDF outside every vault opens as a loose file, in WebKit's own
+    viewer, and cannot be annotated.
+
 ANNOTATIONS
   The person highlights text, comments on it, or annotates an element or a
-  point (a chart, an image, a canvas). They are saved apart, in
+  point (a chart, an image, a canvas; not in PDFs). They are saved apart, in
   <vault>/.visor/anotaciones/<page path>.json, and do not change the page.
   Reply with `visor notes reply`; do not edit those files.
   - "target" says where: the quoted text ("quote.exact", with the context
     "prefix" and "suffix") or the element ("element": tag, id, CSS
     selector, text), and the point ("point": x and y from 0 to 1).
+    In a PDF, "target.page" is the page number (from 1) and "quote.start"
+    is the offset in that page's text; there are no elements or points,
+    only highlighted text. The "page" field of each note is the PDF file.
   - "title" names element annotations (the name the person gave or a
     computed one, e.g. "Diagram in “Ondas”"); older ones may not have
     it. Add aria-label, alt or a caption (figcaption, caption) to charts,
@@ -310,8 +350,15 @@ SHORTCUTS IN THE APP
   Ctrl+1 … Ctrl+8  tab number N of the focused side; Ctrl+9, the last one
   Ctrl+| (o Ctrl+\)  split the window or go back to one side
   Ctrl+Alt+←  Ctrl+Alt+→  left or right side
-  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered)
+  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered); in a PDF,
+                          the viewer's own zoom
   Ctrl+,  settings: theme, text size, updates and search engine
+  Ctrl+F  search in the page: Enter next, Shift+Enter previous, Esc closes.
+          In a PDF or a note's editor, their own search.
+          In a page of the vault or a loose file, every match is marked and
+          the current one is orange; the counter is exact there.
+          The search stops at 1000 matches: past them it reads
+          "1 de más de 1000".
   Ctrl+K  list of shortcuts. In an Excalidraw drawing, Ctrl+K is still
           Excalidraw's link.
   Alt+←  back    Alt+→  forward (also the mouse side buttons)

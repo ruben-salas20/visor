@@ -1,4 +1,4 @@
-use crate::agent::command::{Command, Target};
+use crate::agent::command::{Command, Request, Target};
 use crate::i18n::tr;
 use crate::paths;
 use crate::vault::{self, config};
@@ -10,18 +10,18 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub fn run(args: &[String]) -> i32 {
-    let command = match Command::from_args(args) {
-        Ok(command) => command,
+    let request = match Request::from_args(args) {
+        Ok(request) => request,
         Err(e) => return print(&json!({ "ok": false, "error": e })),
     };
-    print(&call(&command))
+    print(&call(&request))
 }
 
 /// Sends one request to the app. `open` starts the app when it is closed.
-pub(crate) fn call(command: &Command) -> Value {
-    match send(command) {
+pub(crate) fn call(request: &Request) -> Value {
+    match send(request) {
         Some(r) => r,
-        None if matches!(command, Command::Open { .. }) => match start(loose(command)).then(|| send(command)).flatten() {
+        None if matches!(request.command, Command::Open { .. }) => match start(loose(request)).then(|| send(request)).flatten() {
             Some(r) => r,
             None => json!({ "ok": false, "error": tr("No se pudo abrir visor.", "Could not open visor.") }),
         },
@@ -35,9 +35,9 @@ pub(crate) fn call(command: &Command) -> Value {
     }
 }
 
-fn send(command: &Command) -> Option<Value> {
+fn send(request: &Request) -> Option<Value> {
     let mut stream = UnixStream::connect(paths::socket()).ok()?;
-    writeln!(stream, "{}", command.to_wire()).ok()?;
+    writeln!(stream, "{}", request.to_wire()).ok()?;
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).ok()?;
     serde_json::from_str(&line).ok()
@@ -45,10 +45,10 @@ fn send(command: &Command) -> Option<Value> {
 
 /// Whether `open` asks for an HTML page outside every known vault, which the
 /// app shows on its own. Decided here too, so the app starts without the last vault.
-fn loose(command: &Command) -> bool {
-    let Command::Open { target: Target::Path(page), loose, .. } = command else { return false };
+fn loose(request: &Request) -> bool {
+    let Command::Open { target: Target::Path(page), loose, .. } = &request.command else { return false };
     let Some(path) = page.path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) else { return false };
-    let opens_loose = vault::is_html(&path) || (*loose && vault::is_markdown(&path));
+    let opens_loose = vault::is_html(&path) || vault::is_pdf(&path) || (*loose && vault::is_markdown(&path));
     path.is_file() && opens_loose && config::Config::load().vault_for(&path).is_none()
 }
 
@@ -75,7 +75,7 @@ fn start(loose: bool) -> bool {
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if send(&Command::Ping).is_some() {
+        if send(&Request { command: Command::Ping, window: None }).is_some() {
             return true;
         }
         // A refused connection costs microseconds; a long sleep here delays every cold start.

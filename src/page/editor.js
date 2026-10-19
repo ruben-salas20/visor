@@ -7,10 +7,114 @@
     history, defaultKeymap, historyKeymap, insertTab,
     Language, defineLanguageFacet, languageDataProp, syntaxTree, syntaxHighlighting, HighlightStyle,
     parser, GFM, tags: t,
+    search, searchKeymap, openSearchPanel, closeSearchPanel, findNext, findPrevious, replaceNext, replaceAll,
+    selectMatches, getSearchQuery, setSearchQuery, SearchQuery, runScopeHandlers, accentPattern,
   } = window.CM;
   const config = window.__visorNoteConfig;
   // Helper named tx: "tr" is already a local name in this file.
   const tx = (es, en) => (config.lang === "en" ? en : es);
+
+  // Texts of the search panel (Ctrl+F in the editor), by CodeMirror's own keys.
+  const searchPhrases = EditorState.phrases.of({
+    "Find": tx("Buscar", "Find"),
+    "Replace": tx("Reemplazar", "Replace"),
+    "next": tx("siguiente", "next"),
+    "previous": tx("anterior", "previous"),
+    "all": tx("todas", "all"),
+    "match case": tx("mayúsculas", "match case"),
+    "by word": tx("palabra completa", "by word"),
+    "regexp": tx("expresión regular", "regexp"),
+    "replace": tx("reemplazar", "replace"),
+    "replace all": tx("reemplazar todas", "replace all"),
+    "close": tx("cerrar", "close"),
+    "current match": tx("coincidencia actual", "current match"),
+    "on line": tx("en la línea", "on line"),
+    "replaced match on line $": tx("Reemplazada la coincidencia de la línea $", "Replaced match on line $"),
+    "replaced $ matches": tx("Reemplazadas $ coincidencias", "Replaced $ matches"),
+    // Alt+G, from searchKeymap.
+    "Go to line": tx("Ir a la línea", "Go to line"),
+    "go": tx("ir", "go"),
+  });
+
+  // Ctrl+F panel. Without «mayúsculas» or «expresión regular», it sends a
+  // regexp that also accepts accents; the field keeps the text as typed.
+  const typedBy = new WeakMap(); // query sent → { search, replace } as typed
+  const choices = new WeakMap(); // view → the checkboxes and replacement last used
+
+  const make = (tag, attrs, ...kids) => {
+    const node = document.createElement(tag);
+    // Properties where the element has them, attributes for the rest (class, main-field).
+    for (const [k, v] of Object.entries(attrs || {})) (k in node ? (node[k] = v) : node.setAttribute(k, v));
+    node.append(...kids);
+    return node;
+  };
+
+  class FindPanel {
+    constructor(view) {
+      this.view = view;
+      this.top = true;
+      this.pos = 80;
+      this.query = getSearchQuery(view.state);
+      const kept = choices.get(view) || {};
+      const phrase = (key) => view.state.phrase(key);
+      const edit = () => this.commit();
+      this.field = make("input", { class: "cm-textfield", name: "search", "main-field": "true", placeholder: phrase("Find"), "aria-label": phrase("Find"), value: (typedBy.get(this.query) || this.query).search, onchange: edit, onkeyup: edit });
+      this.replaceField = make("input", { class: "cm-textfield", name: "replace", placeholder: phrase("Replace"), "aria-label": phrase("Replace"), value: kept.replace || "", onchange: edit, onkeyup: edit });
+      const box = (name, checked) => make("input", { type: "checkbox", name, checked: !!checked, onchange: edit });
+      this.caseField = box("case", kept.caseSensitive);
+      this.reField = box("re", kept.regexp);
+      this.wordField = box("word", kept.wholeWord);
+      const button = (name, onclick, text) => make("button", { class: "cm-button", name, onclick, type: "button" }, text);
+      this.dom = make("div", { class: "cm-search", onkeydown: (e) => this.keydown(e) },
+        this.field,
+        button("next", () => findNext(view), phrase("next")),
+        button("prev", () => findPrevious(view), phrase("previous")),
+        button("select", () => selectMatches(view), phrase("all")),
+        make("label", null, this.caseField, phrase("match case")),
+        make("label", null, this.reField, phrase("regexp")),
+        make("label", null, this.wordField, phrase("by word")),
+        ...(view.state.readOnly ? [] : [
+          make("br"),
+          this.replaceField,
+          button("replace", () => replaceNext(view), phrase("replace")),
+          button("replaceAll", () => replaceAll(view), phrase("replace all")),
+        ]),
+        make("button", { name: "close", onclick: () => closeSearchPanel(view), "aria-label": phrase("close"), type: "button" }, "×"));
+      // A query set by openSearchPanel (from a selection) has not been translated yet.
+      if (!typedBy.has(this.query)) queueMicrotask(() => this.commit());
+    }
+    mount() { this.field.select(); }
+    update(update) {
+      for (const tr of update.transactions) for (const effect of tr.effects) {
+        if (effect.is(setSearchQuery) && effect.value !== this.query && !effect.value.eq(this.query)) {
+          this.query = effect.value;
+          this.field.value = (typedBy.get(effect.value) || effect.value).search;
+          queueMicrotask(() => this.commit());
+        }
+      }
+    }
+    commit() {
+      const own = { search: this.field.value, regexp: this.reField.checked, caseSensitive: this.caseField.checked, wholeWord: this.wordField.checked, replace: this.replaceField.value };
+      choices.set(this.view, own);
+      const plain = !own.regexp && !own.caseSensitive;
+      const query = new SearchQuery({
+        ...own,
+        search: plain ? accentPattern(own.search) : own.search,
+        regexp: own.regexp || plain,
+        // In a regexp «$» names a group: escaped, the replacement keeps it literal.
+        replace: plain ? own.replace.replace(/\$/g, "$$$$") : own.replace,
+      });
+      if (query.eq(this.query)) return;
+      typedBy.set(query, { search: own.search, replace: own.replace });
+      this.query = query;
+      this.view.dispatch({ effects: setSearchQuery.of(query) });
+    }
+    keydown(e) {
+      if (runScopeHandlers(this.view, e, "search-panel")) e.preventDefault();
+      else if (e.key === "Enter" && e.target === this.field) { e.preventDefault(); (e.shiftKey ? findPrevious : findNext)(this.view); }
+      else if (e.key === "Enter" && e.target === this.replaceField) { e.preventDefault(); replaceNext(this.view); }
+    }
+  }
 
   // ---------- Markdown: GFM plus what pulldown-cmark reads in visor ----------
 
@@ -165,7 +269,7 @@
   const LIBS = {
     katex: { ready: () => window.katex, files: ["katex/katex.min.css", "katex/katex.min.js"] },
     hljs: { ready: () => window.hljs, files: ["hljs/highlight.min.js"] },
-    mermaid: { ready: () => window.mermaid, files: ["mermaid/mermaid.min.js"] },
+    pele: { ready: () => window.pele, files: ["pele/pele.global.js"] },
   };
   const asked = new Set();
   // Returns the library if it is already there; otherwise starts loading it
@@ -274,6 +378,16 @@
 
   // ---------- widgets ----------
 
+  // No widget may draw a replaced element (<img>, <input>, <canvas>…) inside the
+  // editable, nor an element whose role WebKit treats as a leaf (role="img", a
+  // <button>: role="figure" is fine): WebKitGTK 2.54 aborts the web process when a
+  // selection lands at the end of the contenteditable while an AT-SPI client
+  // watches (WebKit bug 279313). The DOM range counts the element as one
+  // character (U+FFFC) that the accessible text omits, so the caret offset lands
+  // one past the UTF-16 -> UTF-8 mapping and is indexed out of bounds.
+  // CodeMirror's own widget buffer is the same case and is turned into a <span>
+  // when the package is built (tools/codemirror).
+
   // A click on a rendered block puts the cursor in it, which shows its text.
   function reveal(view, dom, e) {
     const a = e.target.closest?.("a[data-href], a[data-wiki]");
@@ -303,10 +417,11 @@
     constructor(on) { super(); this.on = on; }
     eq(other) { return other.on === this.on; }
     toDOM(view) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
+      // A <span>, not an <input>: the drawn box is all note.css styles it with.
+      const box = document.createElement("span");
       box.className = "md-task";
-      box.checked = this.on;
+      box.setAttribute("role", "checkbox");
+      box.setAttribute("aria-checked", this.on ? "true" : "false");
       box.setAttribute("aria-label", this.on ? tx("Tarea hecha", "Task done") : tx("Tarea pendiente", "Task pending"));
       box.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -335,9 +450,8 @@
     ignoreEvent() { return this.display; }
   }
 
-  const diagrams = new Map(); // source → SVG, so redraws do not render again
-  let diagramId = 0;
-  let mermaidReady = false;
+  // Pele's handle for each drawn diagram, so destroy() can stop it.
+  const handles = new WeakMap();
   class Diagram extends WidgetType {
     constructor(source) { super(); this.source = source; }
     eq(other) { return other.source === this.source; }
@@ -345,30 +459,15 @@
       const el = document.createElement("div");
       el.className = "md-mermaid";
       el.addEventListener("mousedown", (e) => reveal(view, el, e));
-      const svg = diagrams.get(this.source);
-      if (svg) {
-        el.innerHTML = svg;
-        return el;
-      }
-      el.textContent = tx("Dibujando el diagrama…", "Drawing the diagram…");
-      if (!mermaidReady) {
-        window.mermaid.initialize({ startOnLoad: false, theme: window.__visorNote.dark() ? "dark" : "default" });
-        mermaidReady = true;
-      }
-      window.mermaid.render("visor-diagram-" + ++diagramId, this.source).then(
-        ({ svg }) => {
-          diagrams.set(this.source, svg);
-          el.innerHTML = svg;
-          view.requestMeasure();
-        },
-        (error) => {
-          el.textContent = "Mermaid: " + error.message;
-          el.classList.add("md-error");
-        },
-      );
+      // No zoom: its controls are <button>s, which abort the web process inside
+      // the editable like a replaced element (see the note above the widgets).
+      handles.set(el, window.__visorNote.diagram(el, this.source, { zoom: false, onRender: () => view.requestMeasure() }));
       return el;
     }
-    get estimatedHeight() { return diagrams.has(this.source) ? -1 : 200; }
+    destroy(dom) {
+      handles.get(dom)?.destroy();
+      handles.delete(dom);
+    }
     ignoreEvent() { return true; }
   }
 
@@ -376,12 +475,24 @@
     constructor(src, alt) { super(); this.src = src; this.alt = alt; }
     eq(other) { return other.src === this.src && other.alt === this.alt; }
     toDOM(view) {
+      // The image goes as the box's background, not as an <img>: a replaced
+      // element inside the editable aborts the web process (WebKit bug 279313).
+      // The box takes the image's shape through its aspect ratio, and
+      // editor.css sizes it like the reading view's images.
       const box = document.createElement("div");
       box.className = "md-image";
-      const img = box.appendChild(document.createElement("img"));
-      img.src = new URL(this.src, location.href).href;
-      img.alt = this.alt;
-      img.onload = () => view.requestMeasure();
+      box.setAttribute("role", "figure");
+      if (this.alt) box.setAttribute("aria-label", this.alt);
+      const url = new URL(this.src, location.href).href;
+      box.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+      const size = new Image();
+      size.onload = () => {
+        box.style.width = size.naturalWidth + "px";
+        box.style.aspectRatio = size.naturalWidth + " / " + size.naturalHeight;
+        view.requestMeasure();
+      };
+      size.onerror = () => { box.textContent = this.alt; view.requestMeasure(); };
+      size.src = url;
       box.addEventListener("mousedown", (e) => reveal(view, box, e));
       return box;
     }
@@ -582,7 +693,7 @@
       if (touches(state, active, b.from, b.to)) continue;
       let widget = null;
       if (b.kind === "table") widget = new Table(state, b.node);
-      else if (b.kind === "mermaid" && lib("mermaid")) {
+      else if (b.kind === "mermaid" && lib("pele")) {
         const closed = end.number > start.number && /^\s*(```|~~~)/.test(end.text);
         const last = closed ? end.number - 1 : end.number;
         const body = last > start.number ? state.doc.sliceString(start.to + 1, state.doc.line(last).to) : "";
@@ -918,7 +1029,9 @@
               { key: "ArrowDown", run: intoBlock(true) },
               { key: "ArrowUp", run: intoBlock(false) },
             ])),
-            keymap.of([...defaultKeymap, ...historyKeymap]),
+            keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+            search({ top: true, createPanel: (view) => new FindPanel(view) }),
+            searchPhrases,
             markdown,
             syntaxHighlighting(highlight),
             blockField,
@@ -951,6 +1064,8 @@
       return {
         text: () => doc().toString(),
         focus: () => view.focus(),
+        // Ctrl+F: opens the search panel; with one line selected, it starts from that text.
+        find: () => openSearchPanel(view),
         get scrollTop() { return view.scrollDOM.scrollTop; },
         atEnd() {
           const end = doc().length;

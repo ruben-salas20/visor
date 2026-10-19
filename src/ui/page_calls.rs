@@ -1,5 +1,5 @@
 //! The calls Rust makes into pages, as the JavaScript to run. Each one
-//! names a function of `note.js`, `editor.js` or `annot.js` (or `bridge.js`),
+//! names a function of `note.js`, `editor.js`, `annot.js` or `pdf.js` (or `bridge.js`),
 //! so that a rename there shows up in one place here. Values go through
 //! serde_json, so a page's text cannot break out of its string.
 
@@ -29,6 +29,51 @@ pub fn image_saved(file_id: &str, ok: bool, name: &str, error: &str) -> String {
         json!(name),
         json!(error)
     )
+}
+
+/// Ctrl+plus (1), Ctrl+minus (-1) or Ctrl+0 (0) for the PDF viewer's own zoom.
+pub fn pdf_zoom(step: i8) -> String {
+    format!("window.__visorPdf && window.__visorPdf.zoom({step})")
+}
+
+/// Ctrl+F in a PDF: PDF.js has its own find bar.
+pub fn pdf_find() -> &'static str {
+    "window.__visorPdf && window.__visorPdf.find()"
+}
+
+/// Ctrl+F: true when the note's editor is open and showed its own search.
+pub fn note_find() -> &'static str {
+    "!!(window.__visorNote && window.__visorNote.find && window.__visorNote.find())"
+}
+
+/// The page's own search (`find.js`), for the pages of the vault and loose
+/// files. `loaded` says whether the page answered before, with
+/// `window.__visorFind` in it: then the call goes straight to it and carries
+/// no script again.
+const FIND: &str = include_str!("../page/find.js");
+
+fn find_call(call: &str, loaded: bool) -> String {
+    if loaded {
+        format!("JSON.stringify(window.__visorFind.{call})")
+    } else {
+        format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return JSON.stringify(window.__visorFind.{call}); }})()")
+    }
+}
+
+/// Searches the page for `text` and shows its first match. The answer is the
+/// JSON `{current, total}` that `find::parse_answer` reads.
+pub fn find_search(text: &str, match_case: bool, whole_word: bool, loaded: bool) -> String {
+    find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)), loaded)
+}
+
+/// Shows the next match (`forward`) or the previous one, wrapping around.
+pub fn find_step(forward: bool, loaded: bool) -> String {
+    find_call(if forward { "next()" } else { "previous()" }, loaded)
+}
+
+/// Removes the highlights of the page's search.
+pub fn find_clear(loaded: bool) -> String {
+    find_call("clear()", loaded)
 }
 
 /// Ctrl+E: opens or closes the editor of a note or a drawing.
@@ -174,6 +219,24 @@ mod tests {
             r#"window.__visorNote && window.__visorNote.saved(false, "no \"se\" pudo")"#
         );
         assert_eq!(note_saved(true, ""), r#"window.__visorNote && window.__visorNote.saved(true, "")"#);
+    }
+
+    #[test]
+    fn find_search_quotes_the_text_and_loads_the_script_once() {
+        let call = find_search(r#"a "b""#, true, false, false);
+        assert!(call.starts_with("(() => { if (!window.__visorFind) {"));
+        assert!(call.ends_with(r#"return JSON.stringify(window.__visorFind.search("a \"b\"", true, false)); })()"#));
+    }
+
+    #[test]
+    fn a_page_that_answered_carries_no_script_again() {
+        assert_eq!(
+            find_search("b", true, false, true),
+            r#"JSON.stringify(window.__visorFind.search("b", true, false))"#
+        );
+        assert_eq!(find_step(true, true), "JSON.stringify(window.__visorFind.next())");
+        assert_eq!(find_step(false, true), "JSON.stringify(window.__visorFind.previous())");
+        assert_eq!(find_clear(true), "JSON.stringify(window.__visorFind.clear())");
     }
 
     #[test]

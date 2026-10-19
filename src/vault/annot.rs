@@ -376,6 +376,23 @@ mod tests {
     }
 
     #[test]
+    fn upsert_keeps_the_pdf_page_inside_the_target() {
+        let root = vault();
+        let page = "a/libro.pdf";
+        let pdf_note = json!({
+            "id": "pdf1",
+            "comment": "definición",
+            "target": { "kind": "text", "page": 3, "quote": { "exact": "onda", "prefix": "la ", "suffix": " larga", "start": 120 } },
+        });
+        assert_eq!(upsert(&root, page, &pdf_note), Ok(true));
+        let note = list(&root, Some(page))[0].clone();
+        assert_eq!(note["target"]["page"], 3);
+        assert_eq!(note["target"]["quote"]["start"], 120);
+        assert_eq!(note["page"], page);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn person_reply_limits() {
         let root = vault();
         let page = "p.html";

@@ -5,10 +5,11 @@
     tools/medir/medir.py --resumen RESULTADOS.jsonl
 
 Con varios binarios alterna las rondas (A B A B …). Copia cada binario antes de
-medir: cargo lo sobrescribe al compilar. Durante la medida se abren ventanas de
-visor en el escritorio activo; no uses el equipo mientras tanto.
+medir: cargo lo sobrescribe al compilar. Las ventanas de visor se abren en un sway
+sin pantalla, así que el escritorio sigue libre; con --escritorio se abren en el
+escritorio activo de Hyprland y no hay que usar el equipo mientras tanto.
 """
-import argparse, json, os, shutil, signal, subprocess, sys, time
+import argparse, atexit, json, os, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -116,9 +117,49 @@ def cpu_ticks(pid):
     return total
 
 
+SWAY = WORK / "sway"
+headless = True
+
+
+def start_sway():
+    """A sway without a screen for the windows to measure. Its window counts as
+    shown, so WebKit does not slow the page down, and the desktop stays free."""
+    shutil.rmtree(SWAY, ignore_errors=True)
+    SWAY.mkdir(parents=True)
+    display = SWAY / "display"
+    (SWAY / "config").write_text(
+        "output HEADLESS-1 resolution 1920x1080\n"
+        "xwayland disable\n"
+        f"exec sh -c 'echo $WAYLAND_DISPLAY > {display}'\n")
+    # As a user service of its own: started as a child of some shells (an agent's),
+    # sway gets SIGKILL within milliseconds, even in its own scope.
+    unit = "visor-medir-sway"
+    subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
+    subprocess.run(["systemd-run", "--user", "--quiet", "--collect", f"--unit={unit}",
+                    "-E", "WLR_BACKENDS=headless", "-E", "WLR_LIBINPUT_NO_DEVICES=1",
+                    "-E", f"SWAYSOCK={SWAY / 'ipc.sock'}", "-E", f"XDG_RUNTIME_DIR={os.environ['XDG_RUNTIME_DIR']}",
+                    "sway", "-c", str(SWAY / "config")], check=True)
+    atexit.register(subprocess.run, ["systemctl", "--user", "stop", unit], capture_output=True)
+    deadline = time.time() + 10
+    while not (display.exists() and display.read_text().strip()):
+        assert time.time() < deadline, f"sway no arrancó; mira journalctl --user -u {unit}"
+        time.sleep(0.1)
+    env.update(WAYLAND_DISPLAY=display.read_text().strip(), SWAYSOCK=str(SWAY / "ipc.sock"))
+    env.pop("DISPLAY", None)
+
+
 def window(pid):
     """Address of the app's window and whether it is on the active workspace:
     WebKit slows hidden pages down, which would flatter the idle CPU."""
+    if headless:
+        tree = json.loads(subprocess.run(["swaymsg", "-t", "get_tree"], env=env, capture_output=True, text=True).stdout)
+        nodes = [tree]
+        while nodes:
+            n = nodes.pop()
+            if n.get("pid") == pid:
+                return n["id"], n["visible"]
+            nodes += n.get("nodes", []) + n.get("floating_nodes", [])
+        return None, False
     clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
     active = json.loads(subprocess.run(["hyprctl", "activeworkspace", "-j"], capture_output=True, text=True).stdout)["id"]
     for c in clients:
@@ -128,6 +169,12 @@ def window(pid):
 
 
 def key(address, mods, k):
+    if headless:
+        # The window has the focus: it is the only one. wtype's first key gets lost
+        # while sway takes its keymap, so a key nobody uses goes first.
+        subprocess.run(["wtype", "-P", "F24", "-p", "F24", "-s", "100", "-M", mods.lower(), "-P", k.lower(),
+                        "-p", k.lower(), "-m", mods.lower()], env=env, capture_output=True)
+        return
     for state in ("down", "up"):
         subprocess.run(["hyprctl", "dispatch",
                         f'hl.dsp.send_key_state({{ mods = "{mods}", key = "{k}", state = "{state}", window = "address:{address}" }})'],
@@ -193,6 +240,19 @@ def measure(binary):
     r["cpu_ondas_ticks"], r["cpu_ondas_pct"] = idle_cpu(pid)
     r["cpu_ondas_visible"] = visible and window(pid)[1]
 
+    # A PDF of the vault, in PDF.js's full viewer (ADR 0037). Binaries older
+    # than #37 do not open PDFs: their row leaves these empty.
+    try:
+        r["arranque_pdf_ms"], pid = cold(binary, VAULT / "estudio" / "física" / "ondas-apuntes.pdf")
+    except AssertionError:
+        r.update(arranque_pdf_ms=None, memoria_pdf_mb=None, cpu_pdf_ticks=None, cpu_pdf_pct=None, cpu_pdf_visible=False)
+    else:
+        time.sleep(10)
+        r["memoria_pdf_mb"] = pss_mb(pid)
+        visible = window(pid)[1]
+        r["cpu_pdf_ticks"], r["cpu_pdf_pct"] = idle_cpu(pid)
+        r["cpu_pdf_visible"] = visible and window(pid)[1]
+
     # An HTML page outside every vault.
     r["arranque_suelto_ms"], pid = cold(binary, LOOSE)
     time.sleep(10)
@@ -234,12 +294,17 @@ def main():
     parser.add_argument("binarios", nargs="*")
     parser.add_argument("--rondas", type=int, default=1)
     parser.add_argument("--resumen", metavar="RESULTADOS")
+    parser.add_argument("--escritorio", action="store_true", help="medir en el escritorio de Hyprland, no en un sway sin pantalla")
     args = parser.parse_args()
     if args.resumen:
         return summary(args.resumen)
     if not args.binarios:
         parser.error("indica al menos un binario")
     binaries = [os.path.abspath(b) for b in args.binarios]
+    global headless
+    headless = not args.escritorio
+    if headless:
+        start_sway()
     prepare()
     out_path = WORK / time.strftime("resultados-%Y%m%d-%H%M.jsonl")
     print(f"Resultados en {out_path}", file=sys.stderr)

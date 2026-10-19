@@ -15,7 +15,7 @@ visor is built in Rust with tao, wry and WebKitGTK. It runs only on Linux with W
 
 ## Performance
 
-With a simple note or page, visor uses about half the memory of Obsidian or Chromium; with a heavy note (Mermaid, KaTeX, code), about a quarter less than Obsidian. Its window opens more than twice as fast.
+With a simple note or page, visor uses about half the memory of Obsidian or Chromium; with a heavy note (diagram, KaTeX, code), about a quarter less than Obsidian. Its window opens more than twice as fast.
 
 ![Key figures: visor against Obsidian and Chromium](docs/img/graficas/resumen.en.svg)
 
@@ -134,7 +134,7 @@ Then ask your agent to use the `guide` tool. That tool returns the same text as 
 - `src/vault.rs`, `src/vault/`: vault access, annotations, Markdown and configuration.
 - `src/agent/`: terminal, socket server and MCP. `help.txt` is the text of `visor help`.
 - `src/page/`: JavaScript and CSS that run inside pages.
-- `assets/`, `build.rs`: bundled libraries (KaTeX, highlight.js, Mermaid, CodeMirror), compressed with brotli at build time.
+- `assets/`, `build.rs`: bundled libraries (KaTeX, highlight.js, Pele, CodeMirror), compressed with brotli at build time.
 - `tools/`: CodeMirror bundle generator, benchmark scripts (`tools/medir/`) and the scripts that make the README GIF (`tools/video/`).
 
 ## More documentation

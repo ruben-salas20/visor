@@ -1,13 +1,13 @@
 use crate::i18n::tr;
-use crate::ui::action::{Action, UserEvent};
+use crate::ui::action::{Action, Proxy, UserEvent};
 use crate::ui::bar::Bar;
+use crate::ui::find::FindBar;
 use crate::ui::icons::{draw_back, draw_close, draw_forward, draw_list, draw_plus, draw_reload, draw_target, drawn_icon, icon_button};
 use crate::ui::tabs::Side;
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
-use tao::event_loop::EventLoopProxy;
 
 /// The widgets of one side of the window: its tab strip, address bar and
 /// container of page views. What the tabs are lives in `tabs::Tabs`.
@@ -23,17 +23,21 @@ pub struct Pane {
     annot_tools: gtk::Box,
     bar: Bar,
     views: gtk::Box,
+    /// Floats over the pages: the find bar, and the drop zone below.
+    overlay: gtk::Overlay,
+    /// Made on the first Ctrl+F in this side, then only shown and hidden.
+    find: OnceCell<FindBar>,
     /// Covers the pages while a file is dragged from the sidebar and says
     /// which zone is under the pointer: one half of the side, or all of it.
     /// It paints nothing; the page draws the mark (see App::frost).
     drop: gtk::EventBox,
     /// Whether a drop takes the whole side (the window is split) or a half.
     whole: Rc<Cell<bool>>,
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: Proxy,
 }
 
 impl Pane {
-    pub fn new(id: u64, proxy: &EventLoopProxy<UserEvent>) -> Pane {
+    pub fn new(id: u64, proxy: &Proxy) -> Pane {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let strip = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         strip.style_context().add_class("visor-bar");
@@ -45,8 +49,8 @@ impl Pane {
             b.set_valign(gtk::Align::Center);
             let proxy = proxy.clone();
             b.connect_clicked(move |_| {
-                let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(id)));
-                let _ = proxy.send_event(UserEvent::Action(action()));
+                proxy.send(UserEvent::Action(Action::FocusPane(id)));
+                proxy.send(UserEvent::Action(action()));
             });
             nav_tools.pack_start(&b, false, false, 0);
             b
@@ -71,8 +75,8 @@ impl Pane {
             b.set_valign(gtk::Align::Center);
             let proxy = proxy.clone();
             b.connect_clicked(move |_| {
-                let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(id)));
-                let _ = proxy.send_event(UserEvent::Action(action()));
+                proxy.send(UserEvent::Action(Action::FocusPane(id)));
+                proxy.send(UserEvent::Action(action()));
             });
             annot_tools.pack_end(&b, false, false, 0);
         }
@@ -89,7 +93,32 @@ impl Pane {
         views.show();
         overlay.show();
         root.show();
-        Pane { id, root, strip, back, forward, tab_list, annot_tools, bar, views, drop, whole, proxy: proxy.clone() }
+        Pane { id, root, strip, back, forward, tab_list, annot_tools, bar, views, overlay, find: OnceCell::new(), drop, whole, proxy: proxy.clone() }
+    }
+
+    /// This side's find bar, made the first time it is asked for.
+    pub fn find(&self) -> &FindBar {
+        self.find.get_or_init(|| FindBar::new(&self.overlay))
+    }
+
+    /// Whether this side's find bar is shown.
+    pub fn find_open(&self) -> bool {
+        self.find.get().is_some_and(|f| f.is_open())
+    }
+
+    /// Hides this side's find bar as its page changes. The keyboard stays
+    /// where it is: the old page may be hidden, and Ctrl+T wants the address bar.
+    pub fn find_close(&self) {
+        if let Some(f) = self.find.get().filter(|f| f.is_open()) {
+            f.close(false);
+        }
+    }
+
+    /// Ends this side's search if it is on `view`, which is about to be unloaded or moved.
+    pub fn find_forget(&self, view: u64) {
+        if let Some(f) = self.find.get() {
+            f.forget(view);
+        }
     }
 
     /// Shows or hides the drop zone. `whole`: a drop takes the side, not a half.
@@ -159,14 +188,14 @@ impl Pane {
             select.set_tooltip_text(Some(if tab.target().is_empty() { tr("Nueva pestaña", "New tab") } else { tab.target() }));
             let (proxy, id) = (self.proxy.clone(), tab.id());
             select.connect_clicked(move |_| {
-                let _ = proxy.send_event(UserEvent::Action(Action::SelectTab(id)));
+                proxy.send(UserEvent::Action(Action::SelectTab(id)));
             });
             let proxy = self.proxy.clone();
             select.connect_button_press_event(move |_, event| {
                 if event.button() != 2 {
                     return gtk::glib::Propagation::Proceed;
                 }
-                let _ = proxy.send_event(UserEvent::Action(Action::CloseTab(Some(id))));
+                proxy.send(UserEvent::Action(Action::CloseTab(Some(id))));
                 gtk::glib::Propagation::Stop
             });
             let close = gtk::Button::new();
@@ -176,7 +205,7 @@ impl Pane {
             close.set_tooltip_text(Some(tr("Cerrar pestaña (Ctrl+W)", "Close tab (Ctrl+W)")));
             let proxy = self.proxy.clone();
             close.connect_clicked(move |_| {
-                let _ = proxy.send_event(UserEvent::Action(Action::CloseTab(Some(id))));
+                proxy.send(UserEvent::Action(Action::CloseTab(Some(id))));
             });
             item.pack_start(&select, true, true, 0);
             item.pack_start(&close, false, false, 0);
@@ -187,8 +216,8 @@ impl Pane {
         add.set_valign(gtk::Align::Center);
         let (proxy, pane) = (self.proxy.clone(), self.id);
         add.connect_clicked(move |_| {
-            let _ = proxy.send_event(UserEvent::Action(Action::FocusPane(pane)));
-            let _ = proxy.send_event(UserEvent::Action(Action::NewTab));
+            proxy.send(UserEvent::Action(Action::FocusPane(pane)));
+            proxy.send(UserEvent::Action(Action::NewTab));
         });
         self.tab_list.pack_start(&add, false, false, 0);
         self.tab_list.show_all();
@@ -216,7 +245,7 @@ impl Pane {
 /// The drop zone over a side's pages. It tells the app which zone is under
 /// the pointer, only when it changes: 0 left half, 1 right half, 2 the whole
 /// side (the window is split), or none once the pointer leaves.
-fn drop_zone(pane: u64, proxy: &EventLoopProxy<UserEvent>) -> (gtk::EventBox, Rc<Cell<bool>>) {
+fn drop_zone(pane: u64, proxy: &Proxy) -> (gtk::EventBox, Rc<Cell<bool>>) {
     let zone = gtk::EventBox::new();
     zone.set_visible_window(false);
     zone.set_no_show_all(true);
@@ -230,7 +259,7 @@ fn drop_zone(pane: u64, proxy: &EventLoopProxy<UserEvent>) -> (gtk::EventBox, Rc
         let (proxy, last) = (proxy.clone(), last.clone());
         move |zone: Option<u8>| {
             if last.replace(zone) != zone {
-                let _ = proxy.send_event(UserEvent::DropHover { pane, zone });
+                proxy.send(UserEvent::DropHover { pane, zone });
             }
         }
     };
@@ -251,7 +280,7 @@ fn drop_zone(pane: u64, proxy: &EventLoopProxy<UserEvent>) -> (gtk::EventBox, Rc
             2 => None,
             h => Some(h as usize),
         };
-        let _ = proxy.send_event(UserEvent::Dropped { pane, half });
+        proxy.send(UserEvent::Dropped { pane, half });
         context.drag_finish(true, false, time);
         true
     });

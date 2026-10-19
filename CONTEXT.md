@@ -9,8 +9,9 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 
 ## Contenido
 
-- **Bóveda** (`vault`): carpeta con páginas. visor la muestra como árbol y la sirve por HTTP desde 127.0.0.1.
-- **Página**: archivo `.html`, `.md` o dibujo. Un PDF no es página: se abre en el visor de WebKit, sin anotaciones ni edición (`vault::is_pdf`, `Kind::Pdf`).
+- **Bóveda** (`vault`): carpeta con páginas. visor la muestra como árbol y la sirve por HTTP, en una dirección del bucle local propia de cada bóveda (127.0.0.1, .3, .4…).
+- **Página**: archivo `.html`, `.md` o dibujo.
+- **PDF** (`pdf`): `.pdf` de una bóveda. No es página (`vault::is_page`): se abre en el visor completo de PDF.js, servido por visor (ADR 0037) y admite anotaciones de texto, ancladas a página y cita, pero no se edita. Un PDF suelto se abre en el visor de WebKit, sin anotaciones.
 - **Nota**: página `.md` que no es dibujo. Se lee renderizada, se edita con Ctrl+E y admite `[[enlaces]]` de Obsidian.
 - **Dibujo** (`drawing`): página `.excalidraw.md` (formato del plugin de Excalidraw de Obsidian) o `.excalidraw` (JSON de excalidraw.com). Se lee como lienzo, se edita con Ctrl+E y se guarda en su mismo formato. No es nota: no tiene `[[enlaces]]` ni anotaciones.
 - **Página suelta** (`loose`; «archivo suelto»): `.html` fuera de toda bóveda conocida. Se abre como pestaña, sin crear bóveda. Un `.md` fuera de toda bóveda abre su carpeta como bóveda, salvo con `visor open --loose` (el doble clic del gestor de archivos): entonces es suelto: se edita y guarda en su archivo, no se anota, y sus `[[enlaces]]` se buscan solo en su carpeta.
@@ -21,10 +22,11 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 
 ## Ventana
 
+- **Ventana** (`App` en `app.rs`; `WinId`): cada ventana de visor, con su bóveda, sus lados y sus pestañas. Un solo proceso las abre todas (ADR 0039). Las órdenes de la CLI van a la **ventana con foco**, la última que usó la persona, salvo con `--window N`.
 - **Panel** (`sidebar`, `sidebar.rs`): árbol lateral de la bóveda, en GTK nativo.
 - **Lado** (`Side` en `tabs.rs`; widgets `Pane` en `panes.rs`; en la configuración, `panes` y `PaneState`): cada mitad de la vista dividida, con su fila de pestañas (atrás, adelante y recargar a la izquierda; botones de anotaciones a la derecha) y su barra. Las órdenes de la CLI actúan sobre el lado con el foco.
 - **Pestaña** (`Tab`): documento abierto en un lado. La **activa** es la visible de su lado.
-- **Pestaña viva** (`Tab.view` presente): tiene webview. Máximo 3 en toda la ventana (`MAX_LIVE`). La **descargada** (sin `view`) se recarga al volver a ella.
+- **Pestaña viva** (`Tab.view` presente): tiene webview. Máximo 3 por ventana (`MAX_LIVE`). La **descargada** (sin `view`) se recarga al volver a ella.
 - **Barra** (`bar`, `bar.rs`): barra de direcciones, solo con la dirección; oculta hasta Ctrl+L, salvo que se fije (`bar_shown`).
 - **Espacio de trabajo** (`workspace`): pestañas, división y lado con el foco de una bóveda (`workspaces` en la configuración).
 - **Posición de lectura** (`position`): línea y altura, o solo altura. Se guarda al ocultar una pestaña y se restaura al recargarla.
@@ -32,7 +34,7 @@ La interfaz y la ayuda usan los términos en español; el código, nombres en in
 ## Seguridad y escritura
 
 - **Frontera de confianza**: Rust decide qué puede hacer cada página por la URL del documento cargado en su vista (`vault::access`); ver `AGENTS.md`.
-- **Página de la bóveda**: servida desde la bóveda (127.0.0.1); puede tener anotaciones y escritura. Las sueltas tienen su propio origen (127.0.0.2) y solo usan consola y `visor.send`.
+- **Página de la bóveda**: servida desde el origen de su bóveda; puede tener anotaciones y escritura. Las sueltas tienen su propio origen (127.0.0.2) y solo usan consola y `visor.send`.
 - **Escritura propia** (`OwnWrite` en `watch.rs`): archivo que visor acaba de escribir. Se reconoce por el hash de su contenido, no por el tiempo, para no tapar los cambios de un agente.
 
 ## Términos que debes evitar

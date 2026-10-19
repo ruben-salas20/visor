@@ -1,12 +1,23 @@
 //! Definitions of the MCP tools: name, description and JSON schema. The checks
-//! on their arguments live in `Command::from_mcp`; the test below keeps both in step.
+//! on their arguments live in `Request::from_mcp`; the test below keeps both in step.
 use serde_json::{Value, json};
 
 fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": input_schema })
 }
 
-fn object(properties: Value, required: &[&str]) -> Value {
+/// A tool that takes `window`: which visor window the order goes to.
+fn object(mut properties: Value, required: &[&str]) -> Value {
+    properties["window"] = json!({
+        "type": "integer",
+        "minimum": 1,
+        "description": "Number of the window, as status lists it. Without it, the focused window.",
+    });
+    windowless(properties, required)
+}
+
+/// A tool in [`WINDOWLESS`](crate::agent::command::WINDOWLESS), without `window`.
+fn windowless(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
@@ -101,7 +112,7 @@ pub fn list() -> Vec<Value> {
         tool(
             "events",
             "Returns the data pages sent with visor.send() and the messages the person writes in their annotations (annotation instead of data; action says whether it is a comment or a reply). Without arguments, the last 20. With after, only those after that id. With wait, waits for a new one to arrive: use it when a page asks the person for something, or to follow their annotations.",
-            object(
+            windowless(
                 json!({
                     "after": {
                         "type": "integer",
@@ -125,7 +136,7 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "notes",
-            "Returns the person's annotations: highlighted text, comments or marked elements. Each one is a conversation: comment is what the person wrote, and replies are the messages in order, with author (\"persona\" or \"agente\", the literal values). pending means the person is waiting for your reply. Without arguments, the annotations of the open page. With page, those of another page. With all, those of the whole vault. On the open page, anchored says whether each annotation still finds its text or element.",
+            "Returns the person's annotations: highlighted text, comments or marked elements. Each one is a conversation: comment is what the person wrote, and replies are the messages in order, with author (\"persona\" or \"agente\", the literal values). pending means the person is waiting for your reply. Without arguments, the annotations of the open page. With page, those of another page. With all, those of the whole vault. On the open page, anchored says whether each annotation still finds its text or element. On a PDF, target.page is the PDF page of the quote, and a note whose page is not shown yet is not counted as lost.",
             object(
                 json!({
                     "page": {
@@ -152,12 +163,12 @@ pub fn list() -> Vec<Value> {
         tool(
             "update",
             "Checks whether a new version of visor is available and installs it. Returns the result as text. Does not restart visor: the new version is used when it is opened again. Does not replace a build copy (target/).",
-            object(json!({}), &[]),
+            windowless(json!({}), &[]),
         ),
         tool(
             "guide",
             "Returns the visor guide: how to write HTML pages and notes for visor, which data the person sends, and which commands exist. Read it before writing pages or notes for visor.",
-            object(json!({}), &[]),
+            windowless(json!({}), &[]),
         ),
     ]
 }
@@ -165,7 +176,7 @@ pub fn list() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::command::Command;
+    use crate::agent::command::Request;
 
     /// A value the schema of `spec` accepts.
     fn sample(spec: &Value) -> Value {
@@ -189,27 +200,46 @@ mod tests {
             for key in &required {
                 base.insert(key.to_string(), sample(&properties[*key]));
             }
-            assert!(Command::from_mcp(name, &Value::Object(base.clone())).is_ok(), "{name}");
+            assert!(Request::from_mcp(name, &Value::Object(base.clone())).is_ok(), "{name}");
             for (key, spec) in properties {
                 let mut args = base.clone();
                 args.insert(key.clone(), sample(spec));
-                assert!(Command::from_mcp(name, &Value::Object(args)).is_ok(), "{name}.{key}");
+                assert!(Request::from_mcp(name, &Value::Object(args)).is_ok(), "{name}.{key}");
             }
             // The required ones are really required, and nothing else is accepted.
             for key in &required {
                 let mut args = base.clone();
                 args.remove(*key);
                 assert_eq!(
-                    Command::from_mcp(name, &Value::Object(args)),
+                    Request::from_mcp(name, &Value::Object(args)),
                     Err(format!("Falta el argumento obligatorio: {key}."))
                 );
             }
             let mut args = base;
             args.insert("inesperado".into(), json!(1));
             assert_eq!(
-                Command::from_mcp(name, &Value::Object(args)),
+                Request::from_mcp(name, &Value::Object(args)),
                 Err("Argumento desconocido: inesperado.".to_string())
             );
+        }
+    }
+
+    #[test]
+    fn every_tool_but_the_windowless_takes_a_window() {
+        for tool in list() {
+            let name = tool["name"].as_str().unwrap();
+            let schema = &tool["inputSchema"];
+            let has_window = schema["properties"].get("window").is_some();
+            assert_eq!(has_window, !crate::agent::command::WINDOWLESS.contains(&name), "{name}");
+            if !has_window {
+                continue;
+            }
+            let mut args = serde_json::Map::new();
+            for key in schema["required"].as_array().unwrap().iter().filter_map(Value::as_str) {
+                args.insert(key.to_string(), sample(&schema["properties"][key]));
+            }
+            args.insert("window".into(), json!(2));
+            assert!(Request::from_mcp(name, &Value::Object(args)).is_ok(), "{name}");
         }
     }
 

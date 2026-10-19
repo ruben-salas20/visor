@@ -16,6 +16,19 @@
 #editor .cm-selectionBackground,
 #editor .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); }
 
+/* search panel (Ctrl+F): the note's colours, not CodeMirror's light ones */
+#editor .cm-panels { background: var(--soft); color: var(--fg); border-color: var(--line); }
+#editor .cm-panels-top { border-bottom: 1px solid var(--line); }
+#editor .cm-search { padding: 6px 16px; font: 13px/1.4 system-ui, sans-serif; color: var(--fg); }
+#editor .cm-search label { color: var(--muted); }
+#editor .cm-textfield { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font: inherit; }
+#editor .cm-textfield:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#editor .cm-button { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; font: inherit; }
+#editor .cm-button:hover { background: var(--soft); }
+#editor .cm-search button[name=close] { color: var(--muted); background: none; border: none; font-size: 18px; }
+#editor .cm-searchMatch { background: color-mix(in srgb, var(--accent) 25%, var(--bg)); outline: 1px solid color-mix(in srgb, var(--accent) 50%, var(--bg)); }
+#editor .cm-searchMatch-selected { background: color-mix(in srgb, var(--accent) 55%, var(--bg)); }
+
 /* headings, as h1–h6 in note.css */
 #editor .cm-h1, #editor .cm-h2, #editor .cm-h3, #editor .cm-h4, #editor .cm-h5, #editor .cm-h6 { font-weight: 700; line-height: 1.25; padding-top: .3em; padding-bottom: .2em; }
 #editor .cm-h1 { font-size: 2em; }
@@ -44,6 +57,9 @@
 /* :has, not "+": CodeMirror puts a buffer element between adjacent widgets. */
 #editor .cm-line:has(.md-ordinal) .md-task { margin-left: 0; }
 .md-math { cursor: text; }
+/* WebKit bug 279313: a <math> inside the editable counts as one character the
+   accessible text omits, like a replaced element. The editor shows KaTeX's HTML. */
+#editor .katex-mathml { display: none; }
 
 /* blocks. Lines and block widgets take padding, never margins: CodeMirror
    measures their boxes, and a margin would shift every position below. */
@@ -62,11 +78,9 @@
 #editor .cm-mathsrc, #editor .cm-tablesrc { font-family: var(--mono); font-size: .9em; }
 #editor .cm-frontmatter { font-family: var(--mono); font-size: .875em; color: var(--muted); }
 .md-math-block { overflow-x: auto; padding: .4em 0; text-align: center; cursor: text; }
-.md-mermaid { padding: .4em 0; text-align: center; color: var(--muted); cursor: text; }
+.md-mermaid { padding: .4em 0; text-align: center; cursor: text; }
 .md-mermaid svg { max-width: 100%; height: auto; }
-.md-error { color: var(--red); text-align: left; }
-.md-image { padding: .3em 0; }
-.md-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
+.md-image { width: fit-content; max-width: 100%; padding: .3em 0; background-repeat: no-repeat; background-position: left top; background-size: contain; border-radius: 6px; outline: var(--img-outline); outline-offset: -1px; }
 .md-table { padding: .3em 0; cursor: text; }
 .md-table table { margin: 0; }
 .md-table a { color: var(--accent); }

@@ -1,0 +1,3 @@
+/* What visor takes out of PDF.js's own viewer: opening another file (Ctrl+O is
+   visor's) and the link to the current view, which would change the page's address. */
+#secondaryOpenFile, #openFile, #viewBookmark, #viewBookmarkSeparator { display: none !important; }

@@ -7,6 +7,7 @@ pub mod files;
 pub(crate) mod front_matter;
 pub mod links;
 pub mod markdown;
+pub mod pdf;
 #[cfg(test)]
 mod walk_tests;
 
@@ -380,13 +381,23 @@ pub struct Vault {
     path: PathBuf,
     /// Canonical, computed once.
     root: PathBuf,
+    /// URL prefix of the origin this vault is served from, e.g. `http://127.0.0.1:PORT/SECRET/`.
+    base: String,
 }
 
 impl Vault {
-    /// If the folder cannot be read yet, the root stays as given and nothing resolves in it.
+    /// For tests: every vault on the same made-up origin.
+    #[cfg(test)]
     pub fn open(path: &Path) -> Self {
+        Self::open_at(path, "http://127.0.0.1:1/s/".into())
+    }
+
+    /// `base` is the URL prefix of the origin the server gives this vault alone,
+    /// so its pages can read neither another vault nor the loose pages.
+    /// If the folder cannot be read yet, the root stays as given and nothing resolves in it.
+    pub fn open_at(path: &Path, base: String) -> Self {
         let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        Vault { path: path.to_path_buf(), root }
+        Vault { path: path.to_path_buf(), root, base }
     }
 
     pub fn path(&self) -> &Path {
@@ -395,6 +406,20 @@ impl Vault {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// URL of the vault page at `rel`, which is relative to the vault.
+    pub fn url(&self, rel: &str) -> String {
+        format!("{}{}", self.base, encode_rel(rel))
+    }
+
+    /// Inverse of [`Vault::url`]: the vault path of a page of this vault, `None` for anything else.
+    pub fn rel_from_url(&self, url: &str) -> Option<String> {
+        decode_under(&self.base, url).filter(|rel| !is_loose(rel))
     }
 
     pub fn tree(&self) -> Dir {
@@ -437,7 +462,7 @@ impl Vault {
     pub fn page(&self, url: &str) -> Result<(String, PathBuf), String> {
         // The name keys the page's annotations, so it must be the one the file
         // is listed under: `a/../b` would resolve, but store them elsewhere.
-        let rel = rel_from_url(url).ok_or(tr("La página no es de la bóveda", "The page is not in the vault"))?;
+        let rel = self.rel_from_url(url).ok_or(tr("La página no es de la bóveda", "The page is not in the vault"))?;
         self.page_at(&rel)
     }
 
@@ -445,10 +470,6 @@ impl Vault {
     pub fn page_at(&self, rel: &str) -> Result<(String, PathBuf), String> {
         if is_loose(rel) || rel.split('/').any(|seg| seg == "." || seg == "..") {
             return Err(tr("La página no es de la bóveda", "The page is not in the vault").into());
-        }
-        // A PDF is shown by WebKit's viewer and takes no annotations: visor has no page to attach them to.
-        if is_pdf(Path::new(rel)) {
-            return Err(tr("Un PDF no tiene anotaciones", "A PDF has no annotations").into());
         }
         self.locate(rel).ok_or_else(|| tr("La página no existe en la bóveda", "The page does not exist in the vault").into())
     }
@@ -522,18 +543,21 @@ pub enum Access {
     Trusted,
 }
 
-pub fn access(url: &str) -> Access {
-    match rel_from_url(url) {
-        None => Access::None,
-        Some(rel) if is_loose(&rel) => Access::Local,
-        Some(_) => Access::Trusted,
+/// `vault` is the window's open vault: a page of it is trusted, and only that vault's origin counts.
+pub fn access(url: &str, vault: Option<&Vault>) -> Access {
+    if vault.is_some_and(|v| v.rel_from_url(url).is_some()) {
+        Access::Trusted
+    } else if loose_rel_from_url(url).is_some() {
+        Access::Local
+    } else {
+        Access::None
     }
 }
 
 /// Whether agents may read a page's content: run code in it or photograph it.
 /// Only pages visor serves. What a website shows would reach an agent's context.
-pub fn agent_may_read(url: &str) -> bool {
-    access(url) != Access::None
+pub fn agent_may_read(url: &str, vault: Option<&Vault>) -> bool {
+    access(url, vault) != Access::None
 }
 
 /// Writes through a temporary file, so a crash never leaves a half-written file.
@@ -603,13 +627,7 @@ pub fn byte_range(header: &str, len: u64) -> Option<(u64, u64)> {
     (start <= end && start < len).then_some((start, end))
 }
 
-static BASE: OnceLock<String> = OnceLock::new();
 static LOOSE_BASE: OnceLock<String> = OnceLock::new();
-
-/// Sets the URL the local server serves the vault from. Called once at startup.
-pub fn set_base(base: String) {
-    let _ = BASE.set(base);
-}
 
 /// Sets the URL loose pages are served from. It is another origin, so a loose
 /// page can neither read the vault nor take the address of one of its pages.
@@ -617,21 +635,24 @@ pub fn set_loose_base(base: String) {
     let _ = LOOSE_BASE.set(base);
 }
 
-/// URL prefix of every vault page, e.g. `http://127.0.0.1:PORT/SECRET/`.
-pub fn base() -> &'static str {
-    BASE.get().map_or("", String::as_str)
-}
+/// What a view of a window without a vault takes for the vault's URL prefix:
+/// no address starts with it, so no page there is a vault page.
+pub const NO_VAULT_BASE: &str = "about:visor-no-vault/";
 
 /// URL prefix of loose pages, e.g. `http://127.0.0.2:PORT/SECRET/`.
 pub fn loose_base() -> &'static str {
     LOOSE_BASE.get().map_or("", String::as_str)
 }
 
-/// Also takes a loose page's absolute path, served at `loose_base()` + `/` + path.
-pub fn url(rel: &str) -> String {
+/// URL of a loose page, given its absolute path: `loose_base()` + `/` + path.
+pub fn loose_url(path: &str) -> String {
+    format!("{}{}", loose_base(), encode_rel(path))
+}
+
+/// Percent-encodes each segment of a path, keeping the `/` separators.
+fn encode_rel(rel: &str) -> String {
     let path: Vec<String> = rel.split('/').map(|seg| utf8_percent_encode(seg, SEGMENT).to_string()).collect();
-    let base = if is_loose(rel) { loose_base() } else { base() };
-    format!("{base}{}", path.join("/"))
+    path.join("/")
 }
 
 /// A file a loose page may read, and the loose folder it is in: inside the folder
@@ -649,20 +670,21 @@ pub fn loose_file(path: &Path, allowed: &[PathBuf]) -> Option<(PathBuf, PathBuf)
 /// in an open loose folder. `url` is that document's address, never one the page gives.
 pub fn loose_note(url: &str, allowed: &[PathBuf]) -> Result<PathBuf, String> {
     let not_loose = || tr("La página no es una nota suelta", "The page is not a loose note");
-    let rel = rel_from_url(url).filter(|rel| is_loose(rel)).ok_or_else(not_loose)?;
+    let rel = loose_rel_from_url(url).ok_or_else(not_loose)?;
     let (path, _) = loose_file(Path::new(&rel), allowed).ok_or_else(not_loose)?;
     if is_markdown(&path) { Ok(path) } else { Err(tr("Solo se pueden guardar notas .md", "Only .md notes can be saved").into()) }
 }
 
-/// Inverse of [`url`]; `None` for pages the server does not serve, and for a
-/// path asked of the wrong origin.
-pub fn rel_from_url(url: &str) -> Option<String> {
-    let decode = |base: &str| {
-        let path = url.strip_prefix(base).filter(|_| !base.is_empty())?;
-        let path = path.split(['?', '#']).next()?;
-        Some(percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned())
-    };
-    decode(base()).filter(|rel| !is_loose(rel)).or_else(|| decode(loose_base()).filter(|rel| is_loose(rel)))
+/// Inverse of [`loose_url`]; `None` for a URL outside the loose origin.
+pub fn loose_rel_from_url(url: &str) -> Option<String> {
+    decode_under(loose_base(), url).filter(|rel| is_loose(rel))
+}
+
+/// The path that `url` names under `base`, decoded; `None` if `url` is not under it.
+fn decode_under(base: &str, url: &str) -> Option<String> {
+    let path = url.strip_prefix(base).filter(|_| !base.is_empty())?;
+    let path = path.split(['?', '#']).next()?;
+    Some(percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -722,25 +744,26 @@ mod tests {
     #[test]
     fn url_round_trip() {
         bases();
+        let vault = Vault::open_at(Path::new("/nonexistent/boveda"), BASE.into());
         let rel = "física/tema 2/¿qué?#1.html";
-        let url = url(rel);
+        let url = vault.url(rel);
         assert_eq!(url, "http://127.0.0.1:1/s/f%C3%ADsica/tema%202/%C2%BFqu%C3%A9%3F%231.html");
-        assert_eq!(rel_from_url(&url).as_deref(), Some(rel));
-        assert_eq!(rel_from_url("https://example.com/"), None);
+        assert_eq!(vault.rel_from_url(&url).as_deref(), Some(rel));
+        assert_eq!(vault.rel_from_url("https://example.com/"), None);
         let loose = "/tmp/muestra rápida.html";
-        assert_eq!(super::url(loose), "http://127.0.0.2:1/s//tmp/muestra%20r%C3%A1pida.html");
-        assert_eq!(rel_from_url(&super::url(loose)).as_deref(), Some(loose));
+        assert_eq!(loose_url(loose), "http://127.0.0.2:1/s//tmp/muestra%20r%C3%A1pida.html");
+        assert_eq!(loose_rel_from_url(&loose_url(loose)).as_deref(), Some(loose));
         // Each origin serves only its own kind of page.
-        assert_eq!(rel_from_url("http://127.0.0.1:1/s//tmp/x.html"), None);
-        assert_eq!(rel_from_url("http://127.0.0.2:1/s/nota.md"), None);
+        assert_eq!(vault.rel_from_url("http://127.0.0.1:1/s//tmp/x.html"), None);
+        assert_eq!(loose_rel_from_url("http://127.0.0.2:1/s/nota.md"), None);
+        assert_eq!(loose_rel_from_url(&url), None);
     }
 
     const BASE: &str = "http://127.0.0.1:1/s/";
     const LOOSE_BASE: &str = "http://127.0.0.2:1/s/";
 
-    /// The same bases in every test: they can only be set once per process.
+    /// The same loose base in every test: it can only be set once per process.
     fn bases() {
-        set_base(BASE.into());
         set_loose_base(LOOSE_BASE.into());
     }
 
@@ -800,7 +823,7 @@ mod tests {
         assert_eq!(vault.resolve(&format!("{nfc_}/nota.md")), Some(root.join(format!("{nfd}/nota.md"))), "folder NFC");
         assert_eq!(vault.resolve(&format!("{nfc_}/falta.md")), None);
         // The key of a page is the name on disk, not the one asked for.
-        let (rel, _) = vault.page(&url(&format!("{nfc_}/nota.md"))).unwrap();
+        let (rel, _) = vault.page(&vault.url(&format!("{nfc_}/nota.md"))).unwrap();
         assert_eq!(rel, format!("{nfd}/nota.md"));
         // The fallback finds the real folder only; it never leaves the vault.
         assert_eq!(vault.resolve(&format!("{nfc_}/../../fuera.md")), None, "dot segments");
@@ -830,27 +853,27 @@ mod tests {
     fn page_and_note() {
         bases();
         let (vault, dir) = make("page");
-        let (rel, path) = vault.page(&url("a/pagina.html")).unwrap();
+        let (rel, path) = vault.page(&vault.url("a/pagina.html")).unwrap();
         assert_eq!((rel.as_str(), path), ("a/pagina.html", vault.root().join("a/pagina.html")));
-        assert_eq!(vault.page(&format!("{}#x", url("a/nota.md"))).unwrap().0, "a/nota.md");
-        assert_eq!(vault.note(&url("a/nota.md")).unwrap().1, vault.root().join("a/nota.md"));
-        assert!(vault.note(&url("a/pagina.html")).is_err(), "html is not a note");
+        assert_eq!(vault.page(&format!("{}#x", vault.url("a/nota.md"))).unwrap().0, "a/nota.md");
+        assert_eq!(vault.note(&vault.url("a/nota.md")).unwrap().1, vault.root().join("a/nota.md"));
+        assert!(vault.note(&vault.url("a/pagina.html")).is_err(), "html is not a note");
         fs::write(vault.root().join("a/dibujo.excalidraw.md"), "# x").unwrap();
         fs::write(vault.root().join("a/dibujo.excalidraw"), "{}").unwrap();
-        assert!(vault.note(&url("a/dibujo.excalidraw.md")).is_err(), "a drawing is not a note");
-        assert!(vault.drawing(&url("a/nota.md")).is_err(), "a note is not a drawing");
-        assert_eq!(vault.drawing(&url("a/dibujo.excalidraw")).unwrap().1, vault.root().join("a/dibujo.excalidraw"));
-        assert_eq!(vault.drawing(&url("a/dibujo.excalidraw.md")).unwrap().1, vault.root().join("a/dibujo.excalidraw.md"));
-        assert!(vault.page(&url("a/falta.md")).is_err());
-        assert!(vault.note(&url("a/falta.md")).is_err());
+        assert!(vault.note(&vault.url("a/dibujo.excalidraw.md")).is_err(), "a drawing is not a note");
+        assert!(vault.drawing(&vault.url("a/nota.md")).is_err(), "a note is not a drawing");
+        assert_eq!(vault.drawing(&vault.url("a/dibujo.excalidraw")).unwrap().1, vault.root().join("a/dibujo.excalidraw"));
+        assert_eq!(vault.drawing(&vault.url("a/dibujo.excalidraw.md")).unwrap().1, vault.root().join("a/dibujo.excalidraw.md"));
+        assert!(vault.page(&vault.url("a/falta.md")).is_err());
+        assert!(vault.note(&vault.url("a/falta.md")).is_err());
         assert!(vault.page("https://example.com/a/nota.md").is_err());
         let loose = dir.join("fuera.md");
-        assert!(vault.page(&url(loose.to_str().unwrap())).is_err(), "loose page");
-        assert!(vault.note(&url(loose.to_str().unwrap())).is_err(), "loose page");
-        assert!(vault.page(&url("a/enlace.md")).is_err(), "link out of the vault");
+        assert!(vault.page(&loose_url(loose.to_str().unwrap())).is_err(), "loose page");
+        assert!(vault.note(&loose_url(loose.to_str().unwrap())).is_err(), "loose page");
+        assert!(vault.page(&vault.url("a/enlace.md")).is_err(), "link out of the vault");
         assert!(vault.page(&format!("{BASE}a/%2e%2e/a/nota.md")).is_err(), "dot segments");
         assert!(vault.page(&format!("{BASE}a/./nota.md")).is_err(), "dot segments");
-        assert!(vault.note(&url(".oculta/x.md")).is_err(), "hidden folder");
+        assert!(vault.note(&vault.url(".oculta/x.md")).is_err(), "hidden folder");
         assert_eq!(vault.page_at("a/pagina.html").unwrap().0, "a/pagina.html");
         assert!(vault.page_at("a/../a/pagina.html").is_err(), "dot segments");
         assert!(vault.page_at(".oculta/x.md").is_err(), "hidden folder");
@@ -859,16 +882,16 @@ mod tests {
     }
 
     #[test]
-    fn pdf_is_not_an_annotable_or_editable_page() {
+    fn pdf_is_annotable_but_not_editable() {
         bases();
         let (vault, dir) = make("pdf");
         let pdf = vault.root().join("a/libro.pdf");
         fs::write(&pdf, "%PDF-1.4").unwrap();
         assert!(!is_page(&pdf) && is_pdf(&pdf));
-        assert!(vault.page(&url("a/libro.pdf")).is_err(), "annotations by URL");
-        assert!(vault.page_at("a/libro.pdf").is_err(), "annotations by path");
-        assert!(vault.note(&url("a/libro.pdf")).is_err(), "editing");
-        assert!(vault.drawing(&url("a/libro.pdf")).is_err(), "editing a drawing");
+        assert!(vault.page(&vault.url("a/libro.pdf")).is_ok(), "annotations by URL");
+        assert!(vault.page_at("a/libro.pdf").is_ok(), "annotations by path");
+        assert!(vault.note(&vault.url("a/libro.pdf")).is_err(), "editing");
+        assert!(vault.drawing(&vault.url("a/libro.pdf")).is_err(), "editing a drawing");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -884,7 +907,7 @@ mod tests {
         }
         let root = dir.canonicalize().unwrap();
         let allowed = [root.join("notas")];
-        let loose = |rel: &str| url(&root.join(rel).to_string_lossy());
+        let loose = |rel: &str| loose_url(&root.join(rel).to_string_lossy());
         assert_eq!(loose_note(&loose("notas/tema.md"), &allowed), Ok(root.join("notas/tema.md")));
         assert!(loose_note(&format!("{}#x", loose("notas/tema.md")), &allowed).is_ok(), "a fragment");
         assert!(loose_note(&loose("notas/pagina.html"), &allowed).is_err(), "a loose HTML writes nothing");
@@ -901,25 +924,57 @@ mod tests {
     #[test]
     fn access_by_url() {
         bases();
-        assert_eq!(access("https://example.com/"), Access::None);
-        assert_eq!(access("about:blank"), Access::None);
-        assert_eq!(access(&url("a/nota.md")), Access::Trusted);
-        assert_eq!(access(&format!("{}#x", url("a/nota.md"))), Access::Trusted);
-        assert_eq!(access(&url("/tmp/suelta.html")), Access::Local);
-        assert_eq!(access(&url("/tmp/suelta.md")), Access::Local, "a loose .md is read-only, not untrusted");
-        assert_eq!(access(&format!("{LOOSE_BASE}nota.md")), Access::None, "a vault path on the loose origin");
-        assert_eq!(access(&format!("{BASE}/tmp/suelta.html")), Access::None, "a loose path on the vault origin");
+        let (vault, dir) = make("access");
+        let v = Some(&vault);
+        assert_eq!(access("https://example.com/", v), Access::None);
+        assert_eq!(access("about:blank", v), Access::None);
+        assert_eq!(access(&vault.url("a/nota.md"), v), Access::Trusted);
+        assert_eq!(access(&format!("{}#x", vault.url("a/nota.md")), v), Access::Trusted);
+        assert_eq!(access(&vault.url("a/nota.md"), None), Access::None, "no vault open");
+        assert_eq!(access(&loose_url("/tmp/suelta.html"), v), Access::Local);
+        assert_eq!(access(&loose_url("/tmp/suelta.md"), v), Access::Local, "a loose .md is read-only, not untrusted");
+        assert_eq!(access(&format!("{LOOSE_BASE}nota.md"), v), Access::None, "a vault path on the loose origin");
+        assert_eq!(access(&format!("{BASE}/tmp/suelta.html"), v), Access::None, "a loose path on the vault origin");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn each_vault_trusts_only_its_own_origin() {
+        bases();
+        let a = Vault::open_at(Path::new("/nonexistent/a"), "http://127.0.0.3:1/s/".into());
+        let b = Vault::open_at(Path::new("/nonexistent/b"), "http://127.0.0.4:1/t/".into());
+        let url_a = a.url("nota.md");
+        assert_eq!(access(&url_a, Some(&a)), Access::Trusted);
+        assert_eq!(access(&url_a, Some(&b)), Access::None, "another vault's page");
+        assert_eq!(access(&url_a, None), Access::None);
+        assert_eq!(b.rel_from_url(&url_a), None);
+        let url_b = b.url("a/nota.md");
+        assert_eq!(access(&url_b, Some(&a)), Access::None);
+        assert_eq!(access(&url_b, Some(&b)), Access::Trusted);
+        assert_eq!(a.rel_from_url(&url_b), None);
+        let loose = loose_url("/tmp/suelta.html");
+        for vault in [Some(&a), Some(&b), None] {
+            assert_eq!(access(&loose, vault), Access::Local);
+        }
+        for rel in ["nota.md", "física/tema 2/¿qué?#1.html", "a/b/c.pdf"] {
+            assert_eq!(a.rel_from_url(&a.url(rel)).as_deref(), Some(rel));
+            assert_eq!(b.rel_from_url(&b.url(rel)).as_deref(), Some(rel));
+        }
     }
 
     #[test]
     fn agents_read_only_visor_pages() {
         bases();
-        assert!(agent_may_read(&url("a/nota.md")));
-        assert!(agent_may_read(&url("/tmp/suelta.html")));
-        assert!(!agent_may_read("https://example.com/"));
-        assert!(!agent_may_read("about:blank"));
-        assert!(!agent_may_read(""));
-        assert!(!agent_may_read(&format!("{LOOSE_BASE}nota.md")));
+        let (vault, dir) = make("agents");
+        let v = Some(&vault);
+        assert!(agent_may_read(&vault.url("a/nota.md"), v));
+        assert!(agent_may_read(&loose_url("/tmp/suelta.html"), v));
+        assert!(!agent_may_read(&vault.url("a/nota.md"), None));
+        assert!(!agent_may_read("https://example.com/", v));
+        assert!(!agent_may_read("about:blank", v));
+        assert!(!agent_may_read("", v));
+        assert!(!agent_may_read(&format!("{LOOSE_BASE}nota.md"), v));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

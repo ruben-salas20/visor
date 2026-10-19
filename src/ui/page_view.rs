@@ -2,19 +2,19 @@
 //! fullscreen and mouse buttons, and the scripts injected into it.
 
 use crate::i18n::tr;
-use crate::ui::action::{Action, LoadFailure, UserEvent};
+use crate::ui::action::{Action, LoadFailure, Proxy, UserEvent};
 use crate::vault;
 use gtk::prelude::*;
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
-use tao::event_loop::EventLoopProxy;
 use webkit2gtk::{LoadEvent, NavigationPolicyDecision, NavigationPolicyDecisionExt, NavigationType, NetworkError, PolicyDecisionExt, PolicyDecisionType, PolicyError, URIRequestExt, URIResponseExt, WebContextExt, WebResource, WebResourceExt, WebViewExt};
 use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 const BRIDGE: &str = include_str!("../page/bridge.js");
+const ANNOT_QUOTE: &str = include_str!("../page/annot-quote.js");
 const ANNOT: &str = include_str!("../page/annot.js");
 
 /// The message without its key, if visor's own scripts sent it. visor's start
@@ -48,9 +48,9 @@ pub fn host_of(url: &str) -> String {
 
 /// Sends a failed resource of a page view to the app. Only web addresses
 /// count: data:, blob: and about: have no server to fail.
-fn report_failure(proxy: &EventLoopProxy<UserEvent>, view: u64, resource: &WebResource, reason: LoadFailure) {
+fn report_failure(proxy: &Proxy, view: u64, resource: &WebResource, reason: LoadFailure) {
     if let Some(uri) = resource.uri().filter(|uri| is_web(uri)) {
-        let _ = proxy.send_event(UserEvent::ResourceFailed { view, uri: uri.to_string(), reason });
+        proxy.send(UserEvent::ResourceFailed { view, uri: uri.to_string(), reason });
     }
 }
 
@@ -63,7 +63,8 @@ pub fn build_page(
     container: &gtk::Box,
     context: &mut WebContext,
     background: (u8, u8, u8, u8),
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: Proxy,
+    vault_base: &str,
     id: u64,
 ) -> wry::Result<(WebView, Document)> {
     // A key only visor's scripts in the main frame know: wry injects them there
@@ -81,26 +82,26 @@ pub fn build_page(
         .with_background_color(background)
         .with_initialization_script(
             BRIDGE
-                .replace("__VISOR_BASE__", vault::base())
+                .replace("__VISOR_BASE__", vault_base)
                 .replace("__VISOR_LOOSE_BASE__", vault::loose_base())
                 .replace("__VISOR_KEY__", &key)
                 .replace("__VISOR_LANG__", crate::i18n::lang().code()),
         )
-        .with_initialization_script(
-            ANNOT
-                .replace("__VISOR_BASE__", vault::base())
-                .replace("__VISOR_LANG__", crate::i18n::lang().code()),
-        )
+        // One script: annot.js takes the quote helpers off window before any page script runs.
+        .with_initialization_script(format!(
+            "{ANNOT_QUOTE}\n{}",
+            ANNOT.replace("__VISOR_BASE__", vault_base).replace("__VISOR_LANG__", crate::i18n::lang().code())
+        ))
         .with_ipc_handler(move |request: Request<String>| {
             let url = sender.borrow().clone();
             if let Some(body) = accept(request.body(), &key, &url) {
-                let _ = ipc.send_event(UserEvent::Page { view: id, url, body });
+                ipc.send(UserEvent::Page { view: id, url, body });
             }
         })
         // target="_blank" and window.open open a tab beside this one.
         .with_new_window_req_handler(move |url, _| {
             if is_web(&url) {
-                let _ = new_window.send_event(UserEvent::OpenTab { view: id, url, background: false });
+                new_window.send(UserEvent::OpenTab { view: id, url, background: false });
             } else if url.starts_with("mailto:") {
                 open_external(&url);
             }
@@ -186,7 +187,7 @@ pub fn build_page(
             if !(control || action.mouse_button() == 2) {
                 return false;
             }
-            let _ = clicks.send_event(UserEvent::OpenTab { view: id, url: uri, background: true });
+            clicks.send(UserEvent::OpenTab { view: id, url: uri, background: true });
             decision.ignore();
             return true;
         }
@@ -209,12 +210,12 @@ pub fn build_page(
             LoadEvent::Finished => UserEvent::PageLoaded(id),
             _ => return,
         };
-        let _ = p.send_event(event);
+        p.send(event);
     });
 
     let p = proxy.clone();
     view.connect_focus_in_event(move |_, _| {
-        let _ = p.send_event(UserEvent::Focused(id));
+        p.send(UserEvent::Focused(id));
         gtk::glib::Propagation::Proceed
     });
 
@@ -223,12 +224,12 @@ pub fn build_page(
     // WebKit go on with its default handling.
     let p = proxy.clone();
     view.connect_enter_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: true });
+        p.send(UserEvent::Fullscreen { view: id, on: true });
         false
     });
     let p = proxy.clone();
     view.connect_leave_fullscreen(move |_| {
-        let _ = p.send_event(UserEvent::Fullscreen { view: id, on: false });
+        p.send(UserEvent::Fullscreen { view: id, on: false });
         false
     });
 
@@ -240,7 +241,7 @@ pub fn build_page(
             9 => Action::Forward,
             _ => return gtk::glib::Propagation::Proceed,
         };
-        let _ = p.send_event(UserEvent::Action(action));
+        p.send(UserEvent::Action(action));
         gtk::glib::Propagation::Stop
     });
     Ok((page, committed))

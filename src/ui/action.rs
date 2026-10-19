@@ -2,7 +2,9 @@
 //! agent server and the file watchers, and the actions the controls trigger.
 
 use crate::session::AgentRequest;
+use crate::ui::windows::WinId;
 use std::path::PathBuf;
+use tao::event_loop::EventLoopProxy;
 
 /// What the person did in the panel. Paths are relative to the vault and
 /// unchecked: Rust validates each one before acting.
@@ -24,6 +26,39 @@ pub enum SidebarMsg {
     OpenFolders(Vec<String>),
 }
 
+/// An event and the window it is for.
+pub struct Routed {
+    pub window: WinId,
+    pub event: UserEvent,
+}
+
+/// Sends events to the loop on behalf of one window.
+#[derive(Clone)]
+pub struct Proxy {
+    window: WinId,
+    inner: EventLoopProxy<Routed>,
+}
+
+impl Proxy {
+    pub fn new(window: WinId, inner: EventLoopProxy<Routed>) -> Self {
+        Proxy { window, inner }
+    }
+
+    pub fn window(&self) -> WinId {
+        self.window
+    }
+
+    /// The same loop, on behalf of another window.
+    pub fn to(&self, window: WinId) -> Proxy {
+        Proxy { window, inner: self.inner.clone() }
+    }
+
+    /// Ignores a closed loop, as every caller did with `let _ = send_event(..)`.
+    pub fn send(&self, event: UserEvent) {
+        let _ = self.inner.send_event(Routed { window: self.window, event });
+    }
+}
+
 pub enum UserEvent {
     Sidebar(SidebarMsg),
     /// A message from a page view, with the URL of the page that sent it.
@@ -32,7 +67,7 @@ pub enum UserEvent {
     PageLoaded(u64),
     /// A page view got the keyboard focus.
     Focused(u64),
-    /// An order from the agent socket server.
+    /// An order from the agent socket server, for the window it names.
     Agent(AgentRequest),
     Picked(Option<PathBuf>),
     VaultChanged(Vec<PathBuf>),
@@ -57,6 +92,11 @@ pub enum UserEvent {
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,
+    /// For the process: closes every window and remembers them all (Ctrl+Q).
+    Quit,
+    /// For the process: saves every window and runs the installed binary.
+    /// `from` is the window that asked, which shows why if it fails.
+    Restart { from: WinId },
     /// A manual update check ended. `installed` offers the restart button.
     UpdateDone { message: String, installed: bool },
     /// The pages answered whether a restart may go ahead.
@@ -79,11 +119,15 @@ pub enum LoadFailure {
 }
 
 pub enum Action {
+    Quit,
     PickVault,
     ToggleSidebar,
     ToggleBar,
     /// Steps the page zoom in (1) or out (-1), or resets it (0).
     Zoom(i8),
+    /// Ctrl+plus, Ctrl+minus, Ctrl+0: as `Zoom`, but a PDF in front takes it
+    /// into its viewer's own zoom.
+    ZoomKey(i8),
     Reload,
     Back,
     Forward,
@@ -125,4 +169,8 @@ pub enum Action {
     Settings,
     /// Shows or hides the list of keyboard shortcuts.
     Shortcuts,
+    /// Ctrl+F: the page's own search (PDF, note editor) or the native find bar.
+    Find,
+    /// Ctrl+F found no search of the page's own: opens the native find bar on the focused side.
+    FindNative,
 }

@@ -1,8 +1,7 @@
 use crate::i18n::tr;
-use crate::ui::action::{Action, UserEvent};
+use crate::ui::action::{Action, Proxy, UserEvent};
 use crate::ui::theme::Theme;
 use gtk::prelude::*;
-use tao::event_loop::EventLoopProxy;
 
 /// The address field, shown only on demand (Ctrl+L). Navigation buttons live in
 /// the tab strip of each side (see `panes::Pane`).
@@ -13,7 +12,7 @@ pub struct Bar {
 
 impl Bar {
     /// `pane` is the id of the side it belongs to: focusing the field focuses it.
-    pub fn new(proxy: &EventLoopProxy<UserEvent>, pane: u64) -> Bar {
+    pub fn new(proxy: &Proxy, pane: u64) -> Bar {
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         root.style_context().add_class("visor-bar");
 
@@ -22,25 +21,25 @@ impl Bar {
         address.set_placeholder_text(Some(tr("Ruta, dirección web o búsqueda (Ctrl+L)", "Path, web address or search (Ctrl+L)")));
         let p = proxy.clone();
         address.connect_activate(move |entry| {
-            let _ = p.send_event(UserEvent::Action(Action::Go(entry.text().to_string())));
+            p.send(UserEvent::Action(Action::Go(entry.text().to_string())));
         });
         let p = proxy.clone();
         address.connect_key_press_event(move |_, event| {
             if event.keyval() == gtk::gdk::keys::constants::Escape {
-                let _ = p.send_event(UserEvent::Action(Action::LeaveAddress));
+                p.send(UserEvent::Action(Action::LeaveAddress));
                 return gtk::glib::Propagation::Stop;
             }
             gtk::glib::Propagation::Proceed
         });
         let p = proxy.clone();
         address.connect_focus_in_event(move |_, _| {
-            let _ = p.send_event(UserEvent::Action(Action::FocusPane(pane)));
+            p.send(UserEvent::Action(Action::FocusPane(pane)));
             gtk::glib::Propagation::Proceed
         });
         address.connect_changed(|entry| entry.style_context().remove_class("error"));
         let p = proxy.clone();
         address.connect_focus_out_event(move |_, _| {
-            let _ = p.send_event(UserEvent::Action(Action::AddressDone));
+            p.send(UserEvent::Action(Action::AddressDone));
             gtk::glib::Propagation::Proceed
         });
         root.pack_start(&address, true, true, 4);

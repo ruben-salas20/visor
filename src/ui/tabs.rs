@@ -172,7 +172,13 @@ impl Default for Tabs {
 impl Tabs {
     /// One side with one empty tab, not live yet: `reset` is the first call.
     pub fn new() -> Tabs {
-        let mut tabs = Tabs { sides: vec![], focused: 0, clock: 0, next_id: 0 };
+        Tabs::new_from(0)
+    }
+
+    /// As `new`, but ids are handed out above `first_id`. Each window starts
+    /// its ids in its own range, so view ids stay unique across windows.
+    pub fn new_from(first_id: u64) -> Tabs {
+        let mut tabs = Tabs { sides: vec![], focused: 0, clock: 0, next_id: first_id };
         let mut effects = Vec::new();
         let side = tabs.add_side(&mut effects);
         tabs.push_empty(side);
@@ -739,6 +745,27 @@ mod tests {
         let tabs = Tabs::new();
         assert_eq!(targets(&tabs, 0), [""]);
         assert_eq!(tabs.side(0).tab().label(), "Nueva pestaña");
+    }
+
+    #[test]
+    fn new_hands_out_ids_from_one() {
+        let tabs = Tabs::new();
+        assert_eq!(tabs.side(0).id(), 1);
+        assert_eq!(tabs.side(0).tab().id(), 2);
+    }
+
+    #[test]
+    fn new_from_hands_out_ids_above_the_first() {
+        let base = 5 << 40;
+        let mut tabs = Tabs::new_from(base);
+        assert_eq!(tabs.side(0).id(), base + 1);
+        assert_eq!(tabs.side(0).tab().id(), base + 2);
+        let view = open(&mut tabs, "a.md").into_iter().find_map(|e| match e {
+            Effect::Create { view, .. } => Some(view),
+            _ => None,
+        });
+        assert!(view.is_some_and(|v| v > base));
+        check(&tabs);
     }
 
     #[test]
