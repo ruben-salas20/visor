@@ -20,7 +20,7 @@ export type Store = {
 let state: Store = {
   tree: { vault: null, root: null, open: [] },
   files: { shown: true, vault: null, current: null, vaults: [], form: null, notice: null, width: null, show_other: true },
-  sides: { sides: [], focused: 0 },
+  sides: { sides: [], focused: 0, ratio: 0.5 },
   bar: { sides: [] },
   status: { vault: null, kind: 'empty', zoom: 1, version: '', update: null },
 }
@@ -47,3 +47,4 @@ function subscribe(f: () => void) {
 export function useArea<K extends keyof Store>(area: K): Store[K] {
   return useSyncExternalStore(subscribe, () => state[area])
 }
+

@@ -11,15 +11,13 @@ use crate::ui::protocol::files::{self, Form, Notice, State, Tree, VaultItem};
 use crate::vault::{self, files as vault_files, links};
 use std::path::Path;
 
-/// What the panel shows besides the tree, and the drag it started.
+/// What the panel shows besides the tree.
 #[derive(Default)]
 pub(super) struct Panel {
     form: Option<Form>,
     notice: Option<Notice>,
     /// Numbers the notices and the name fields, so each one is new to the frame.
     count: u64,
-    /// The file being dragged from the tree, until the drag ends.
-    pub(super) dragging: Option<String>,
 }
 
 impl Panel {
@@ -49,6 +47,8 @@ impl App {
                 }
             }
             SidebarMsg::PickVault => self.pick_vault(),
+            SidebarMsg::DragStart { path } => self.drag_start(path),
+            SidebarMsg::DragEnd => self.drag_end(),
             // The frame names a vault from the list it was sent; any other path is refused.
             SidebarMsg::SwitchVault { path } => {
                 if self.cfg(|c| c.vaults.contains(&path)) {
@@ -82,8 +82,6 @@ impl App {
                 self.new_note(dir, folder);
             }
             SidebarMsg::CancelName => self.note_created(),
-            SidebarMsg::DragStart { path } => self.panel.dragging = Some(path),
-            SidebarMsg::DragEnd => self.panel.dragging = None,
             SidebarMsg::Width { width } => {
                 self.sidebar_width = Some(files::clamp_width(width));
                 self.layout_changed = true;

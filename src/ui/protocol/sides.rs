@@ -14,6 +14,8 @@ pub enum Msg {
     New { side: u64 },
     /// The person clicked in this side: keys and agents act on it.
     Focus { side: u64 },
+    /// The divider was dragged: the left side's share of the width.
+    Split { ratio: f64 },
 }
 
 /// The sides, left first.
@@ -22,6 +24,8 @@ pub struct State {
     pub sides: Vec<Side>,
     /// Index of the side keys and agents act on.
     pub focused: usize,
+    /// The left side's share of the width, when split.
+    pub ratio: f64,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -54,6 +58,12 @@ pub enum Kind {
     Other,
 }
 
+/// The divider's place as the settings keep it: never so far that a side
+/// disappears, and nothing from a ratio that is not a number.
+pub fn split_ratio(ratio: f64) -> Option<f64> {
+    ratio.is_finite().then(|| ratio.clamp(0.1, 0.9))
+}
+
 /// The kind of a tab's target.
 pub fn kind_of(target: &str) -> Kind {
     if target.is_empty() {
@@ -81,6 +91,15 @@ pub fn kind_of(target: &str) -> Kind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_divider_keeps_both_sides_in_sight() {
+        assert_eq!(split_ratio(0.3), Some(0.3));
+        assert_eq!(split_ratio(0.0), Some(0.1));
+        assert_eq!(split_ratio(7.0), Some(0.9));
+        assert_eq!(split_ratio(f64::NAN), None);
+        assert_eq!(split_ratio(f64::INFINITY), None);
+    }
 
     #[test]
     fn a_tab_knows_what_it_shows() {

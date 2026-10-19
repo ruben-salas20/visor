@@ -61,6 +61,7 @@ export type FilesMsg =
   /** Without `dir`, next to the file on the focused side. */
   | { type: 'ask_name'; dir: string | null; folder: boolean }
   | { type: 'cancel_name' }
+  /** While it lasts, the pages take the file (area B, src/ui/host.rs). */
   | { type: 'drag_start'; path: string }
   | { type: 'drag_end' }
   | { type: 'width'; width: number }
