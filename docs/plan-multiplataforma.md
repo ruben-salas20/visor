@@ -147,7 +147,7 @@ Cada prototipo es un proyecto Rust independiente en `spikes/` más un flujo de t
 La construcción se reparte en tareas paralelas, una rama por tarea, solo donde los archivos no se cruzan:
 
 1. **En serie, primero:** definir las costuras que separan lo común de lo propio de cada plataforma: canal del CLI (`agent/socket.rs`), identidad de archivo (`dev`/`ino` en `vault.rs`), papelera, proceso de la ventana (`ui/action.rs`). Sin esto, las ramas paralelas chocan en los mismos archivos.
-2. **En paralelo, después:** canal del CLI en Windows (W5, tubería con nombre), rutas y nombres reservados de Windows (`vault.rs`, `paths.rs`), `update.rs` y `getrandom`, empaquetado en CI (Flatpak, `.deb` si se aprueba, `.exe`) y W4.
+2. **En paralelo, después:** canal del CLI en Windows (W5, tubería con nombre), rutas y nombres reservados de Windows (`vault.rs`, `paths.rs`), `update.rs` y `getrandom`, empaquetado en CI (Flatpak, `.deb`, `.exe` instalador y portable) y W4.
 3. **Bloqueado por G2:** la interfaz de Windows (y la compartida, si se elige A). Es la parte grande y no se reparte hasta decidir G2.
 
 ## Experimentos diferidos (Mac)
@@ -176,15 +176,14 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 - **2026-10-19:**
   - **G1 pasa con winit.** Windows sigue adelante. La ventana de Windows usa winit en lugar de tao, por el bloqueo de W2. Linux sigue con tao y GTK. Hay que actualizar el ADR 0001 (con consulta).
   - **G3: RHEL, Alma y Rocky 9 y Alpine quedan fuera.** Son un nicho muy específico.
-  - **Formatos:** `.exe` en Windows; Flatpak y AppImage en Linux. Se propuso añadir `.deb` y está pendiente de respuesta (ver abajo).
+  - **Formatos:** en Windows, `.exe` instalador y `.exe` portable. En Linux, Flatpak y `.deb`; AppImage se descarta (registro de descartes).
   - **Linux Mint:** probar en un escritorio X11 real. Si no se consigue, publicar con un aviso de que no está probado en Mint e invitar a colaborar con esa prueba.
   - **La construcción se reparte en tareas paralelas,** con subagentes, cada uno en su rama.
 
 ## Decisiones pendientes del usuario
 
 1. **G2:** qué interfaz compartida (A, HTML; B, egui o slint). Hace falta U1 y U2.
-2. **Windows:** ¿`.exe` instalador, `.exe` suelto (portable) o ambos?
-3. **Linux:** ¿se añade `.deb`? ¿Se mantiene AppImage pese a su registro de descarte (abajo)?
+2. Se decide G2 antes de empezar la fase 1 de «Siguiente fase» (usuario, 2026-10-19).
 
 ## Registro de descartes
 
@@ -193,7 +192,7 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 | GPUI | Descartada | Sin webviews en Wayland nativo: `build_as_child` solo X11 en wry 0.57; gpui-kit PR 3395; el crate `gpui` oficial es 0.2.2 de oct. 2025 y el ecosistema usa instantáneas semanales [V] |
 | Tauri 2 como base | Descartada | Su multiwebview (`add_child`) sigue tras la feature `unstable` [V]. Se puede usar su empaquetador sin migrar [S] |
 | Opción D (GTK en Linux + interfaz aparte en Windows) | Descartada salvo que G2 falle | Dos bases de UI: mantenimiento muy alto |
-| AppImage | En revisión (el usuario la quiere, 2026-10-19) | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
+| AppImage | Descartada (usuario, 2026-10-19) | Sin empaquetar WebKit no resuelve nada; empaquetándolo, 70 MB o más [S] |
 | Snap | Descartada | Confinamiento parecido a Flatpak, poca adopción fuera de Ubuntu [S] |
 | Mac | Aplazada | Sin cuenta de Apple de pago |
 | Firma de código en Windows | Descartada por ahora | El usuario no pagará; se acepta SmartScreen. SignPath Foundation es gratis para código abierto y se puede retomar si cambia la decisión [S] |
@@ -203,4 +202,4 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 | Opción B (egui/slint) | Viva, poco probable | Sin ejemplos con wry en Wayland [V]; pendiente de U2 |
 | Windows | Viva | W3: 14 de 14; G1 pasa con winit |
 | Flatpak | Elegida, a probar | Pendiente de L5 (socket del CLI dentro del sandbox) |
-| `.deb` | Propuesta | Pendiente del usuario |
+| `.deb` | Elegida (usuario, 2026-10-19) | Usa el WebKitGTK del sistema; L5 lo prueba en Ubuntu 22.04 |
