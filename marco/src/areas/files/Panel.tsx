@@ -30,7 +30,7 @@ function Vaults({ files }: { files: FilesState }) {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="h-6 min-w-0 flex-1 justify-start px-2 text-[13px] font-semibold" title={tr('Cambiar de bóveda', 'Switch vault')}>
           <span className="truncate">{files.vault ?? tr('Sin bóveda', 'No vault')}</span>
-          <ChevronDown className="size-3.5 text-muted-foreground" />
+          <ChevronDown className="ml-auto size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
