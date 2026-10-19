@@ -374,23 +374,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_decorations(false)
         .build(&event_loop)?;
 
+    // The frame is the overlay's main child, so it follows the window size and sets no minimum.
+    // Pages live in a Fixed overlay: overlay children do not count towards the window's size request.
+    let capas = gtk::Overlay::new();
+    let base = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let fijo = gtk::Fixed::new();
-    ventana.default_vbox().ok_or("tao no expone la caja GTK")?.add(&fijo);
-    fijo.show_all();
+    capas.add(&base);
+    capas.add_overlay(&fijo);
+    capas.set_overlay_pass_through(&fijo, true);
+    let caja_tao = ventana.default_vbox().ok_or("tao no expone la caja GTK")?;
+    caja_tao.pack_start(&capas, true, true, 0);
+    capas.show_all();
     vistas.borrow_mut().fijo = Some(fijo.clone());
 
-    let url_marco = format!("http://127.0.0.1:{puerto}/marco.html");
+    // `--marco simple|react|svelte`: the same IPC protocol, three implementations of the frame.
+    let marco_elegido = args.iter().position(|a| a == "--marco").and_then(|i| args.get(i + 1)).map(String::as_str).unwrap_or("simple");
+    let ruta_marco = match marco_elegido {
+        "simple" => "marco.html",
+        "react" => "react/index.html",
+        "svelte" => "svelte/index.html",
+        otro => return Err(format!("--marco acepta simple, react o svelte, no {otro}").into()),
+    };
+    let url_marco = format!("http://127.0.0.1:{puerto}/{ruta_marco}");
+    // The built frames live in their own folder and may navigate inside it; the simple one is a single file.
+    let prefijo_marco = match ruta_marco.rsplit_once('/') {
+        Some((dir, _)) => format!("http://127.0.0.1:{puerto}/{dir}/"),
+        None => url_marco.clone(),
+    };
     let est_m = estado.clone();
     let vis_m = vistas.clone();
     let marco = WebViewBuilder::new()
         .with_url(&url_marco)
-        .with_bounds(caja(0.0, 0.0, 1280.0, 800.0))
         .with_navigation_handler({
-            let prefijo = url_marco.clone();
+            let prefijo = prefijo_marco.clone();
             move |url: String| url.starts_with(&prefijo)
         })
         .with_ipc_handler(move |req| mensaje_marco(&est_m, &vis_m, req.body()))
-        .build_gtk(&fijo)?;
+        .build_gtk(&base)?;
     vistas.borrow_mut().marco = Some(marco);
 
     for lado in 0..2usize {
@@ -426,12 +446,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match event {
             Event::UserEvent(Hacer(tarea)) => tarea(&compartido),
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => *control = ControlFlow::Exit,
-            Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
-                let s = size.to_logical::<f64>(compartido.ventana.scale_factor());
-                if let Some(m) = &compartido.vis.borrow().marco {
-                    let _ = m.set_bounds(caja(0.0, 0.0, s.width, s.height));
-                }
-            }
             _ => {}
         }
         let _ = &compartido;

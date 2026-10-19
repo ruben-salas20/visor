@@ -6,7 +6,7 @@ set -eu
 
 ORIGEN=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d)
-UNIDAD=u1-sway
+UNIDAD=u1-sway-$$
 
 cat > "$TMP/sway.conf" <<EOF
 output HEADLESS-1 resolution 1920x1080
@@ -33,7 +33,7 @@ export SWAYSOCK="$TMP/sway.sock"
 unset DISPLAY
 
 cd "$ORIGEN"
-./target/release/u1-marco-html --prueba "$TMP/informe.json" &
+./target/release/u1-marco-html --prueba "$TMP/informe.json" "$@" &
 PID=$!
 echo "PID del programa: $PID (directorio temporal: $TMP)"
 

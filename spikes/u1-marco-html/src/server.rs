@@ -59,6 +59,12 @@ fn tipo_de(ruta: &str) -> &'static str {
         "text/javascript; charset=utf-8"
     } else if ruta.ends_with(".html") {
         "text/html; charset=utf-8"
+    } else if ruta.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if ruta.ends_with(".svg") {
+        "image/svg+xml"
+    } else if ruta.ends_with(".woff2") {
+        "font/woff2"
     } else {
         "application/octet-stream"
     }

@@ -6,3 +6,4 @@ __pycache__/
 /docs/img/demo-captura.*.gif
 /spikes/*/target
 /tools/pdfjs/cache/
+/spikes/**/node_modules
