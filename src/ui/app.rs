@@ -901,11 +901,6 @@ impl App {
                 self.cfg_mut(|c| c.language = choice);
                 self.save_config_soon();
             }
-            Action::SetShowOtherFiles(on) => {
-                self.cfg_mut(|c| c.show_other_files = Some(on).filter(|on| !on));
-                self.save_config_soon();
-                self.refresh_tree();
-            }
             Action::CheckUpdates => self.check_updates(),
             Action::Restart => self.ask_restart(),
             Action::Shortcuts => self.toggle_shortcuts(),

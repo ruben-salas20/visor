@@ -17,13 +17,12 @@ const RESTART_WAIT: Duration = Duration::from_secs(3);
 
 impl App {
     pub(super) fn status(&self) -> Status {
-        let (theme, language, engine, auto_update, show_other) = self.cfg(|c| {
+        let (theme, language, engine, auto_update) = self.cfg(|c| {
             (
                 c.theme.clone(),
                 c.language.clone(),
                 c.search_engine.clone(),
                 c.auto_update.unwrap_or(true),
-                c.show_other_files.unwrap_or(true),
             )
         });
         Status {
@@ -42,7 +41,6 @@ impl App {
                 search_engine: Engine::from_id(engine.as_deref()).id(),
                 engines: Engine::ALL.into_iter().map(|e| Choice { id: e.id(), label: e.label() }).collect(),
                 auto_update,
-                show_other,
             },
             settings_open: self.settings_open,
             shortcuts_open: self.shortcuts_open,
@@ -165,7 +163,6 @@ impl App {
             Msg::Zoom { step } => self.act(Action::Zoom(step)),
             Msg::SetSearchEngine { id } => self.act(Action::SetSearchEngine(Engine::from_id(Some(&id)))),
             Msg::SetAutoUpdate { on } => self.act(Action::SetAutoUpdate(on)),
-            Msg::SetShowOther { on } => self.act(Action::SetShowOtherFiles(on)),
             Msg::CheckUpdates => self.act(Action::CheckUpdates),
             Msg::Restart => self.act(Action::Restart),
         }

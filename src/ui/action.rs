@@ -175,7 +175,6 @@ pub enum Action {
     /// The language chosen in the settings: "es", "en", or `None` for the system's.
     SetLanguage(Option<String>),
     SetAutoUpdate(bool),
-    SetShowOtherFiles(bool),
     /// The engine for text in the address field that is not an address.
     SetSearchEngine(crate::ui::address::Engine),
     /// Checks for a new version now and installs it if there is one.

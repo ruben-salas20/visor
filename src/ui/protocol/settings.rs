@@ -20,7 +20,6 @@ pub enum Msg {
     Zoom { step: i8 },
     SetSearchEngine { id: String },
     SetAutoUpdate { on: bool },
-    SetShowOther { on: bool },
     CheckUpdates,
     Restart,
 }
@@ -69,7 +68,6 @@ pub struct Prefs {
     /// The engines, in the order the panel lists them.
     pub engines: Vec<Choice>,
     pub auto_update: bool,
-    pub show_other: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -107,7 +105,6 @@ mod tests {
                 search_engine: "duckduckgo",
                 engines: Vec::new(),
                 auto_update: true,
-                show_other: true,
             },
             settings_open: false,
             shortcuts_open: false,

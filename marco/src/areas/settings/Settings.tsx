@@ -107,10 +107,6 @@ export default function Settings({ status }: { status: Status }) {
           {tr('Buscar e instalar actualizaciones', 'Check for and install updates')}
           <Switch checked={prefs.auto_update} onCheckedChange={(on) => post({ area: 'settings', type: 'set_auto_update', on })} />
         </div>
-        <div className="flex items-center justify-between gap-3 text-[13px]">
-          {tr('Mostrar archivos que visor no abre', 'Show files visor does not open')}
-          <Switch checked={prefs.show_other} onCheckedChange={(on) => post({ area: 'settings', type: 'set_show_other', on })} />
-        </div>
       </div>
       <div className="flex items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
         <span className="min-w-0 truncate">{status.update ?? ''}</span>

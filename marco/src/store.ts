@@ -35,7 +35,7 @@ let state: Store = {
     update_busy: false,
     update_restart: false,
     language_pending: false,
-    prefs: { theme: null, language: null, search_engine: 'duckduckgo', engines: [], auto_update: true, show_other: true },
+    prefs: { theme: null, language: null, search_engine: 'duckduckgo', engines: [], auto_update: true },
     settings_open: false,
     shortcuts_open: false,
   },

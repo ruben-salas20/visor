@@ -11,7 +11,6 @@ export type Prefs = {
   search_engine: string
   engines: Choice[]
   auto_update: boolean
-  show_other: boolean
 }
 
 export type Panel = 'settings' | 'shortcuts'
@@ -44,6 +43,5 @@ export type SettingsMsg =
   | { type: 'zoom'; step: number }
   | { type: 'set_search_engine'; id: string }
   | { type: 'set_auto_update'; on: boolean }
-  | { type: 'set_show_other'; on: boolean }
   | { type: 'check_updates' }
   | { type: 'restart' }
