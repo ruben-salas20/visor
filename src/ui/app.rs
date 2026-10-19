@@ -158,6 +158,8 @@ pub(super) struct App {
     views: Vec<(u64, WebView)>,
     /// What each view committed, as WebKit reported it: agents may read only visor's pages.
     documents: HashMap<u64, Document>,
+    /// The find bar's state and its search; see `app/find.rs`.
+    finder: find::Bar,
     /// Whether the focused view shows a drawing; see `connect_shortcuts`.
     in_drawing: Rc<Cell<bool>>,
     /// Whether the panel shows: not for a loose page started alone, and Ctrl+B flips it.
@@ -229,6 +231,7 @@ impl App {
             tabs,
             views: vec![],
             documents: HashMap::new(),
+            finder: find::Bar::default(),
             in_drawing,
             // Started for a page outside every vault: that page alone, without the
             // last vault and its tabs. See cli::start.
@@ -754,6 +757,8 @@ impl App {
                 }
             }
             UserEvent::Navigated { view, url } => self.navigated(view, url),
+            UserEvent::FindAnswer { view, request, raw } => self.find_answer(view, request, &raw),
+            UserEvent::FindFound { view, total, more } => self.find_found(view, total, more),
             UserEvent::PageLoaded(view) => {
                 {
                     let mut shared = self.shared.lock().unwrap();
@@ -976,6 +981,7 @@ impl App {
     }
 
     fn navigated(&mut self, view: u64, url: String) {
+        self.forget_find(view);
         let file = self.rel_of(&url);
         let target = file.clone().or_else(|| is_web(&url).then(|| url.clone())).unwrap_or_default();
         let Some(nav) = self.tabs.navigated(view, target) else { return };

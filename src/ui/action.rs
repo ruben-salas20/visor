@@ -87,6 +87,10 @@ pub enum UserEvent {
     /// A message from a page view, with the URL of the page that sent it.
     Page { view: u64, url: String, body: String },
     Navigated { view: u64, url: String },
+    /// The page's own search (`page/find.js`) answered the search `request` of `view`.
+    FindAnswer { view: u64, request: u64, raw: String },
+    /// WebKit's find controller counted the matches of the search on `view`.
+    FindFound { view: u64, total: u32, more: bool },
     PageLoaded(u64),
     /// A page view got the keyboard focus.
     Focused(u64),

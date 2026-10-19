@@ -98,6 +98,7 @@ pub enum ToFrame {
     Files(files::State),
     Sides(sides::State),
     Bar(bar::State),
+    Find(find::State),
     Status(settings::Status),
 }
 
@@ -110,13 +111,14 @@ impl ToFrame {
             ToFrame::Files(_) => 2,
             ToFrame::Sides(_) => 3,
             ToFrame::Bar(_) => 4,
-            ToFrame::Status(_) => 5,
+            ToFrame::Find(_) => 5,
+            ToFrame::Status(_) => 6,
         }
     }
 }
 
 /// How many kinds of snapshot there are; see [`ToFrame::slot`].
-pub const SLOTS: usize = 6;
+pub const SLOTS: usize = 7;
 
 /// The five colors of visor's theme (`ui/theme.rs`). The frame mixes every
 /// other color from them with `color-mix`.

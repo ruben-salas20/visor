@@ -50,33 +50,28 @@ pub fn note_find() -> &'static str {
 /// files. `loaded` says whether the page answered before, with
 /// `window.__visorFind` in it: then the call goes straight to it and carries
 /// no script again. Phase 1, area D: the find bar calls these.
-#[allow(dead_code)]
 const FIND: &str = include_str!("../page/find.js");
 
-#[allow(dead_code)]
 fn find_call(call: &str, loaded: bool) -> String {
     if loaded {
-        format!("JSON.stringify(window.__visorFind.{call})")
+        format!("window.__visorFind.{call}")
     } else {
-        format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return JSON.stringify(window.__visorFind.{call}); }})()")
+        format!("(() => {{ if (!window.__visorFind) {{ {FIND} }} return window.__visorFind.{call}; }})()")
     }
 }
 
 /// Searches the page for `text` and shows its first match. The answer is the
 /// JSON `{current, total}` that `find::parse_answer` reads.
-#[allow(dead_code)]
 pub fn find_search(text: &str, match_case: bool, whole_word: bool, loaded: bool) -> String {
     find_call(&format!("search({}, {match_case}, {whole_word})", json!(text)), loaded)
 }
 
 /// Shows the next match (`forward`) or the previous one, wrapping around.
-#[allow(dead_code)]
 pub fn find_step(forward: bool, loaded: bool) -> String {
     find_call(if forward { "next()" } else { "previous()" }, loaded)
 }
 
 /// Removes the highlights of the page's search.
-#[allow(dead_code)]
 pub fn find_clear(loaded: bool) -> String {
     find_call("clear()", loaded)
 }
@@ -230,18 +225,18 @@ mod tests {
     fn find_search_quotes_the_text_and_loads_the_script_once() {
         let call = find_search(r#"a "b""#, true, false, false);
         assert!(call.starts_with("(() => { if (!window.__visorFind) {"));
-        assert!(call.ends_with(r#"return JSON.stringify(window.__visorFind.search("a \"b\"", true, false)); })()"#));
+        assert!(call.ends_with(r#"return window.__visorFind.search("a \"b\"", true, false); })()"#));
     }
 
     #[test]
     fn a_page_that_answered_carries_no_script_again() {
         assert_eq!(
             find_search("b", true, false, true),
-            r#"JSON.stringify(window.__visorFind.search("b", true, false))"#
+            r#"window.__visorFind.search("b", true, false)"#
         );
-        assert_eq!(find_step(true, true), "JSON.stringify(window.__visorFind.next())");
-        assert_eq!(find_step(false, true), "JSON.stringify(window.__visorFind.previous())");
-        assert_eq!(find_clear(true), "JSON.stringify(window.__visorFind.clear())");
+        assert_eq!(find_step(true, true), "window.__visorFind.next()");
+        assert_eq!(find_step(false, true), "window.__visorFind.previous()");
+        assert_eq!(find_clear(true), "window.__visorFind.clear()");
     }
 
     #[test]
