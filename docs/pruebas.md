@@ -71,6 +71,36 @@ Cada app usa su propio perfil temporal (nunca `~/.config/obsidian` ni el Chromiu
 
 ### En sway sin pantalla
 
+#### Interfaz en HTML (#35)
+
+2026-10-19, rama `worktree-port-multiplataforma` (`96ff50d`, marco React encima de las páginas) frente al binario de `main` con GTK. Enchufado, perfil `performance`, turbo activo, sway sin pantalla. Dos rondas alternadas de `medir.py`; intervalo de las dos.
+
+| Medida | GTK | Marco | Diferencia |
+|---|---|---|---|
+| Peso del binario | 5 327 240 B | 5 583 424 B | +250 KB |
+| Arranque en frío, nota mínima | 207–222 ms | 195–227 ms | ruido |
+| Arranque en frío, `ondas.md` | 355–381 ms | 357–371 ms | ruido |
+| Arranque en frío, PDF | 236–243 ms | 227–245 ms | ruido |
+| Arranque en frío, HTML suelto | 188–190 ms | 177–198 ms | ruido |
+| Cambio de página, dentro de la app | 7,3–8,7 ms | 5,8–6,3 ms | −2 ms |
+| Pestaña nueva, dentro de la app | 131–133 ms | 126–127 ms | −5 ms |
+| Memoria, nota mínima | 161 MB | 248–251 MB | +88–90 MB |
+| Memoria, `ondas.md` | 194–197 MB | 268–275 MB | +74–78 MB |
+| Memoria, PDF | 235–238 MB | 315–318 MB | +80 MB |
+| Memoria, HTML suelto | 150–151 MB | 238–239 MB | +88 MB |
+| Memoria con el editor abierto | 175–176 MB | 256 MB | +80 MB |
+| CPU en reposo (nota mínima, `ondas.md`, PDF) | 0–0,13 % | 0–0,13 % | igual |
+| Three.js | 60 fps | 60 fps | igual |
+
+CPU mientras la página se repinta, con un guion propio sobre las funciones de `medir.py` (tres rondas alternadas, 15 s cada medida): con el marco encima, GTK compone también su capa en cada fotograma.
+
+| Medida | GTK | Marco | Diferencia |
+|---|---|---|---|
+| Three.js animándose (60 fps en los dos) | 18,4–19,8 % | 24,7–25,9 % | +6 puntos (~+33 %) |
+| Desplazamiento continuo de `ondas.md` (4 px por fotograma) | 8,1–8,9 % | 12,4–12,9 % | +4 puntos (~+50 %) |
+
+El coste de memoria es el del webview del marco y React, ya aceptado en el ADR 0040 (U1: +97 a +110 MB). El de CPU solo aparece mientras la página se mueve; en reposo no cambia.
+
 #### Varias ventanas (#39)
 
 2026-10-19, rama `feat/39-ventanas` frente a `main` (`c77d2f1`). Enchufado, perfil `performance`, en sway sin pantalla.
