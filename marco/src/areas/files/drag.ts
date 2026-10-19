@@ -1,12 +1,12 @@
 // A file or folder dragged from the tree, with the pointer and not with the
 // system's drag and drop: WebKitGTK's drags never came back to the frame, so
-// the tree could not take them. The frame keeps the pointer while the button
-// is held, even over the pages laid on top of it, so it also says which side's
-// pages are under a dragged file (ADR 0014); Rust marks them and opens the
-// file there. The pages never see the drag. The tree listens to move what is
-// dropped on it.
+// the tree could not take them. While it lasts the frame takes the whole
+// window, pages included (overlay.ts), so it also says which side's pages are
+// under a dragged file (ADR 0014); Rust marks them and opens the file there.
+// The pages never see the drag. The tree listens to move what is dropped on it.
 import type { PointerEvent } from 'react'
 import { holeAt } from '@/holes'
+import { setDragging } from '@/overlay'
 import { post } from '@/protocol'
 import { store } from '@/store'
 
@@ -56,6 +56,7 @@ function move(e: globalThis.PointerEvent) {
     // Rust only hears of files: a folder can only move inside the tree.
     if (!pressed.folder) post({ area: 'files', type: 'drag_start', path: pressed.path })
     document.documentElement.classList.add('cursor-grabbing', 'select-none')
+    setDragging(true)
   }
   current = { path: pressed.path, folder: pressed.folder, x: e.clientX, y: e.clientY }
   if (!current.folder) hover(zoneAt(e.clientX, e.clientY))
@@ -63,7 +64,7 @@ function move(e: globalThis.PointerEvent) {
 }
 
 /** The side's zone under a point: 0 left half, 1 right half, 2 the whole
- *  side when the window is split, as the GTK drop zones say it. */
+ *  side when the window is split. */
 function zoneAt(x: number, y: number) {
   const hole = holeAt(x, y)
   if (!hole) return null
@@ -117,5 +118,6 @@ function finish() {
   window.removeEventListener('pointercancel', cancel)
   window.removeEventListener('keydown', escape, true)
   document.documentElement.classList.remove('cursor-grabbing', 'select-none')
+  setDragging(false)
   if (was) emit(null, false)
 }

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { useOverlayRef } from "@/overlay"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
 
 function TooltipProvider({
@@ -33,11 +34,13 @@ function TooltipContent({
   className,
   sideOffset = 0,
   children,
+  ref,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
+        ref={useOverlayRef(ref)}
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(

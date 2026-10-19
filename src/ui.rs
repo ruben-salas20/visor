@@ -3,6 +3,7 @@ pub mod action;
 pub mod address;
 pub mod app;
 pub mod common;
+pub mod cover;
 pub mod host;
 pub mod page_calls;
 pub mod page_view;

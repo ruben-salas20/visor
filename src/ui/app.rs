@@ -808,8 +808,6 @@ impl App {
             }
             UserEvent::ResourceFailed { view, uri, reason } => self.resource_failed(view, &uri, reason),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
-            UserEvent::Dropped { side, half } => self.dropped(side, half),
-            UserEvent::DropHover { side, zone } => self.drop_hover(side, zone),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Position { view, json } => {
                 self.tabs.set_position(view, clean_position(&json));
