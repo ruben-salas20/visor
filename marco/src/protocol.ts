@@ -4,7 +4,7 @@
 
 import type { BarMsg, BarState } from './areas/bar/protocol'
 import type { FilesMsg, FilesState, Tree } from './areas/files/protocol'
-import type { FindMsg } from './areas/find/protocol'
+import type { FindMsg, FindState } from './areas/find/protocol'
 import type { SettingsMsg, Status } from './areas/settings/protocol'
 import type { SidesMsg, SidesState } from './areas/sides/protocol'
 
@@ -24,6 +24,7 @@ export type ToFrame =
   | ({ area: 'files' } & FilesState)
   | ({ area: 'sides' } & SidesState)
   | ({ area: 'bar' } & BarState)
+  | ({ area: 'find' } & FindState)
   | ({ area: 'status' } & Status)
 
 /** What the frame asks for. */
