@@ -1,0 +1,289 @@
+# Experimento L5 (docs/plan-multiplataforma.md): ¿funcionan el paquete .deb y el
+# Flatpak de visor? No es CI de releases: no publica nada.
+name: linux-packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [port-packages]
+    paths:
+      - ".github/workflows/linux-packages.yml"
+      - "spikes/l5-paquetes/**"
+      - "spikes/linux/**"
+      - "src/**"
+      - "Cargo.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    name: compilar .deb (debian 12)
+    runs-on: ubuntu-24.04
+    container: debian:12
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config curl ca-certificates git \
+            libwebkit2gtk-4.1-dev dpkg-dev
+
+      - name: Rust (stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Caché de cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: linux-packages-debian12-${{ hashFiles('Cargo.lock') }}
+          restore-keys: linux-packages-debian12-
+
+      - name: Compilar en release y empaquetar con cargo-deb
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo build --release --locked
+          command -v cargo-deb >/dev/null || cargo install cargo-deb --locked
+          cargo deb --no-build
+          cp target/debian/*.deb visor.deb
+
+      - name: Tamaños y dependencias del .deb
+        run: |
+          mkdir -p "$RUNNER_TEMP/build"
+          {
+            printf 'deb_bytes\t%s\n' "$(stat -c %s visor.deb)"
+            printf 'binario_bytes\t%s\n' "$(stat -c %s target/release/visor)"
+          } > "$RUNNER_TEMP/build/tamanos.tsv"
+          {
+            echo "## .deb compilado en Debian 12"
+            echo
+            echo '```'
+            dpkg-deb -I visor.deb | grep -E 'Package|Version|Installed-Size|Depends'
+            echo '```'
+            echo
+            echo "glibc que exige el binario: **$(spikes/linux/glibc-report.sh target/release/visor --max)**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/build/tamanos.tsv" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Subir .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: visor-deb
+          path: visor.deb
+          if-no-files-found: error
+
+      - name: Subir tamaños de compilación
+        uses: actions/upload-artifact@v4
+        with:
+          name: res-build
+          path: ${{ runner.temp }}/build
+          if-no-files-found: error
+
+  install-deb:
+    name: instalar .deb en ${{ matrix.id }}
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: ubuntu-22.04, image: "ubuntu:22.04" }
+          - { id: ubuntu-24.04, image: "ubuntu:24.04" }
+          - { id: debian-12, image: "debian:12" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: visor-deb
+          path: ${{ runner.temp }}/deb
+
+      - name: Instalar y probar en el contenedor
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/out/${{ matrix.id }}"
+          docker run --rm --shm-size=1g \
+            -v "$GITHUB_WORKSPACE/spikes/linux:/linux:ro" \
+            -v "$GITHUB_WORKSPACE/spikes/l5-paquetes:/l5:ro" \
+            -v "$RUNNER_TEMP/deb:/artifact:ro" \
+            -v "$RUNNER_TEMP/out/${{ matrix.id }}:/out" \
+            "${{ matrix.image }}" \
+            sh -c 'exec bash /l5/deb-install.sh "${{ matrix.id }}" /artifact/visor.deb /out'
+
+      - name: Subir resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: res-install-${{ matrix.id }}
+          path: ${{ runner.temp }}/out/${{ matrix.id }}
+          if-no-files-found: warn
+
+  pruebas-deb:
+    name: pruebas a-f con .deb (ubuntu 24.04)
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: visor-deb
+          path: ${{ runner.temp }}/deb
+
+      - name: Instalar el .deb en el host
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            "$RUNNER_TEMP/deb/visor.deb" xvfb xauth dbus-x11
+
+      - name: Pruebas a-f
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/res-deb"
+          xvfb-run -a dbus-run-session -- bash spikes/l5-paquetes/pruebas.sh deb "$RUNNER_TEMP/res-deb"
+
+      - name: Subir resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: res-deb-host
+          path: ${{ runner.temp }}/res-deb
+          if-no-files-found: warn
+
+  flatpak:
+    name: compilar y probar Flatpak (ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Permitir espacios de usuario a bubblewrap
+        run: |
+          # Ubuntu 24.04 restringe los espacios de nombres de usuario sin perfil AppArmor.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Instalar flatpak y herramientas
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            flatpak flatpak-builder xvfb xauth dbus-x11
+
+      - name: Remoto Flathub y runtime estable más nuevo
+        run: |
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          rt=$(flatpak --user remote-ls --runtime --columns=application,branch flathub \
+            | awk '$1=="org.gnome.Platform"{print $2}' | sort -V | tail -n1)
+          echo "runtime elegido: $rt"
+          echo "RUNTIME=$rt" >> "$GITHUB_ENV"
+          sed -i "s/^runtime-version: .*/runtime-version: '$rt'/" spikes/l5-paquetes/io.github.ruben_salas20.visor.yml
+          flatpak --user remote-ls --runtime --columns=application,branch flathub | grep -i 'Sdk.Extension.rust-stable' | head -n 5 || true
+
+      - name: Instalar runtime y SDK, y comprobar WebKitGTK
+        run: |
+          flatpak --user install -y --noninteractive flathub "org.gnome.Platform//$RUNTIME" "org.gnome.Sdk//$RUNTIME"
+          flatpak run --user --command=sh --devel org.gnome.Sdk -c 'pkg-config --modversion webkit2gtk-4.1' \
+            > "$RUNNER_TEMP/webkit.txt" 2>&1 || echo "sin webkit2gtk-4.1 en el SDK" >> "$RUNNER_TEMP/webkit.txt"
+          {
+            echo "## Flatpak: runtime y WebKitGTK"
+            echo
+            echo "Runtime: org.gnome.Platform **$RUNTIME**"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/webkit.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compilar el Flatpak
+        timeout-minutes: 90
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean \
+            --state-dir="$RUNNER_TEMP/fb-state" --repo="$RUNNER_TEMP/repo" \
+            "$RUNNER_TEMP/fb-build" spikes/l5-paquetes/io.github.ruben_salas20.visor.yml
+
+      - name: Exportar bundle y medir
+        run: |
+          mkdir -p "$RUNNER_TEMP/build"
+          flatpak build-bundle "$RUNNER_TEMP/repo" "$RUNNER_TEMP/build/visor.flatpak" io.github.ruben_salas20.visor
+          {
+            printf 'flatpak_bundle_bytes\t%s\n' "$(stat -c %s "$RUNNER_TEMP/build/visor.flatpak")"
+            printf 'flatpak_repo_kib\t%s\n' "$(du -sk "$RUNNER_TEMP/repo" | cut -f1)"
+          } > "$RUNNER_TEMP/build/tamanos-flatpak.tsv"
+          cat "$RUNNER_TEMP/build/tamanos-flatpak.tsv" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Instalar el bundle y permisos finales
+        run: |
+          flatpak --user install -y --noninteractive --bundle "$RUNNER_TEMP/build/visor.flatpak"
+          {
+            echo "## Flatpak: permisos finales"
+            echo
+            echo '```'
+            flatpak info --user --show-permissions io.github.ruben_salas20.visor
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pruebas a-f con Flatpak
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/res-flatpak"
+          xvfb-run -a dbus-run-session -- bash spikes/l5-paquetes/pruebas.sh flatpak "$RUNNER_TEMP/res-flatpak"
+
+      - name: Subir bundle y resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: res-flatpak
+          path: |
+            ${{ runner.temp }}/res-flatpak
+            ${{ runner.temp }}/build/tamanos-flatpak.tsv
+          if-no-files-found: warn
+
+  resumen:
+    name: resumen
+    needs: [build-deb, install-deb, pruebas-deb, flatpak]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Descargar resultados
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: res-*
+          path: ${{ runner.temp }}/res
+          merge-multiple: false
+
+      - name: Tablas
+        run: |
+          python3 - "$RUNNER_TEMP/res" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import glob, os, sys
+          root = sys.argv[1]
+          print("## Resultados por carpeta\n")
+          for tsv in sorted(glob.glob(os.path.join(root, "*", "*.tsv")) + glob.glob(os.path.join(root, "*", "*", "*.tsv"))):
+              print(f"### {os.path.relpath(tsv, root)}\n")
+              print("| clave | valor |")
+              print("|---|---|")
+              with open(tsv, encoding="utf-8") as f:
+                  for line in f:
+                      line = line.rstrip("\n")
+                      if "\t" in line:
+                          k, v = line.split("\t", 1)
+                          print(f"| {k} | {v.replace('|', '/')} |")
+              print()
+          if not glob.glob(os.path.join(root, "**", "*.tsv"), recursive=True):
+              print("Ningún paso dejó resultados.")
+          PY
