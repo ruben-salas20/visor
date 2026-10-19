@@ -148,6 +148,25 @@ fn texto<'a>(m: &'a Value, campo: &str) -> Result<&'a str, String> {
 }
 
 /// Mensajes del marco. Solo el webview del marco puede enviarlos.
+static INICIO: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// With U1_TIEMPOS=<file>, appends `<event> <ms since start>` once per event, for tools/medir-like rounds.
+fn marcar_tiempo(evento: &str) {
+    use std::sync::Mutex;
+    static VISTOS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let Ok(ruta) = std::env::var("U1_TIEMPOS") else { return };
+    let mut vistos = VISTOS.lock().unwrap();
+    if vistos.iter().any(|v| v == evento) {
+        return;
+    }
+    vistos.push(evento.to_string());
+    let ms = INICIO.get().map_or(0.0, |t| t.elapsed().as_secs_f64() * 1000.0);
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(ruta) {
+        use std::io::Write;
+        let _ = writeln!(f, "{evento} {ms:.1}");
+    }
+}
+
 fn mensaje_marco(est: &RefCell<Estado>, vis: &RefCell<Vistas>, cuerpo: &str) {
     let m: Value = match serde_json::from_str(cuerpo) {
         Ok(v) => v,
@@ -161,10 +180,14 @@ fn mensaje_marco(est: &RefCell<Estado>, vis: &RefCell<Vistas>, cuerpo: &str) {
         let mut e = est.borrow_mut();
         match accion.as_str() {
             "listo" => {
+                marcar_tiempo("listo");
                 e.listo = true;
                 return Ok(());
             }
             "recolocar" => {
+                if e.listo {
+                    marcar_tiempo("pintado");
+                }
                 let rectas = m["rectas"].as_array().ok_or("faltan rectas")?;
                 for (i, r) in rectas.iter().enumerate().take(2) {
                     let v = [r["x"].as_f64(), r["y"].as_f64(), r["w"].as_f64(), r["h"].as_f64()];
@@ -346,6 +369,7 @@ fn generar_boveda(raiz: &Path) -> std::io::Result<Vec<String>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    INICIO.get_or_init(std::time::Instant::now);
     let args: Vec<String> = std::env::args().collect();
     let salida_prueba = args.iter().position(|a| a == "--prueba").and_then(|i| args.get(i + 1)).cloned();
     let raiz: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
