@@ -1,17 +1,22 @@
 //! Installs the newest GitHub release. The background check runs once a day at
-//! most; the button and `visor update` check at once. Shells out to curl and
-//! sha256sum, so no HTTPS crate is needed. See docs/adr/0035.
+//! most; the button and `visor update` check at once. Shells out to curl, so no
+//! HTTPS crate is needed; SHA-256 uses sha256sum on Linux and the sha2 crate on
+//! Windows, which has no sha256sum. See docs/adr/0035.
 use crate::i18n::tr;
 use crate::trf;
 use serde::Deserialize;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 const RELEASES: &str = "https://api.github.com/repos/ruben-salas20/visor/releases/latest";
+#[cfg(not(windows))]
 const ASSET: &str = "visor-x86_64-linux";
+#[cfg(windows)]
+const ASSET: &str = "visor-x86_64-windows.exe";
 const EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Two checks at once would share the same temporary file name.
@@ -160,11 +165,16 @@ fn refusal(no_update: bool, arch: &str, exe: &Path) -> Option<String> {
         return Some(tr("Las actualizaciones están desactivadas con VISOR_NO_UPDATE.", "Updates are turned off with VISOR_NO_UPDATE.").into());
     }
     if arch != "x86_64" {
-        return Some(tr("Las versiones publicadas son solo para Linux x86_64.", "Published versions are for Linux x86_64 only.").into());
+        let text = if cfg!(windows) {
+            tr("Las versiones publicadas son solo para Windows x86_64.", "Published versions are for Windows x86_64 only.")
+        } else {
+            tr("Las versiones publicadas son solo para Linux x86_64.", "Published versions are for Linux x86_64 only.")
+        };
+        return Some(text.into());
     }
     // A cargo build must never be replaced by a release.
     if exe.components().any(|c| c.as_os_str() == "target") {
-        return Some(tr("Esta copia está en target/ (compilación de desarrollo) y no se reemplaza.", "This copy is in target/ (development build) and is not replaced.").into());
+        return Some(tr("Esta copia está en la carpeta target (compilación de desarrollo) y no se reemplaza.", "This copy is in the target folder (development build) and is not replaced.").into());
     }
     None
 }
@@ -187,16 +197,84 @@ fn install(url: &str, sha256: &str, tmp: &Path, exe: &Path) -> Result<(), String
         return Err(tr("No se pudo descargar la nueva versión.", "Could not download the new version.").into());
     }
     let mismatch = tr("La descarga no coincide con su SHA-256. No se ha instalado nada.", "The download does not match its SHA-256. Nothing was installed.");
-    let out = Command::new("sha256sum").arg(tmp).stderr(Stdio::null()).output().map_err(|_| mismatch)?;
-    let got = String::from_utf8(out.stdout).map_err(|_| mismatch)?;
-    let same = got.split_whitespace().next().is_some_and(|h| h.eq_ignore_ascii_case(sha256));
-    if !out.status.success() || !same {
+    if !sha256_of(tmp).is_some_and(|h| h.eq_ignore_ascii_case(sha256)) {
         return Err(mismatch.into());
     }
     crate::platform::make_executable(tmp)
-        .and_then(|()| fs::rename(tmp, exe))
+        .and_then(|()| put_in_place(tmp, exe))
         .map_err(|e| trf!("No se pudo reemplazar visor: {}.", "Could not replace visor: {}.", e))
 }
+
+/// The SHA-256 of the file at `path`, in lowercase hex.
+#[cfg(not(windows))]
+fn sha256_of(path: &Path) -> Option<String> {
+    let out = Command::new("sha256sum").arg(path).stderr(Stdio::null()).output().ok()?;
+    let hash = String::from_utf8(out.stdout).ok()?;
+    let hash = hash.split_whitespace().next()?.to_ascii_lowercase();
+    out.status.success().then_some(hash)
+}
+
+#[cfg(windows)]
+fn sha256_of(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let data = fs::read(path).ok()?;
+    let hash = Sha256::digest(&data);
+    Some(hash.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Puts the downloaded file at `exe`. Linux replaces it in one atomic rename,
+/// even while it runs.
+#[cfg(not(windows))]
+fn put_in_place(tmp: &Path, exe: &Path) -> io::Result<()> {
+    fs::rename(tmp, exe)
+}
+
+/// Windows cannot overwrite or delete a running .exe, but it can rename one. So
+/// the current file moves aside to `.old`, and the new one takes its place.
+#[cfg(windows)]
+fn put_in_place(tmp: &Path, exe: &Path) -> io::Result<()> {
+    let old = old_copy(exe);
+    if old.exists() && fs::remove_file(&old).is_err() {
+        return Err(io::Error::other(tr(
+            "la copia anterior sigue en uso; cierra visor y vuelve a intentarlo",
+            "the previous copy is still in use; close visor and try again",
+        )));
+    }
+    fs::rename(exe, &old)?;
+    if let Err(e) = fs::rename(tmp, exe) {
+        // Put the current file back, so that visor.exe is never missing.
+        let _ = fs::rename(&old, exe);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Where Windows keeps the previous visor.exe after an update.
+#[cfg(windows)]
+fn old_copy(exe: &Path) -> PathBuf {
+    let mut name = exe.as_os_str().to_owned();
+    name.push(".old");
+    PathBuf::from(name)
+}
+
+/// Deletes the `.old` file that the last update left beside visor. The process
+/// that ran the update keeps it locked, so the next start usually deletes it. If
+/// it is still locked, it stays for the start after that.
+#[cfg(windows)]
+pub fn remove_leftover() {
+    if let Some(exe) = running_exe() {
+        remove_old_copy(&exe);
+    }
+}
+
+#[cfg(windows)]
+fn remove_old_copy(exe: &Path) {
+    let _ = fs::remove_file(old_copy(exe));
+}
+
+/// Only Windows leaves a `.old` file. On Linux, `visor.old` could be a user's file.
+#[cfg(not(windows))]
+pub fn remove_leftover() {}
 
 fn curl(args: &[&str]) -> Option<Vec<u8>> {
     let out = Command::new("curl").args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
@@ -236,7 +314,7 @@ mod tests {
         let installed = Path::new("/home/ruben/.local/bin/visor");
         let build = Path::new("/home/ruben/Projects/visor/target/release/visor");
         assert_eq!(refusal(false, "x86_64", installed), None);
-        assert!(refusal(false, "x86_64", build).unwrap().contains("target/"));
+        assert!(refusal(false, "x86_64", build).unwrap().contains("target"));
         assert!(refusal(false, "aarch64", installed).unwrap().contains("x86_64"));
         assert!(refusal(true, "x86_64", installed).unwrap().contains("VISOR_NO_UPDATE"));
     }
@@ -261,37 +339,114 @@ mod tests {
         assert_eq!(Outcome::Skipped("Ya se buscó hoy.".into()).message(), "Ya se buscó hoy.");
     }
 
+    /// A file:// URL that curl reads on this system. Windows paths need file:///C:/…
+    fn file_url(path: &Path) -> String {
+        let p = path.display().to_string().replace('\\', "/");
+        if p.starts_with('/') { format!("file://{p}") } else { format!("file:///{p}") }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("visor-update-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
     fn a_missing_download_is_a_failure_with_a_reason() {
-        let dir = std::env::temp_dir().join(format!("visor-update-miss-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = scratch("miss");
         let (exe, tmp) = (dir.join("visor"), dir.join(".visor-nuevo"));
         fs::write(&exe, b"vieja").unwrap();
-        let url = format!("file://{}", dir.join("no-existe").display());
-        let err = install(&url, "00", &tmp, &exe).unwrap_err();
+        let err = install(&file_url(&dir.join("no-existe")), "00", &tmp, &exe).unwrap_err();
         assert!(err.contains("descargar"), "{err}");
         assert_eq!(fs::read(&exe).unwrap(), b"vieja");
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn installs_only_a_matching_download() {
-        let dir = std::env::temp_dir().join(format!("visor-update-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = scratch("install");
         let (new, exe, tmp) = (dir.join("new"), dir.join("visor"), dir.join(".visor-nuevo"));
         fs::write(&new, b"nueva").unwrap();
         fs::write(&exe, b"vieja").unwrap();
-        let url = format!("file://{}", new.display());
+        let url = file_url(&new);
         let sha = "8e8a2d1b5c5a2a6f0f0c1e1f63ee2b7ca5ba8b3a4b0e35a45dd2d8f8b6a0b0e3";
         assert!(install(&url, sha, &tmp, &exe).is_err());
         assert_eq!(fs::read(&exe).unwrap(), b"vieja");
-        let out = Command::new("sha256sum").arg(&new).output().unwrap();
-        let sha = String::from_utf8(out.stdout).unwrap().split_whitespace().next().unwrap().to_string();
+        let sha = sha256_of(&new).unwrap();
         assert!(install(&url, &sha, &tmp, &exe).is_ok());
         assert_eq!(fs::read(&exe).unwrap(), b"nueva");
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o755);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&exe).unwrap().permissions().mode() & 0o777, 0o755);
+        }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hashes_a_file_like_sha256sum() {
+        // The SHA-256 of "abc" (FIPS 180-2 test vector).
+        let dir = scratch("hash");
+        let file = dir.join("abc");
+        fs::write(&file, b"abc").unwrap();
+        assert_eq!(sha256_of(&file).unwrap(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_moves_the_running_exe_aside_and_removes_an_old_copy() {
+        let dir = scratch("swap");
+        let (exe, tmp) = (dir.join("visor.exe"), dir.join(".visor-nuevo"));
+        fs::write(&exe, b"vieja").unwrap();
+        fs::write(&tmp, b"nueva").unwrap();
+        fs::write(old_copy(&exe), b"anterior").unwrap();
+        put_in_place(&tmp, &exe).unwrap();
+        assert_eq!(fs::read(&exe).unwrap(), b"nueva");
+        assert_eq!(fs::read(old_copy(&exe)).unwrap(), b"vieja");
+        assert!(!tmp.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_puts_the_old_exe_back_when_the_new_one_cannot_move_in() {
+        let dir = scratch("rollback");
+        let (exe, tmp) = (dir.join("visor.exe"), dir.join("no-existe"));
+        fs::write(&exe, b"vieja").unwrap();
+        assert!(put_in_place(&tmp, &exe).is_err());
+        assert_eq!(fs::read(&exe).unwrap(), b"vieja");
+        assert!(!old_copy(&exe).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_keeps_an_old_copy_that_is_still_in_use_and_refuses_to_replace_it() {
+        let dir = scratch("locked");
+        let (exe, tmp) = (dir.join("visor.exe"), dir.join(".visor-nuevo"));
+        fs::write(&exe, b"vieja").unwrap();
+        fs::write(&tmp, b"nueva").unwrap();
+        fs::write(old_copy(&exe), b"anterior").unwrap();
+        // Opened without delete sharing, as a running program keeps its file.
+        let held = fs::File::open(old_copy(&exe)).unwrap();
+        assert!(put_in_place(&tmp, &exe).is_err());
+        remove_old_copy(&exe);
+        assert!(old_copy(&exe).exists());
+        assert_eq!(fs::read(&exe).unwrap(), b"vieja");
+        drop(held);
+        remove_old_copy(&exe);
+        assert!(!old_copy(&exe).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_refuses_a_cargo_build_by_its_path() {
+        let build = Path::new(r"C:\Users\ruben\Projects\visor\target\release\visor.exe");
+        let installed = Path::new(r"C:\Users\ruben\AppData\Local\Programs\visor\visor.exe");
+        assert!(refusal(false, "x86_64", build).unwrap().contains("target"));
+        assert_eq!(refusal(false, "x86_64", installed), None);
     }
 }

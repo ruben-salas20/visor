@@ -112,6 +112,8 @@ pub fn launch() -> i32 {
     visor.shared.lock().unwrap().restoring = false;
     LOADED.notify_all();
     let _theme_watcher = theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, process, |_| UserEvent::ThemeChanged));
+    // Outside the check: a leftover from an update must go even when updates are off.
+    crate::update::remove_leftover();
     // Once the windows and their first pages exist, so the check never delays them.
     if auto_update {
         crate::update::spawn();
