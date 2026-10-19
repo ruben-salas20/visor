@@ -4,12 +4,12 @@
 Uso: prepare.py DESTINO [--control] [--stub-seams] [--drop-unix-imports]
 
 Por defecto quita de la copia la interfaz (GTK, WebKitGTK, wry, tao, rfd, cairo),
-deja solo los módulos portables de `ui/` y quita `app` de `main.rs`.
+deja solo los módulos portables de `ui/` y quita `visor` de `main.rs`.
 
 Pasadas (se acumulan, cada una sobre la anterior):
 - --stub-seams: sustituye en la copia las tres costuras de interfaz por rellenos con
   `unimplemented!()` y la misma firma: `ui::page_view::is_web`, la papelera de GTK en
-  `vault/files.rs` y `tao::event_loop::EventLoopProxy` en `ui/watch.rs`. Así los errores
+  `vault/files.rs` y `tao::event_loop::EventLoopProxy` en `ui/action.rs`. Así los errores
   de resolución desaparecen y rustc llega a la comprobación de tipos.
 - --drop-unix-imports: borra los `use std::os::unix…` de nivel superior. Los métodos de
   extensión (`dev`, `ino`, `from_mode`, `process_group`) fallan de nuevo; lo que cambia
@@ -28,13 +28,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent.parent  # raíz del worktree
 
-PORTABLE_UI = ["action", "address", "page_calls", "tabs", "watch"]
+PORTABLE_UI = ["action", "address", "page_calls", "tabs", "watch", "windows"]
 CONTROL_UI = PORTABLE_UI + ["page_view"]
 STUB_UI = PORTABLE_UI + ["page_view"]
 UI_DEPS = {"cairo-rs", "gtk", "rfd", "tao", "webkit2gtk", "wry"}
 
-MAIN_OLD = "        None => app::launch(),\n"
-MAIN_NEW = '        None => {\n            eprintln!("visor sin interfaz (copia de la prueba W1): no hay ventana que abrir.");\n            1\n        }\n'
+MAIN_OLD = "visor::launch()"
+MAIN_NEW = '{\n            eprintln!("visor sin interfaz (copia de la prueba W1): no hay ventana que abrir.");\n            1\n        }'
 
 PAGE_VIEW_STUB = """//! Relleno de `ui::page_view` para la prueba W1 (copia generada): solo lo que importan los módulos portables.
 pub fn is_web(_url: &str) -> bool {
@@ -44,7 +44,7 @@ pub fn is_web(_url: &str) -> bool {
 
 # (archivo, texto exacto que se sustituye, texto nuevo). Cada texto debe aparecer una sola vez.
 SEAM_EDITS = [
-    ("src/ui/watch.rs", "use tao::event_loop::EventLoopProxy;\n", """/// Relleno de `tao::event_loop::EventLoopProxy` para la prueba W1 (copia generada).
+    ("src/ui/action.rs", "use tao::event_loop::EventLoopProxy;\n", """/// Relleno de `tao::event_loop::EventLoopProxy` para la prueba W1 (copia generada).
 pub struct EventLoopProxy<T>(std::marker::PhantomData<fn() -> T>);
 impl<T> Clone for EventLoopProxy<T> {
     fn clone(&self) -> Self {
@@ -139,6 +139,8 @@ def main() -> int:
         cargo.write_text(strip_deps(cargo.read_text(encoding="utf-8")), encoding="utf-8")
 
     shutil.copytree(SRC / "assets", dest / "assets")
+    (dest / "docs/img/logo").mkdir(parents=True)
+    shutil.copy2(SRC / "docs/img/logo/simbolo.svg", dest / "docs/img/logo/simbolo.svg")  # include_str! in desktop.rs
     shutil.copytree(SRC / "src", dest / "src")
 
     # ui/: solo los módulos portables. Las rutas crate::ui::… se conservan para que compilen.
@@ -157,11 +159,11 @@ def main() -> int:
 
     main_rs = dest / "src" / "main.rs"
     text = main_rs.read_text(encoding="utf-8")
-    for old in ["use ui::app;\n", MAIN_OLD]:
+    for old in ["use ui::visor;\n", MAIN_OLD]:
         if old not in text:
             print(f"main.rs ha cambiado: no encuentro {old!r}; revisa prepare.py", file=sys.stderr)
             return 1
-    text = text.replace("use ui::app;\n", "").replace(MAIN_OLD, MAIN_NEW)
+    text = text.replace("use ui::visor;\n", "").replace(MAIN_OLD, MAIN_NEW)
     main_rs.write_text(text, encoding="utf-8")
 
     if stub:
