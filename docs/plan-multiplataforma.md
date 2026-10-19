@@ -21,7 +21,7 @@ Reglas del proyecto que se mantienen:
 
 - **Dónde:** worktree `/home/ruben/Projects/visor-estudio/.claude/worktrees/port-multiplataforma`, rama `worktree-port-multiplataforma`, ya subida a GitHub. Se fusionó con `main` el 2026-10-19, después de las varias ventanas (#39). Si `main` ha avanzado, `git merge main` (no `rebase`: la rama ya está publicada).
 - **Qué leer:** `AGENTS.md`, `CONTEXT.md`, este plan, `docs/pruebas.md` y el ADR 0040 (interfaz en HTML y winit en Windows). También 0001, 0035 y 0039 si se tocan la ventana, la actualización o las ventanas.
-- **Estado (2026-10-19, fin de sesión):**
+- **Estado (2026-10-19, noche):**
   - Puertas G1, G2 y G3 decididas. U1 funciona en Linux y en Windows (ver «Resultados»).
   - Fase 1 (costuras) hecha: lo propio de cada sistema está en `src/platform/` (`linux.rs`, `windows.rs`) y `agent/channel.rs` (socket Unix en Linux, `agent/pipe.rs` en Windows).
   - Fase 2 sin interfaz hecha y fusionada: tubería con nombre (con comprobación del usuario dueño), archivos, rutas y procesos, y actualización. `cargo test` en Windows sin la interfaz: 265 de 265 (ejecución 39264610352); en Linux, 293.
@@ -30,7 +30,7 @@ Reglas del proyecto que se mantienen:
   - CI: `windows-check.yml` (W1) pasa `cargo check` y `cargo test` en Windows sin la interfaz en cada subida a esta rama o a `port-*`; `windows-update.yml`, `windows-u1.yml` y `linux-packages.yml` cubren sus prototipos.
 - **Pendiente, por orden propuesto:**
   1. **W4 en CI:** funciones que wry no da en Windows (captura, pantalla completa, fallos de recursos, hoja de estilo inyectada, zoom, foco, botones laterales del ratón). Recomendado: un subagente con encargo acotado (líneas exactas, sin leer registros completos).
-  2. **Plan de la interfaz:** dividir la construcción del marco React (panel, pestañas, barra, divisores, ajustes, buscador…) en tareas paralelas que no se crucen, y el orden. Se escribe con el usuario antes de construir. W4 dice qué queda sin versión en Windows. Recomendado: W4 y este plan a la vez.
+  2. **Plan de la interfaz:** reparto acordado (fases 0, 1 y 2 en «Siguiente fase»). Falta decidir el aspecto del marco.
   3. **Construir la interfaz** (opción A del ADR 0040), en Linux primero, y medir frente a visor (GTK) con `docs/pruebas.md`.
   4. **Publicación**, cuando haya interfaz: `tools/publicar.sh` con el `.exe` de Windows (instalador y portable), flujo de paquetes en cada versión, Flatpak sin red al compilar para Flathub (dependencias de Rust en el manifiesto), y el `.deb` con su `visor.desktop` fuera de `spikes/`.
   5. **Pruebas a mano del usuario** (no se pueden en CI): en Windows 10/11 de escritorio, clic, arrastre, teclado, escala 125–150 %, reinicio y papelera; en Linux, X11 real (Mint) y los paquetes en un escritorio.
@@ -182,6 +182,10 @@ La construcción se reparte en tareas paralelas, una rama por tarea, solo donde 
 1. **En serie, primero (hecho el 2026-10-19, ver «Resultados»):** definir las costuras que separan lo común de lo propio de cada plataforma: canal del CLI (`agent/socket.rs`), identidad de archivo (`dev`/`ino` en `vault.rs`), papelera, proceso de la ventana (`ui/action.rs`). Sin esto, las ramas paralelas chocan en los mismos archivos.
 2. **En paralelo, después:** canal del CLI en Windows (W5, tubería con nombre), rutas y nombres reservados de Windows (`vault.rs`, `paths.rs`), `update.rs` y `getrandom`, empaquetado en CI (Flatpak, `.deb`, `.exe` instalador y portable) y W4.
 3. **La interfaz compartida (opción A, React):** es la parte grande. Sustituye la interfaz GTK también en Linux. El marco se compila aparte con Vite, como CodeMirror (ADR 0028), y va dentro del binario. Rust conserva la lógica (`tabs.rs`, bóveda, frontera de confianza); el marco solo dibuja y envía órdenes. Cada vista de página sigue aislada del marco, y el marco usa su propio proceso web.
+   Reparto acordado (2026-10-19). Todas las áreas pasan por `app.rs`; para que las ramas no choquen, la fase 0 deja un módulo vacío por área y las tareas solo rellenan el suyo.
+   - **Fase 0, en serie:** anfitrión en Linux (marco a toda la ventana, páginas en los huecos que anuncia; corregir el fallo de U1 al encoger); protocolo con tipos (`enum` en Rust y tipos en TypeScript) y un módulo por área; frontera (solo el webview del marco da órdenes de marco, con clave y origen propios); Vite con el compilado subido a `assets/`; colores del tema como variables CSS y los iconos en SVG. Se quita la interfaz GTK.
+   - **Fase 1, en paralelo, una rama por área:** A, panel de archivos (`sidebar.rs`); B, pestañas, lados, divisor, zonas para soltar y pantalla completa (`panes.rs`, parte de `app.rs`); C, barra (`bar.rs`); D, buscador (`find.rs`); E, ajustes, actualización y atajos (parte de `sidebar.rs`, `shortcuts.rs`). D y E se cargan al abrirse (`React.lazy`).
+   - **Fase 2, en serie:** anfitrión en Windows con winit y lo que diga W4; medir frente a visor (GTK) con `docs/pruebas.md`; publicación.
 4. **ADR a actualizar (con consulta):** 0001 (tao, wry y GTK; winit en Windows; interfaz en HTML) y 0004 (iconos con cairo, pasarían a SVG).
 
 Ideas para recuperar memoria y arranque (sin medir todavía):
@@ -231,9 +235,15 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
   - Seguridad: un enlace a una carpeta oculta no se lista ni se usa desde el panel (Linux y Windows); en Windows, la CLI comprueba que la tubería es del mismo usuario, y el panel salta lo que Windows marca oculto o de sistema y los nombres cortos de carpetas ocultas.
   - ADR 0035 ampliado con Windows y paquetes; ADR 0040 nuevo, que amplía el 0001 y sustituye al 0004 cuando el marco reemplace a GTK.
 
+- **2026-10-19 (noche):**
+  - W4 y el plan de la interfaz, a la vez. W4 corre en la rama `port-w4` (`spikes/w4-funciones/`).
+  - **Sustitución directa:** la rama del port quita la interfaz GTK al empezar, sin interruptor. visor queda incompleto en esta rama hasta acabar la fase 1, y no se fusiona en `main` antes.
+  - **El marco compilado se sube al repositorio**, como CodeMirror (ADR 0028): `cargo build` no necesita Node.
+  - **Subagentes de la fase 1:** Opus para A y B, Haiku para C, D y E; todos con encargo acotado.
+
 ## Decisiones pendientes del usuario
 
-1. Siguiente paso: W4 y el plan de la interfaz a la vez (recomendado), o solo uno de los dos.
+1. **Aspecto del marco:** llevar el diseño del prototipo Svelte, o maquetas primero. El usuario lo quiere ver antes de la fase 0.
 
 ## Registro de descartes
 
