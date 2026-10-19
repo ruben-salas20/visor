@@ -19,11 +19,11 @@ use windows_sys::Win32::Security::Authorization::{
 };
 use windows_sys::Win32::Security::{GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FlushFileBuffers, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile,
+    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile,
     SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT, WriteFile,
 };
 use windows_sys::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
     PIPE_WAIT, WaitNamedPipeW,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -87,7 +87,7 @@ impl Listener {
         if connected == 0 && io::Error::last_os_error().raw_os_error() != Some(ERROR_PIPE_CONNECTED as i32) {
             return Err(io::Error::last_os_error());
         }
-        Ok(Stream { handle: current, server: true })
+        Ok(Stream { handle: current })
     }
 
     pub fn incoming(&self) -> Incoming<'_> {
@@ -109,8 +109,6 @@ impl Iterator for Incoming<'_> {
 
 pub struct Stream {
     handle: Handle,
-    /// Whether this end is the one that listens; only its disconnect needs care.
-    server: bool,
 }
 
 impl Stream {
@@ -132,7 +130,7 @@ impl Stream {
                 )
             };
             if handle != INVALID_HANDLE_VALUE {
-                return Ok(Stream { handle: Handle(handle), server: false });
+                return Ok(Stream { handle: Handle(handle) });
             }
             let e = io::Error::last_os_error();
             if e.raw_os_error() != Some(ERROR_PIPE_BUSY as i32) {
@@ -142,20 +140,6 @@ impl Stream {
             unsafe { WaitNamedPipeW(name.as_ptr(), BUSY_WAIT.as_millis() as u32) };
         }
         Err(io::Error::new(io::ErrorKind::TimedOut, tr("La app está ocupada y no responde.", "The app is busy and does not respond.")))
-    }
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
-        // Windows drops the reply still in the pipe when the server disconnects,
-        // so wait until the client has read it.
-        if self.server {
-            // SAFETY: the handle is open until this drop ends.
-            unsafe {
-                FlushFileBuffers(self.handle.0);
-                DisconnectNamedPipe(self.handle.0);
-            }
-        }
     }
 }
 
@@ -190,7 +174,7 @@ impl Write for &Stream {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // Nothing to do: the server's disconnect waits for the reply (see `Drop`).
+        // Nothing to do: the pipe passes the bytes on as they are written.
         Ok(())
     }
 }
