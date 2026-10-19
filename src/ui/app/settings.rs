@@ -51,7 +51,10 @@ impl App {
     /// Ctrl+K and the keyboard button of the status bar.
     pub(super) fn toggle_shortcuts(&mut self) {
         self.shortcuts_open = !self.shortcuts_open;
-        if !self.shortcuts_open {
+        if self.shortcuts_open {
+            // The keys go to the frame, so Escape reaches the dialog.
+            self.host.focus_frame();
+        } else {
             self.return_to_page();
         }
     }
@@ -59,6 +62,7 @@ impl App {
     /// Ctrl+,.
     pub(super) fn open_settings(&mut self) {
         self.settings_open = true;
+        self.host.focus_frame();
     }
 
     /// The language chosen differs from the one in use: it applies on restart.
