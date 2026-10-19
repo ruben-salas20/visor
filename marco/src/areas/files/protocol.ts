@@ -29,3 +29,6 @@ export type FilesMsg =
   | { type: 'open_elsewhere'; path: string }
   | { type: 'move'; path: string; dir: string }
   | { type: 'open_folders'; folders: string[] }
+  /** While it lasts, the pages take the file (area B, src/ui/host.rs). */
+  | { type: 'drag_start'; path: string }
+  | { type: 'drag_end' }

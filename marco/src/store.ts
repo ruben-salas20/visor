@@ -20,7 +20,7 @@ export type Store = {
 let state: Store = {
   tree: { root: null },
   files: { shown: true, vault: null, current: null },
-  sides: { sides: [], focused: 0 },
+  sides: { sides: [], focused: 0, ratio: 0.5 },
   bar: { sides: [] },
   status: { vault: null, kind: 'empty', zoom: 1, version: '', update: null },
 }
