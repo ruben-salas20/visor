@@ -33,6 +33,8 @@ const BUFFER: u32 = 64 * 1024;
 /// How long to wait for a busy instance to free up, and how many times to try.
 const BUSY_WAIT: Duration = Duration::from_millis(500);
 const BUSY_TRIES: u32 = 4;
+/// How long a restarted visor waits for the one it replaces to exit and free the name.
+const RESTART_WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
 pub enum ClaimError {
@@ -54,11 +56,20 @@ impl Claim {
 pub fn claim(path: &Path) -> Result<(Listener, Claim), ClaimError> {
     let name = pipe_name(path);
     let security = Security::for_current_user().map_err(|e| failed(path, e))?;
-    let waiting = match create_instance(&name, &security, true) {
-        Ok(handle) => handle,
-        // Windows answers ERROR_ACCESS_DENIED when this first-instance flag meets an existing pipe.
-        Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => return Err(ClaimError::Running),
-        Err(e) => return Err(failed(path, e)),
+    let deadline = std::time::Instant::now() + RESTART_WAIT;
+    let restarting = std::env::var_os("VISOR_RESTART").is_some();
+    let waiting = loop {
+        match create_instance(&name, &security, true) {
+            Ok(handle) => break handle,
+            // Windows answers ERROR_ACCESS_DENIED when this first-instance flag meets an existing pipe.
+            Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => {
+                if !restarting || std::time::Instant::now() >= deadline {
+                    return Err(ClaimError::Running);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(failed(path, e)),
+        }
     };
     Ok((Listener { name, security, waiting: Mutex::new(waiting) }, Claim))
 }

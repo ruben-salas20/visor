@@ -180,9 +180,9 @@ pub fn detach(command: &mut Command) -> &mut Command {
 }
 
 /// Windows has no exec: start the new process and exit. Returns only if the start fails.
-/// Until the named-pipe task lands, the new process may contend with the CLI channel.
+/// `VISOR_RESTART` tells the new process to wait for this one to free the pipe.
 pub fn restart(command: &mut Command) -> io::Error {
-    match detach(command).spawn() {
+    match detach(command.env("VISOR_RESTART", "1")).spawn() {
         Ok(_) => std::process::exit(0),
         Err(e) => e,
     }
