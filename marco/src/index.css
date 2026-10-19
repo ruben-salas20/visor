@@ -103,8 +103,10 @@
     height: 100%;
     margin: 0;
   }
+  /* No background: the frame lies over the pages, which show through its
+     holes. Each area paints its own. */
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply text-foreground antialiased;
     font-family: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     font-size: 13px;
     overflow: hidden;

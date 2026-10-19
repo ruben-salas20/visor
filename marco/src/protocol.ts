@@ -14,6 +14,9 @@ export type Colors = { dark: boolean; bg: string; fg: string; accent: string; mu
 /** Where one side's pages go, in CSS pixels of the frame. */
 export type Hole = { side: number; x: number; y: number; w: number; h: number }
 
+/** A rectangle of the frame, in its CSS pixels. */
+export type Rect = { x: number; y: number; w: number; h: number }
+
 /** What Rust sends: one area's whole state, which replaces the frame's copy. */
 export type ToFrame =
   | ({ area: 'theme' } & Colors)
@@ -27,6 +30,7 @@ export type ToFrame =
 export type FrameMsg =
   | { area: 'frame'; type: 'ready' }
   | { area: 'frame'; type: 'holes'; holes: Hole[] }
+  | { area: 'frame'; type: 'cover'; boxes: Rect[]; dragging: boolean }
   | ({ area: 'files' } & FilesMsg)
   | ({ area: 'sides' } & SidesMsg)
   | ({ area: 'bar' } & BarMsg)

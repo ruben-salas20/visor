@@ -57,21 +57,18 @@ impl App {
     }
 
     /// A page asked for fullscreen, or left it. WebKit makes the window
-    /// fullscreen; the pages of that side cover it, and the frame below.
+    /// fullscreen; the pages of that side cover it, and the frame hides.
     pub(super) fn fullscreen(&mut self, view: u64, on: bool) {
         let holder = on.then(|| self.tabs.locate(view)).flatten().map(|(p, _)| self.tabs.side(p).id());
         self.host.set_fullscreen(holder);
     }
 
-    /// A file started being dragged from the panel: the pages take it.
+    /// A file started being dragged from the panel; the frame says where it goes.
     pub(super) fn drag_start(&mut self, path: String) {
-        let split = self.tabs.sides().len() == 2;
-        self.host.show_drop(true, split);
         self.dragging = Some(path);
     }
 
     pub(super) fn drag_end(&mut self) {
-        self.host.show_drop(false, false);
         for p in 0..self.tabs.sides().len() {
             self.frost(p, None);
         }

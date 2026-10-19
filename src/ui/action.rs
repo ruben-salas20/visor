@@ -106,12 +106,6 @@ pub enum UserEvent {
     ResourceFailed { view: u64, uri: String, reason: LoadFailure },
     /// The reading position a page reported as its tab was hidden.
     Position { view: u64, json: String },
-    /// A file dragged from the panel was dropped on a side: on one half of
-    /// it (0 left, 1 right) when the window is not split, or on all of it.
-    Dropped { side: u64, half: Option<usize> },
-    /// The zone of a side under a dragged file changed: 0 left half, 1 right
-    /// half, 2 the whole side, or none when the pointer left it.
-    DropHover { side: u64, zone: Option<u8> },
     Action(Action),
     /// The settings write that was put off is due.
     SaveConfig,

@@ -41,6 +41,28 @@ pub enum Own {
     Ready,
     /// Where each side's pages go, in the frame's CSS pixels.
     Holes { holes: Vec<Hole> },
+    /// What the frame draws over the pages (menus, dialogs), and whether it
+    /// is dragging something. Sent only when it changes; see `ui/cover.rs`.
+    Cover { boxes: Vec<Rect>, dragging: bool },
+}
+
+/// A rectangle of the frame, in its CSS pixels.
+#[derive(Deserialize, Debug, PartialEq, Clone, Copy)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl Rect {
+    /// The rectangle in whole pixels, or none if it is empty or not a number.
+    pub fn pixels(&self) -> Option<(i32, i32, i32, i32)> {
+        if [self.x, self.y, self.w, self.h].iter().any(|v| !v.is_finite()) || self.w < 0.5 || self.h < 0.5 {
+            return None;
+        }
+        Some((self.x.round() as i32, self.y.round() as i32, self.w.round() as i32, self.h.round() as i32))
+    }
 }
 
 /// The rectangle the frame leaves empty for the pages of one side.
@@ -216,6 +238,19 @@ mod tests {
     fn a_hole_is_whole_pixels_and_never_empty() {
         let hole = Hole { side: 1, x: 264.4, y: 56.6, w: 0.2, h: f64::NAN };
         assert_eq!(hole.pixels(), (264, 57, 1, 1));
+    }
+
+    #[test]
+    fn the_frame_declares_what_covers_the_pages() {
+        let body = r#"{"area":"frame","type":"cover","boxes":[{"x":220.4,"y":44,"w":240,"h":200}],"dragging":false,"key":"k"}"#;
+        let Some(FrameMsg::Frame(Own::Cover { boxes, dragging })) = accept_frame(body, "k", FRAME, BASE) else { panic!("refused") };
+        assert!(!dragging);
+        assert_eq!(boxes[0].pixels(), Some((220, 44, 240, 200)));
+        assert_eq!(Rect { x: 0.0, y: 0.0, w: 0.2, h: 9.0 }.pixels(), None);
+        assert_eq!(Rect { x: f64::NAN, y: 0.0, w: 9.0, h: 9.0 }.pixels(), None);
+        // Without the frame's key, or from a page, a cover goes nowhere.
+        assert_eq!(accept_frame(r#"{"area":"frame","type":"cover","boxes":[],"dragging":true}"#, "k", FRAME, BASE), None);
+        assert!(serde_json::from_str::<PageMsg>(r#"{"area":"frame","type":"cover","boxes":[],"dragging":true}"#).is_err());
     }
 
     #[test]

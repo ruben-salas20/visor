@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AddressRow } from '@/areas/bar/AddressRow'
 import { KindIcon } from '@/components/kind-icon'
 import { useHole } from '@/holes'
+import { setDragging } from '@/overlay'
 import { cn } from '@/lib/utils'
 import { post } from '@/protocol'
 import { useArea } from '@/store'
@@ -83,10 +84,12 @@ function Side({ side, focused, grow }: { side: SideState; focused: boolean; grow
   const hole = useHole(side.id)
   const focus = () => !focused && post({ area: 'sides', type: 'focus', side: side.id })
   return (
-    <section className="flex min-w-0 flex-col bg-background" style={{ flex: `${grow} 1 0` }} onMouseDown={focus}>
-      <TabRow side={side} focused={focused} />
-      <AddressRow side={side.id} focused={focused} />
-      {/* Rust lays this side's page views over this element. */}
+    <section className="flex min-w-0 flex-col" style={{ flex: `${grow} 1 0` }} onMouseDown={focus}>
+      <div className="bg-background">
+        <TabRow side={side} focused={focused} />
+        <AddressRow side={side.id} focused={focused} />
+      </div>
+      {/* Transparent: this side's page views lie under it. */}
       <div ref={hole} className="min-h-0 flex-1" />
     </section>
   )
@@ -95,7 +98,7 @@ function Side({ side, focused, grow }: { side: SideState; focused: boolean; grow
 const clamp = (r: number) => Math.min(0.9, Math.max(0.1, r))
 
 /** Drags the share of the left side. The pointer stays with the divider over
- * the pages: the press started in the frame, so GTK keeps sending it here. */
+ * the pages: the frame takes the whole window while it moves. */
 function Divider({ main, onMove }: { main: React.RefObject<HTMLElement | null>; onMove: (r: number) => void }) {
   const at = (x: number) => {
     const r = main.current?.getBoundingClientRect()
@@ -111,7 +114,9 @@ function Divider({ main, onMove }: { main: React.RefObject<HTMLElement | null>; 
         if (e.button !== 0) return
         e.preventDefault()
         e.currentTarget.setPointerCapture(e.pointerId)
+        setDragging(true)
       }}
+      onLostPointerCapture={() => setDragging(false)}
       onPointerMove={(e) => {
         const r = at(e.clientX)
         if (r !== null && e.currentTarget.hasPointerCapture(e.pointerId)) onMove(r)
@@ -120,6 +125,7 @@ function Divider({ main, onMove }: { main: React.RefObject<HTMLElement | null>; 
         const r = at(e.clientX)
         if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
         e.currentTarget.releasePointerCapture(e.pointerId)
+        setDragging(false)
         if (r !== null) {
           onMove(r)
           post({ area: 'sides', type: 'split', ratio: r })

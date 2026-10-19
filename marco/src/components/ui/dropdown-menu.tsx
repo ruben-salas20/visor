@@ -2,6 +2,7 @@ import * as React from "react"
 import { CheckIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
+import { useOverlayRef } from "@/overlay"
 
 function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -11,10 +12,11 @@ function DropdownMenuTrigger(props: React.ComponentProps<typeof DropdownMenuPrim
   return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
-function DropdownMenuContent({ className, sideOffset = 4, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+function DropdownMenuContent({ className, sideOffset = 4, ref, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        ref={useOverlayRef(ref)}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(

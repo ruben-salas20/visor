@@ -23,6 +23,7 @@ impl App {
                 self.frame = Sent { ready: true, tree_stale: true, ..Default::default() };
             }
             FrameMsg::Frame(Own::Holes { holes }) => self.host.set_holes(&holes),
+            FrameMsg::Frame(Own::Cover { boxes, dragging }) => self.host.set_cover(&boxes, dragging),
             FrameMsg::Files(msg) => self.on_sidebar(msg),
             FrameMsg::Sides(msg) => self.on_sides(msg),
             FrameMsg::Bar(msg) => self.on_bar(msg),
