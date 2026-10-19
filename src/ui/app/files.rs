@@ -32,6 +32,8 @@ impl App {
                 }
             }
             SidebarMsg::PickVault => self.pick_vault(),
+            SidebarMsg::DragStart { path } => self.drag_start(path),
+            SidebarMsg::DragEnd => self.drag_end(),
             // The frame names a vault from the list it was sent; any other path is refused.
             SidebarMsg::SwitchVault { path } => {
                 if self.cfg(|c| c.vaults.contains(&path)) {

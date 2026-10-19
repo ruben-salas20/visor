@@ -155,8 +155,7 @@ pub fn theme_changed(dark: bool) -> String {
 
 /// Frosted glass over a page to mark where a dragged file would land: a half
 /// (0 left, 1 right), the whole page (any other zone), or nothing (`None`).
-/// `accent` is a CSS colour from the theme. Phase 1: dragging from the panel.
-#[allow(dead_code)]
+/// `accent` is a CSS colour from the theme.
 pub fn frost(zone: Option<u8>, accent: &str) -> String {
     let (left, right) = match zone {
         Some(0) => ("8px", "calc(50% + 4px)"),

@@ -180,6 +180,8 @@ pub(super) struct App {
     /// The frame does not use them yet; they are kept for phase 1.
     sidebar_width: Option<i32>,
     split_ratio: Option<f64>,
+    /// The file being dragged from the panel, while the pages take it.
+    dragging: Option<String>,
     /// Started for a loose page: until a vault opens, the window is not remembered.
     loose: bool,
     /// Tabs, sides or size changed since the process last saved the windows.
@@ -239,6 +241,7 @@ impl App {
             loose_watchers: LooseWatchers::default(),
             sidebar_width: state.sidebar_width,
             split_ratio: state.split_ratio,
+            dragging: None,
             loose,
             layout_changed: false,
             window,
@@ -802,6 +805,8 @@ impl App {
             }
             UserEvent::ResourceFailed { view, uri, reason } => self.resource_failed(view, &uri, reason),
             UserEvent::Fullscreen { view, on } => self.fullscreen(view, on),
+            UserEvent::Dropped { side, half } => self.dropped(side, half),
+            UserEvent::DropHover { side, zone } => self.drop_hover(side, zone),
             UserEvent::OpenTab { view, url, background } => self.open_tab(view, &url, background),
             UserEvent::Position { view, json } => {
                 self.tabs.set_position(view, clean_position(&json));
