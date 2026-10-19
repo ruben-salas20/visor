@@ -9,6 +9,7 @@ import {
   Crosshair,
   FilePlus2,
   FolderPlus,
+  Keyboard,
   ListTree,
   Plus,
   RotateCw,
@@ -42,8 +43,8 @@ function Rama({ nodo, nivel }: { nodo: Nodo; nivel: number }) {
         >
           <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', nodo.abierta && 'rotate-90')} />
           <Icono className="size-3.5 shrink-0" />
-          <span className="truncate">{nodo.nombre}</span>
-          <span className="ml-auto text-[11px] font-normal tabular-nums opacity-70">
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">{nodo.nombre}</span>
+          <span className="ml-2 text-[11px] font-normal tabular-nums opacity-70">
             {CUENTA[nodo.nombre] ?? nodo.hijos.length}
           </span>
         </div>
@@ -61,7 +62,7 @@ function Rama({ nodo, nivel }: { nodo: Nodo; nivel: number }) {
       )}
     >
       <IconoArchivo tipo={nodo.tipo} className={actual ? 'text-primary' : 'text-muted-foreground'} />
-      <span className="truncate">{nodo.nombre}</span>
+      <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">{nodo.nombre}</span>
     </div>
   )
 }
@@ -184,6 +185,9 @@ function Estado({ estado }: { estado: Estado }) {
       <span className="ml-auto" />
       <span className={item}>Markdown</span>
       <span className={item}>Zoom 110 %</span>
+      <button className={item} title="Atajos de teclado (Ctrl+K)">
+        <Keyboard className="size-3.5" />
+      </button>
       <span className={cn(item, 'pr-3')}>{VERSION}</span>
     </footer>
   )

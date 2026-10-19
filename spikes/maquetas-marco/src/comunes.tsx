@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
-import { VERSION, type Tipo } from './datos'
+import { type Tipo } from './datos'
 
 export type Estado = 'normal' | 'ajustes' | 'buscar'
 
@@ -124,8 +124,7 @@ export function Ajustes() {
         <Interruptor texto="Buscar e instalar actualizaciones" activo />
         <Interruptor texto="Mostrar archivos que visor no abre" activo={false} />
       </div>
-      <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
-        <span>visor {VERSION}</span>
+      <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
         <button className="rounded px-1.5 py-0.5 text-foreground hover:bg-accent">Buscar actualización ahora</button>
       </div>
     </div>
