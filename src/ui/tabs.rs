@@ -505,12 +505,17 @@ impl Tabs {
         vec![Effect::SwapSides]
     }
 
-    /// Opens a file dropped on side `p`. Split, it goes to a new tab of that
-    /// side. Not split, the window splits and the file takes the half it was
-    /// dropped on (`half`, 0 left or 1 right), the other half keeping what it had.
+    /// Opens a file dropped on side `p`. On an empty tab, it opens there.
+    /// Split, it goes to a new tab of that side. Not split, the window splits
+    /// and the file takes the half it was dropped on (`half`, 0 left or 1
+    /// right), the other half keeping what it had.
     pub fn drop_file(&mut self, target: String, p: usize, half: Option<usize>) -> Vec<Effect> {
         if p >= self.sides.len() {
             return Vec::new();
+        }
+        if self.sides[p].tab().target().is_empty() {
+            self.set_focus(p);
+            return self.open(target, Place::Here, "");
         }
         if self.sides.len() == 2 {
             self.set_focus(p);
@@ -1356,6 +1361,18 @@ mod tests {
         assert!(!fx.iter().any(|e| matches!(e, Effect::AddSide { .. } | Effect::SwapSides)));
         assert_eq!((targets(&tabs, 0), targets(&tabs, 1), tabs.focused()), (vec!["a"], vec!["b", "n"], 1));
         assert!(tabs.drop_file("m".into(), 2, None).is_empty(), "a side that is gone");
+        check(&tabs);
+    }
+
+    #[test]
+    fn a_file_dropped_on_an_empty_tab_opens_there_without_splitting() {
+        let mut tabs = build(vec![side(&[""], 0)], 0);
+        let fx = tabs.drop_file("n".into(), 0, Some(0));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::AddSide { .. } | Effect::SwapSides)));
+        assert_eq!(targets(&tabs, 0), vec!["n"]);
+        let mut tabs = build(vec![side(&["a"], 0), side(&["b", ""], 1)], 0);
+        tabs.drop_file("n".into(), 1, None);
+        assert_eq!((targets(&tabs, 1), tabs.focused()), (vec!["b", "n"], 1));
         check(&tabs);
     }
 

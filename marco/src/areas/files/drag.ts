@@ -64,11 +64,13 @@ function move(e: globalThis.PointerEvent) {
 }
 
 /** The side's zone under a point: 0 left half, 1 right half, 2 the whole
- *  side when the window is split. */
+ *  side when the window is split or the side shows an empty tab. */
 function zoneAt(x: number, y: number) {
   const hole = holeAt(x, y)
   if (!hole) return null
-  const whole = store().sides.sides.length === 2
+  const { sides } = store().sides
+  const side = sides.find((s) => s.id === hole.side)
+  const whole = sides.length === 2 || side?.tabs[side.active]?.target === ''
   return { side: hole.side, zone: whole ? 2 : x > hole.rect.left + hole.rect.width / 2 ? 1 : 0 }
 }
 
