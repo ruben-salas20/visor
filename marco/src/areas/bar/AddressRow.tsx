@@ -43,8 +43,15 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
   const [marked, setMarked] = useState(false)
   const field = useRef<HTMLInputElement>(null)
 
-  // Ctrl+L gives the frame's view the keyboard focus after the field opens,
-  // and WebKit then hands the focus back to what had it before: take it back.
+  // The text is selected once, when the field opens. Ctrl+L gives the frame's
+  // view the keyboard focus after that, and WebKit then hands the focus back to
+  // what had it before: take it back without selecting again, or the first key
+  // typed would be replaced by the second.
+  useEffect(() => {
+    if (!typing) return
+    field.current?.focus()
+    field.current?.select()
+  }, [typing, edit])
   useEffect(() => {
     if (!typing) return
     const again = () => field.current?.focus()
@@ -90,7 +97,6 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
       {typing ? (
         <input
           key={edit}
-          autoFocus
           spellCheck={false}
           aria-label={tr('Dirección', 'Address')}
           aria-invalid={marked}
@@ -100,7 +106,6 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
             setText(e.target.value)
             setMarked(false)
           }}
-          onFocus={(e) => e.currentTarget.select()}
           ref={field}
           // A blur that comes with the view getting focus is WebKit's, not the
           // person's: only a blur that leaves the focus elsewhere closes the field.
@@ -110,8 +115,14 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
             })
           }
           onKeyDown={(e) => {
-            if (e.key === 'Enter') go()
-            else if (e.key === 'Escape') {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              go()
+            } else if (e.key === 'Escape') {
+              // Handled here: otherwise WebKit hands the key back to the window,
+              // which gives it to the page that now has the focus, and the
+              // first key typed after the next Ctrl+L is lost.
+              e.preventDefault()
               leave()
               post({ area: 'bar', type: 'leave', side })
             }
