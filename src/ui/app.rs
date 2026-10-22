@@ -555,6 +555,9 @@ impl App {
         };
         view.webview().set_visible(false);
         self.style_view(&view);
+        if let Some(theme) = &self.theme() {
+            let _ = view.set_background_color(theme.rgba());
+        }
         view.webview().set_zoom_level(self.cfg(|c| c.zoom.unwrap_or(1.0)));
         self.shared.lock().unwrap().window_mut(self.win).pages.insert(id, Page::default());
         self.load_into(&view, target, fragment);
@@ -656,8 +659,23 @@ impl App {
                 ));
             }
         }
-        if let Some(theme) = &self.theme() {
-            let _ = view.set_background_color(theme.rgba());
+    }
+
+    /// Websites and loose HTML pages expect a browser's white background: on
+    /// the theme's dark one, a page without its own styles is black on black.
+    /// Notes and vault pages follow the theme.
+    fn paint_background(&self, id: u64) {
+        let Some(view) = self.view_of(id) else { return };
+        let plain = {
+            let shared = self.shared.lock().unwrap();
+            let page = shared.windows.get(&self.win).and_then(|w| w.pages.get(&id));
+            page.is_some_and(|p| {
+                p.url.is_some() || p.file.as_deref().is_some_and(|f| vault::is_loose(f) && vault::is_html(Path::new(f)))
+            })
+        };
+        let color = if plain { Some((255, 255, 255, 255)) } else { self.theme().map(|t| t.rgba()) };
+        if let Some(color) = color {
+            let _ = view.set_background_color(color);
         }
     }
 
@@ -673,10 +691,6 @@ impl App {
         view.webview().set_zoom_level(zoom);
     }
 
-    fn live_views(&self) -> impl Iterator<Item = &WebView> {
-        self.views.iter().map(|(_, v)| v)
-    }
-
     pub(super) fn apply_theme(&mut self) {
         self.common.borrow_mut().reload_theme();
         self.restyle();
@@ -684,8 +698,9 @@ impl App {
 
     /// Styles the frame and the views with the theme `common` holds.
     pub(super) fn restyle(&mut self) {
-        for view in self.live_views() {
+        for (id, view) in &self.views {
             self.style_view(view);
+            self.paint_background(*id);
         }
         let background = self.common.borrow().background;
         self.host.set_background(background);
@@ -1007,6 +1022,7 @@ impl App {
             }
         }
         self.apply_zoom(view);
+        self.paint_background(view);
         self.publish();
     }
 

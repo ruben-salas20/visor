@@ -297,6 +297,9 @@ WRITING PAGES FOR VISOR
 
       body { background: var(--visor-bg, #fff); color: var(--visor-fg, #222); }
 
+    Vault pages are drawn over the theme's background. Loose HTML pages
+    and websites are drawn over white, as in a browser.
+
   - If the theme changes while the page is open, the "visor:tema" event
     arrives with the mode, "dark" or "light", in e.detail.modo. The
     --visor-* variables already have the new values when it arrives. Use it
