@@ -169,7 +169,6 @@ pub enum Action {
     ToggleSplit,
     /// Moves the keyboard focus to the left (0) or right (1) side.
     FocusSide(usize),
-    // Phase 1, area E: the settings popover sends these.
     /// The theme chosen in the settings: «claro», «oscuro», or `None` for the system's.
     SetTheme(Option<String>),
     /// The language chosen in the settings: "es", "en", or `None` for the system's.

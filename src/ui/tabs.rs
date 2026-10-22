@@ -25,8 +25,7 @@ pub enum Effect {
     AddSide { id: u64 },
     /// Drops side `side`; the one left moves to the left.
     RemoveSide { side: usize },
-    // Phase 1, area B: a file dropped on the left half.
-    #[allow(dead_code)]
+    /// The two sides trade places.
     SwapSides,
     /// Builds the view of a tab in `side`, hidden, and loads `target`.
     Create { side: usize, view: u64, target: String, fragment: String },

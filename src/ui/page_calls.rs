@@ -49,7 +49,7 @@ pub fn note_find() -> &'static str {
 /// The page's own search (`find.js`), for the pages of the vault and loose
 /// files. `loaded` says whether the page answered before, with
 /// `window.__visorFind` in it: then the call goes straight to it and carries
-/// no script again. Phase 1, area D: the find bar calls these.
+/// no script again. The find bar calls these.
 const FIND: &str = include_str!("../page/find.js");
 
 fn find_call(call: &str, loaded: bool) -> String {
