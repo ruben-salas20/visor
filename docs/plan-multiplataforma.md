@@ -252,7 +252,8 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 
 ## Decisiones pendientes del usuario
 
-Ninguna por ahora.
+- **Consola de `visor.exe` en Windows:** dos binarios, o `windows_subsystem = "windows"` con `AttachConsole` para la CLI.
+- **CSP para el origen del marco:** propuesta sin decidir.
 
 ## Registro de descartes
 
