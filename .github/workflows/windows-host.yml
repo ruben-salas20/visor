@@ -62,6 +62,16 @@ jobs:
             "Binario ${b}.exe: {0:N0} bytes" -f (Get-Item "target\release\$b.exe").Length | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
           }
 
+      - name: Icono de los binarios
+        run: |
+          Add-Type -Namespace W -Name Shell -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconExW(string file, int index, System.IntPtr[] large, System.IntPtr[] small, uint count);'
+          foreach ($b in 'visor', 'visorw') {
+            # Index -1 asks only how many icons the file holds.
+            $n = [W.Shell]::ExtractIconExW((Resolve-Path "target\release\$b.exe").Path, -1, $null, $null, 0)
+            "Iconos en ${b}.exe: $n" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            if ($n -lt 1) { throw "${b}.exe no lleva el icono de visor" }
+          }
+
       - name: Prueba de humo
         run: ./tools/windows/smoke.ps1 -Exe target\release\visor.exe -ExeW target\release\visorw.exe -Salida "$env:RUNNER_TEMP\humo"
 

@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 const EDITOR: [&str; 2] = ["editor.js", "editor.css"];
 
 fn main() {
+    // visor's icon on visor.exe and visorw.exe. Windows binaries are only built on Windows.
+    #[cfg(windows)]
+    {
+        println!("cargo:rerun-if-changed=packaging/windows/visor.rc");
+        println!("cargo:rerun-if-changed=packaging/windows/visor.ico");
+        embed_resource::compile("packaging/windows/visor.rc", embed_resource::NONE).manifest_optional().unwrap();
+    }
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let mut files = vec![];
     collect(Path::new("assets"), &mut files);

@@ -26,6 +26,7 @@ DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
+SetupIconFile=visor.ico
 UninstallDisplayIcon={app}\visorw.exe
 UninstallDisplayName=visor
 WizardStyle=modern

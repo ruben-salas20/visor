@@ -38,6 +38,10 @@ opt-level = 3
 [build-dependencies]
 brotli = "9.0.0"
 
+# The icon of visor.exe and visorw.exe (packaging/windows/visor.rc).
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3.0.12"
+
 # The window and its webviews: tao and WebKitGTK on Linux, winit and WebView2 on Windows (docs/adr/0040).
 [target.'cfg(target_os = "linux")'.dependencies]
 cairo-rs = { version = "0.18.5", features = ["png"] }
