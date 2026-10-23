@@ -329,7 +329,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    name: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'publicar' || 'reunir (sin publicar)' }}
+    name: publicar (solo con etiqueta)
     needs: [version, linux, deb-install, flatpak, windows]
     runs-on: ubuntu-24.04
     permissions:
