@@ -76,6 +76,32 @@ impl Empty {
     }
 }
 
+/// The load visor asked for that has not started yet. Only its own start
+/// clears it: the empty page a vault opens with may start after visor already
+/// asked for a note in the same tab, and its end is not the note's.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub(in crate::ui) enum Asked {
+    #[default]
+    Nothing,
+    /// A page by its address: any start but a string's.
+    Page,
+    /// The empty page, loaded from a string: a data: or about: start.
+    Html,
+    /// A reload: whatever starts.
+    Any,
+}
+
+impl Asked {
+    fn started_by(self, uri: &str) -> bool {
+        let string = uri.starts_with("data:") || uri.starts_with("about:");
+        match self {
+            Asked::Page => !string,
+            Asked::Html => string,
+            Asked::Nothing | Asked::Any => true,
+        }
+    }
+}
+
 /// A page's webview, with what WebView2 does beyond wry. wry's own methods
 /// (load, evaluate, reload) are reached through it.
 pub struct PageView {
@@ -84,7 +110,7 @@ pub struct PageView {
     /// The theme's script for new documents; see `set_style`.
     style: Rc<RefCell<Style>>,
     /// visor asked for a load that has not started yet; see `track_commits`.
-    asked: Rc<Cell<bool>>,
+    asked: Rc<Cell<Asked>>,
     empty: Rc<Empty>,
 }
 
@@ -131,12 +157,13 @@ fn com_error(e: windows_core::Error) -> wry::Error {
 /// `committed` hears each commit, and `finished` the end of the last
 /// navigation started: an older one that ends late (the empty page, while a
 /// note already loads) is not the page an agent waits for. `asked` is set
-/// when visor asks for a load, which starts only later: until it does, no end counts.
+/// when visor asks for a load, which starts only later: until that load
+/// starts, no end counts.
 /// visor's empty page, as `empty` recognises it, commits as `EMPTY_PAGE`.
 pub(in crate::ui) fn track_commits(
     com: &ICoreWebView2,
     document: Document,
-    asked: Rc<Cell<bool>>,
+    asked: Rc<Cell<Asked>>,
     empty: Option<Rc<Empty>>,
     committed: impl Fn(&str) + 'static,
     finished: impl Fn() + 'static,
@@ -159,11 +186,13 @@ pub(in crate::ui) fn track_commits(
         if cancelled.as_bool() {
             return Ok(());
         }
+        if waiting.get().started_by(&uri) {
+            waiting.set(Asked::Nothing);
+        }
         if empty.as_ref().is_some_and(|e| e.claims(&uri, user.as_bool())) {
             uri = EMPTY_PAGE.to_string();
         }
         started.set(id);
-        waiting.set(false);
         // A redirect keeps its id and overwrites its address.
         starts.borrow_mut().insert(id, uri);
         Ok(())
@@ -174,7 +203,7 @@ pub(in crate::ui) fn track_commits(
             // SAFETY: a COM getter on the live event arguments.
             unsafe { args.NavigationId(&mut id)? };
         }
-        if id == latest.get() && !asked.get() {
+        if id == latest.get() && asked.get() == Asked::Nothing {
             finished();
         }
         Ok(())
@@ -274,7 +303,7 @@ pub fn build_page(
     // Followed here, not by the page script, so websites are tracked too.
     let p = proxy.clone();
     let done = proxy.clone();
-    let asked = Rc::new(Cell::new(false));
+    let asked = Rc::new(Cell::new(Asked::Nothing));
     let empty = Rc::new(Empty::default());
     track_commits(&com, document.clone(), asked.clone(), Some(empty.clone()), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
         .map_err(com_error)?;
@@ -334,20 +363,20 @@ pub fn build_page(
 // the load as asked for: WebView2 starts it only after the call returns.
 impl PageView {
     pub fn load_url(&self, url: &str) -> wry::Result<()> {
-        self.asked.set(true);
+        self.asked.set(Asked::Page);
         self.empty.asked.set(false);
         self.web.load_url(url)
     }
 
     /// Only visor's empty page is loaded from a string; see `Empty`.
     pub fn load_html(&self, html: &str) -> wry::Result<()> {
-        self.asked.set(true);
+        self.asked.set(Asked::Html);
         self.empty.asked.set(true);
         self.web.load_html(html)
     }
 
     pub fn reload(&self) -> wry::Result<()> {
-        self.asked.set(true);
+        self.asked.set(Asked::Any);
         self.empty.asked.set(false);
         self.web.reload()
     }
@@ -661,6 +690,16 @@ impl FindSignals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_load_asked_for_clears_the_wait() {
+        assert!(!Asked::Page.started_by("data:text/html,vacía"), "the empty page starting late is not the note");
+        assert!(Asked::Page.started_by("http://127.0.0.1:1/k/nota.md"));
+        assert!(Asked::Html.started_by("data:text/html,vacía"));
+        assert!(Asked::Html.started_by("about:blank"));
+        assert!(!Asked::Html.started_by("http://127.0.0.1:1/k/nota.md"));
+        assert!(Asked::Any.started_by("http://example.com/"));
+    }
 
     #[test]
     fn only_the_string_visor_loads_is_its_empty_page() {
