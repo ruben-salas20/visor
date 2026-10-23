@@ -7,6 +7,8 @@ rust-version = "1.89"
 description = "Visor de bóvedas de HTML y Markdown para estudiar con IA"
 license = "MIT"
 publish = false
+# Two binaries: visor, and visorw (src/bin/visorw.rs), which only Windows ships.
+default-run = "visor"
 
 [dependencies]
 dirs = "7.0.0"

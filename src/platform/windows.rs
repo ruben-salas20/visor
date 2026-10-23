@@ -187,6 +187,13 @@ pub fn detach(command: &mut Command) -> &mut Command {
     command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
 }
 
+/// For a console helper (curl). The app runs with no console (`detach`,
+/// visorw.exe), and Windows would open a console window for each one.
+pub fn no_console(command: &mut Command) -> &mut Command {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW)
+}
+
 /// Windows has no exec: start the new process and exit. Returns only if the start fails.
 /// `VISOR_RESTART` tells the new process to wait for this one to free the pipe.
 pub fn restart(command: &mut Command) -> io::Error {

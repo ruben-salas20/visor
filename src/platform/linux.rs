@@ -88,6 +88,11 @@ pub fn detach(command: &mut Command) -> &mut Command {
     command.process_group(0)
 }
 
+/// Only Windows opens a console window for a helper program.
+pub fn no_console(command: &mut Command) -> &mut Command {
+    command
+}
+
 /// Replaces this process with `command`. Returns only if that fails.
 pub fn restart(command: &mut Command) -> io::Error {
     command.exec()

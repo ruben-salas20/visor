@@ -58,10 +58,12 @@ jobs:
       - name: Compilar (release)
         run: |
           cargo build --release
-          "Binario: {0:N0} bytes" -f (Get-Item target\release\visor.exe).Length | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          foreach ($b in 'visor', 'visorw') {
+            "Binario ${b}.exe: {0:N0} bytes" -f (Get-Item "target\release\$b.exe").Length | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
 
       - name: Prueba de humo
-        run: ./tools/windows/smoke.ps1 -Exe target\release\visor.exe -Salida "$env:RUNNER_TEMP\humo"
+        run: ./tools/windows/smoke.ps1 -Exe target\release\visor.exe -ExeW target\release\visorw.exe -Salida "$env:RUNNER_TEMP\humo"
 
       - name: Resumen
         if: always()
