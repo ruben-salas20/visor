@@ -79,20 +79,46 @@ fn com_error(e: windows_core::Error) -> wry::Error {
 /// `NavigationStarting` gave, set at its `ContentLoading`, matched by
 /// navigation id. Never `Source()`, which follows `history.pushState`. A
 /// document whose start was not seen commits nothing, so nothing trusts it.
-/// `committed` hears each commit.
-pub(in crate::ui) fn track_commits(com: &ICoreWebView2, document: Document, committed: impl Fn(&str) + 'static) -> windows_core::Result<()> {
+/// `committed` hears each commit, and `finished` the end of the last
+/// navigation started: an older one that ends late (the empty page, while a
+/// note already loads) is not the page an agent waits for.
+pub(in crate::ui) fn track_commits(
+    com: &ICoreWebView2,
+    document: Document,
+    committed: impl Fn(&str) + 'static,
+    finished: impl Fn() + 'static,
+) -> windows_core::Result<()> {
     let pending: Rc<RefCell<HashMap<u64, String>>> = Rc::default();
-    let starts = pending.clone();
+    let latest = Rc::new(Cell::new(0u64));
+    let (starts, started) = (pending.clone(), latest.clone());
     let on_start = NavigationStartingEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
-        let (mut uri, mut id) = (PWSTR::null(), 0u64);
+        let (mut uri, mut id, mut cancelled) = (PWSTR::null(), 0u64, BOOL(0));
         // SAFETY: COM getters on the live event arguments; take_pwstr frees the text.
         unsafe {
             args.Uri(&mut uri)?;
             args.NavigationId(&mut id)?;
+            args.Cancel(&mut cancelled)?;
         }
+        let uri = take_pwstr(uri);
+        // Refused by the navigation handler, which runs first: it never loads.
+        if cancelled.as_bool() {
+            return Ok(());
+        }
+        started.set(id);
         // A redirect keeps its id and overwrites its address.
-        starts.borrow_mut().insert(id, take_pwstr(uri));
+        starts.borrow_mut().insert(id, uri);
+        Ok(())
+    }));
+    let on_done = NavigationCompletedEventHandler::create(Box::new(move |_, args| {
+        let mut id = 0u64;
+        if let Some(args) = args {
+            // SAFETY: a COM getter on the live event arguments.
+            unsafe { args.NavigationId(&mut id)? };
+        }
+        if id == latest.get() {
+            finished();
+        }
         Ok(())
     }));
     let on_loading = ContentLoadingEventHandler::create(Box::new(move |_, args| {
@@ -114,6 +140,7 @@ pub(in crate::ui) fn track_commits(com: &ICoreWebView2, document: Document, comm
     unsafe {
         com.add_NavigationStarting(&on_start, &mut token)?;
         com.add_ContentLoading(&on_loading, &mut token)?;
+        com.add_NavigationCompleted(&on_done, &mut token)?;
     }
     Ok(())
 }
@@ -184,12 +211,9 @@ pub fn build_page(
 
     // Followed here, not by the page script, so websites are tracked too.
     let p = proxy.clone();
-    track_commits(&com, document.clone(), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() })).map_err(com_error)?;
-    let p = proxy.clone();
-    let on_done = NavigationCompletedEventHandler::create(Box::new(move |_, _| {
-        p.send(UserEvent::PageLoaded(id));
-        Ok(())
-    }));
+    let done = proxy.clone();
+    track_commits(&com, document.clone(), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
+        .map_err(com_error)?;
     let p = proxy.clone();
     let on_focus = FocusChangedEventHandler::create(Box::new(move |_, _| {
         p.send(UserEvent::Focused(id));
@@ -230,7 +254,6 @@ pub fn build_page(
     let mut token = 0i64;
     // SAFETY: registers handlers on a live view; they live as long as it does.
     unsafe {
-        com.add_NavigationCompleted(&on_done, &mut token).map_err(com_error)?;
         com.add_ContainsFullScreenElementChanged(&on_fullscreen, &mut token).map_err(com_error)?;
         controller.add_GotFocus(&on_focus, &mut token).map_err(com_error)?;
         if let Ok(com2) = com.cast::<ICoreWebView2_2>() {

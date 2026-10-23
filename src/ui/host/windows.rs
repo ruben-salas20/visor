@@ -104,7 +104,7 @@ impl Host {
             .build_as_child(window)?;
         shell.catch_shortcuts(&frame.controller());
         let com = frame.webview();
-        track_commits(&com, document, |_| {}).map_err(|e| wry::Error::Io(std::io::Error::other(e.to_string())))?;
+        track_commits(&com, document, |_| {}, || {}).map_err(|e| wry::Error::Io(std::io::Error::other(e.to_string())))?;
         // The frame has no state of its own: a new process asks for it again.
         let reload = ProcessFailedEventHandler::create(Box::new(|sender, _| {
             if let Some(view) = sender {

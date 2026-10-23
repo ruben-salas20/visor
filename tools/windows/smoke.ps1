@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Force -Path $config | Out-Null
 Set-Content -Path (Join-Path $config 'config.json') -Value '{"auto_update": false}' -Encoding utf8
 
 Set-Content -Path (Join-Path $boveda 'nota.md') -Encoding utf8 -Value "# Nota de prueba`n`nTexto de la nota."
-Set-Content -Path (Join-Path $boveda 'pagina.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Página</title><body style="background:#2a6" onclick="this.dataset.clics = (+this.dataset.clics || 0) + 1"><h1>Página HTML</h1></body></html>'
+Set-Content -Path (Join-Path $boveda 'pagina.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Página</title><body style="background:#2a6"><h1>Página HTML</h1><script>addEventListener("click", () => { const d = document.documentElement.dataset; d.clics = (+d.clics || 0) + 1; });</script></body></html>'
 # Una página de la bóveda que intenta lo que no le toca: mensajes sin clave,
 # órdenes del marco por el canal de las páginas y una clave inventada.
 Set-Content -Path (Join-Path $boveda 'hostil.html') -Encoding utf8 -Value @'
@@ -146,7 +146,7 @@ try {
     # Entrada real: la zona del marco deja pasar el clic a la página, y el marco
     # recibe los suyos; los atajos llegan desde la página con el foco.
     Clic $proceso 600 400
-    $r = Visor @('eval', 'document.body.dataset.clics || "0"')
+    $r = Visor @('eval', 'document.documentElement.dataset.clics || "0"')
     Comprobar 'un clic en el hueco llega a la página' ($r.ok -eq $true -and $r.value -eq '1') $r
     $antes = Pestanas (Visor @('status'))
     Add-Type -AssemblyName System.Windows.Forms
