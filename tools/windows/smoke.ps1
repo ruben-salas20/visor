@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Force -Path $config | Out-Null
 Set-Content -Path (Join-Path $config 'config.json') -Value '{"auto_update": false}' -Encoding utf8
 
 Set-Content -Path (Join-Path $boveda 'nota.md') -Encoding utf8 -Value "# Nota de prueba`n`nTexto de la nota."
-Set-Content -Path (Join-Path $boveda 'pagina.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Página</title><body style="background:#2a6"><h1>Página HTML</h1></body></html>'
+Set-Content -Path (Join-Path $boveda 'pagina.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Página</title><body style="background:#2a6" onclick="this.dataset.clics = (+this.dataset.clics || 0) + 1"><h1>Página HTML</h1></body></html>'
 # Una página de la bóveda que intenta lo que no le toca: mensajes sin clave,
 # órdenes del marco por el canal de las páginas y una clave inventada.
 Set-Content -Path (Join-Path $boveda 'hostil.html') -Encoding utf8 -Value @'
@@ -72,7 +72,7 @@ function Visor([string[]] $argumentos) {
 
 function Pestanas($estado) {
     $n = 0
-    foreach ($lado in @($estado.sides)) { $n += @($lado.list).Count }
+    foreach ($lado in @($estado.sides.list)) { $n += @($lado.tabs).Count }
     return $n
 }
 
@@ -84,6 +84,32 @@ function Captura([string] $ruta) {
     $g.CopyFromScreen($pantalla.Location, [System.Drawing.Point]::Empty, $pantalla.Size)
     $imagen.Save($ruta, [System.Drawing.Imaging.ImageFormat]::Png)
     $g.Dispose(); $imagen.Dispose()
+}
+
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class Raton {
+    public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+}
+'@
+
+# Un clic real en un punto de la ventana, relativo a su esquina (escala 1 en el ejecutor).
+function Clic($proceso, [int] $x, [int] $y) {
+    $proceso.Refresh()
+    $h = $proceso.MainWindowHandle
+    $r = New-Object Raton+RECT
+    $null = [Raton]::GetWindowRect($h, [ref] $r)
+    $null = [Raton]::SetForegroundWindow($h)
+    $null = [Raton]::SetCursorPos($r.Left + $x, $r.Top + $y)
+    Start-Sleep -Milliseconds 200
+    [Raton]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero)
+    [Raton]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 700
 }
 
 $servidor = $null
@@ -117,7 +143,24 @@ try {
     Start-Sleep -Seconds 1
     Captura (Join-Path $Salida 'ventana-nota-y-pagina.png')
 
+    # Entrada real: la zona del marco deja pasar el clic a la página, y el marco
+    # recibe los suyos; los atajos llegan desde la página con el foco.
+    Clic $proceso 600 400
+    $r = Visor @('eval', 'document.body.dataset.clics || "0"')
+    Comprobar 'un clic en el hueco llega a la página' ($r.ok -eq $true -and $r.value -eq '1') $r
+    $antes = Pestanas (Visor @('status'))
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.SendKeys]::SendWait('^t')
+    Start-Sleep -Seconds 1
+    $r = Visor @('status')
+    Comprobar 'Ctrl+T abre una pestaña' ((Pestanas $r) -eq $antes + 1) @{ antes = $antes; despues = (Pestanas $r) }
+    Clic $proceso 71 131
+    $r = Visor @('status')
+    Comprobar 'un clic en el panel abre la nota' ("$($r.file)" -like '*nota.md') $r
+
     # 3. Página hostil de la bóveda.
+    # cargo test deja eventos en el registro de esta cuenta: cuentan solo los nuevos.
+    $eventosAntes = (Visor @('status')).last_event_id
     $antes = Pestanas (Visor @('status'))
     $r = Visor @('open', (Join-Path $boveda 'hostil.html'), '--tab')
     Comprobar 'abre la página hostil' ($r.ok -eq $true) $r
@@ -146,8 +189,10 @@ try {
     $creadas = @(Get-ChildItem $boveda -Filter '*.md' | Where-Object Name -ne 'nota.md' | ForEach-Object Name)
     Comprobar 'la web no crea notas' ($creadas.Count -eq 0) $creadas
     Comprobar 'la web no escribe la nota' ((Get-Content -Raw (Join-Path $boveda 'nota.md')) -eq $notaAntes) $null
-    $eventos = Visor @('events')
+    $eventos = Visor @('events', '--after', "$eventosAntes")
     Comprobar 'ni la hostil ni la web dejan eventos' ($eventos.ok -eq $true -and @($eventos.events).Count -eq 0) $eventos
+    $r = Visor @('open', (Join-Path $boveda 'nota.md'))
+    Comprobar 'una página de la bóveda carga sin errores de visor' ($r.ok -eq $true -and @($r.problems).Count -eq 0) $r
     Captura (Join-Path $Salida 'ventana-web.png')
 
     # 5. Cierre limpio: la ventana recibe WM_CLOSE, como al pulsar la X.

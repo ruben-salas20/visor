@@ -61,6 +61,16 @@ pub(in crate::ui) fn main_frame_only(js: &str) -> String {
     format!("if (window.top === window) {{\n{js}\n}}")
 }
 
+/// `js` once the document has its root element. WebView2 runs document
+/// scripts before there is one, and WebKit after; the annotations observe it.
+/// The root is inserted before the parser reaches any script of the page, and
+/// the observer runs at the checkpoint before that script, so `js` still runs first.
+fn once_rooted(js: &str) -> String {
+    format!(
+        "(() => {{\nconst run = () => {{\n{js}\n}};\nif (document.documentElement) {{ run(); return; }}\nnew MutationObserver((_, o) => {{ if (document.documentElement) {{ o.disconnect(); run(); }} }}).observe(document, {{ childList: true }});\n}})();"
+    )
+}
+
 fn com_error(e: windows_core::Error) -> wry::Error {
     wry::Error::Io(std::io::Error::other(e.to_string()))
 }
@@ -143,7 +153,7 @@ pub fn build_page(
         .with_visible(false)
         .with_bounds(wry::Rect { position: PhysicalPosition::new(0, 0).into(), size: PhysicalSize::new(0, 0).into() })
         .with_initialization_script(main_frame_only(&bridge))
-        .with_initialization_script(main_frame_only(&annot))
+        .with_initialization_script(main_frame_only(&once_rooted(&annot)))
         .with_ipc_handler(move |request: Request<String>| {
             let url = sender.borrow().clone();
             if let Some(body) = accept(request.body(), &key, &url) {
