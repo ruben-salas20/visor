@@ -250,9 +250,10 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
   - **Subagentes de la fase 1:** Opus para A y B, Haiku para C, D y E; todos con encargo acotado.
   - **Diseño del marco: D** (`spikes/maquetas-marco/`, `?v=d`). Ajustes sin la versión; botón de atajos (Ctrl+K) en la barra de estado.
 
+- **2026-10-23:** en Windows, dos binarios, como `python.exe` y `pythonw.exe`: `visor.exe` sigue siendo de consola (CLI y MCP) y `visorw.exe`, sin consola, es el que abren el Explorador y los accesos directos. Rama `port-console`.
+
 ## Decisiones pendientes del usuario
 
-- **Consola de `visor.exe` en Windows:** dos binarios, o `windows_subsystem = "windows"` con `AttachConsole` para la CLI.
 - **CSP para el origen del marco:** propuesta sin decidir.
 
 ## Registro de descartes
