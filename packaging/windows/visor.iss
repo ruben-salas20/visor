@@ -60,10 +60,10 @@ Root: HKA; Subkey: "Software\Classes\visor.md"; ValueType: string; ValueName: ""
 Root: HKA; Subkey: "Software\Classes\visor.md\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\visorw.exe"" open --loose ""%1"""
 Root: HKA; Subkey: "Software\Classes\visor.html"; ValueType: string; ValueName: ""; ValueData: "Página HTML"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\visor.html\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\visorw.exe"" open --loose ""%1"""
-Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: none; ValueName: "visor.md"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: none; ValueName: "visor.md"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\.html\OpenWithProgids"; ValueType: none; ValueName: "visor.html"; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\.htm\OpenWithProgids"; ValueType: none; ValueName: "visor.html"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "visor.md"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "visor.md"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.html\OpenWithProgids"; ValueType: string; ValueName: "visor.html"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.htm\OpenWithProgids"; ValueType: string; ValueName: "visor.html"; ValueData: ""; Flags: uninsdeletevalue
 ; The name «Abrir con» shows, instead of «visorw.exe».
 Root: HKA; Subkey: "Software\Classes\Applications\visorw.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "visor"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Applications\visorw.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\visorw.exe"" open --loose ""%1"""

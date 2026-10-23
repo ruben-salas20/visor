@@ -218,14 +218,14 @@ jobs:
       - name: Inno Setup
         run: |
           $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-          # x64compatible in visor.iss needs Inno Setup 6.3 or later.
-          if (-not $iscc -or [version](Get-Item $iscc).VersionInfo.ProductVersion -lt [version]'6.3') {
-            Write-Host "Inno Setup ausente o antiguo ($iscc); instalando con choco."
+          if (-not $iscc) {
+            Write-Host 'Inno Setup no está en el ejecutor; instalando con choco.'
             choco install innosetup -y --no-progress
             $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
           if (-not $iscc) { throw 'No se encuentra ISCC.exe' }
-          "Inno Setup: {0}" -f (Get-Item $iscc).VersionInfo.ProductVersion | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          # ISCC.exe reports no file version; its banner does. visor.iss needs 6.3 or later (x64compatible).
+          & $iscc /? 2>&1 | Select-Object -First 1 | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Bootstrapper de WebView2
