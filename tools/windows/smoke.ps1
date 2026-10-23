@@ -281,6 +281,151 @@ try {
         $vuelve = (Test-Path (Join-Path $rota 'visor.exe')) -and -not (Test-Path (Join-Path $rota 'visor.exe.old'))
         Comprobar 'visorw.exe devuelve visor.exe.old a su sitio' $vuelve $dato
     }
+
+    # 8. La página vacía de visor, y solo ella, pide una carpeta. visor se abre
+    # otra vez sin bóveda, para que la pestaña muestre el botón «Abrir carpeta…».
+    # El diálogo de carpetas (clase #32770, del proceso de visor) se cierra con WM_CLOSE.
+    Add-Type @'
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public class Ventana { public IntPtr H; public string Clase; public string Titulo; public uint Pid; }
+public static class Ventanas {
+    delegate bool Visita(IntPtr h, IntPtr p);
+    [DllImport("user32.dll")] static extern bool EnumWindows(Visita v, IntPtr p);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    public static List<Ventana> Visibles() {
+        var lista = new List<Ventana>();
+        EnumWindows((h, p) => {
+            if (!IsWindowVisible(h)) return true;
+            uint pid; GetWindowThreadProcessId(h, out pid);
+            var c = new StringBuilder(256); GetClassName(h, c, 256);
+            var t = new StringBuilder(256); GetWindowText(h, t, 256);
+            lista.Add(new Ventana { H = h, Clase = c.ToString(), Titulo = t.ToString(), Pid = pid });
+            return true;
+        }, IntPtr.Zero);
+        return lista;
+    }
+}
+'@
+    function Dialogos([int] $id) { return @([Ventanas]::Visibles() | Where-Object { $_.Clase -eq '#32770' -and $_.Pid -eq $id }) }
+    function Cerrar($ventanas) { foreach ($v in $ventanas) { $null = [Ventanas]::PostMessage($v.H, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) } }
+    function Esperar([scriptblock] $condicion, [int] $segundos) {
+        $limite = (Get-Date).AddSeconds($segundos)
+        while ((Get-Date) -lt $limite) { if (& $condicion) { return $true }; Start-Sleep -Milliseconds 300 }
+        return [bool](& $condicion)
+    }
+
+    Set-Content -Path (Join-Path $config 'config.json') -Value '{"auto_update": false}' -Encoding utf8
+    $proceso = Start-Process -FilePath $Exe -PassThru -RedirectStandardOutput (Join-Path $Salida 'visor-2.stdout.txt') -RedirectStandardError (Join-Path $Salida 'visor-2.stderr.txt')
+    $responde = Esperar { (Visor @('status')).ok -eq $true } 60
+    Comprobar 'visor responde otra vez, sin bóveda' $responde $null
+    if (-not $responde) { throw 'visor no respondió al abrirlo sin bóveda' }
+    Start-Sleep -Seconds 3
+    Captura (Join-Path $Salida 'pagina-vacia.png')
+    # Un clic en el centro del hueco: da el foco a la página, o pulsa ya el botón, que está en el centro.
+    Clic $proceso 600 400
+    $via = 'clic'
+    if (-not (Esperar { (Dialogos $proceso.Id).Count -gt 0 } 3)) {
+        # El único elemento con foco de la página es el botón.
+        $via = 'teclado'
+        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+        Start-Sleep -Milliseconds 500
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $null = Esperar { (Dialogos $proceso.Id).Count -gt 0 } 5
+    }
+    $dialogos = Dialogos $proceso.Id
+    Captura (Join-Path $Salida 'dialogo-carpeta.png')
+    Comprobar 'el botón de la página vacía abre el diálogo de carpetas' ($dialogos.Count -ge 1) @{ via = $via; titulos = @($dialogos | ForEach-Object Titulo) }
+    Cerrar $dialogos
+    Comprobar 'el diálogo de carpetas se cierra' (Esperar { (Dialogos $proceso.Id).Count -eq 0 } 10) $null
+
+    # Una web pide una carpeta sin clave, con __visorPost si lo tuviera, y desde un data: que imita la página vacía.
+    Set-Content -Path (Join-Path $web 'pide.html') -Encoding utf8 -Value @'
+<!doctype html><html lang="es"><meta charset="utf-8"><title>pide</title><body><h1>Pide</h1><script>
+const raw = (m) => { try { (window.chrome && window.chrome.webview ? window.chrome.webview : window.ipc).postMessage(JSON.stringify(m)); } catch (e) {} };
+raw({ type: 'pick_vault' });
+if (window.__visorPost) window.__visorPost({ type: 'pick_vault' });
+setTimeout(() => { location.href = 'data:text/html,<button>x</button><script>window.chrome.webview.postMessage(JSON.stringify({type:"pick_vault"}))<\/script>'; }, 300);
+</script></body></html>
+'@
+    $r = Visor @('open', 'http://127.0.0.1:8765/pide.html', '--tab')
+    Comprobar 'abre la web que pide una carpeta' ($r.ok -eq $true) $r
+    $abrio = Esperar { (Dialogos $proceso.Id).Count -gt 0 } 4
+    $dialogos = Dialogos $proceso.Id
+    Comprobar 'una web no abre el diálogo de carpetas' (-not $abrio) @{ titulos = @($dialogos | ForEach-Object Titulo) }
+    Cerrar $dialogos
+
+    # 9. Los atajos propios de WebView2 están apagados; los de edición, la búsqueda y el zoom siguen.
+    Set-Content -Path (Join-Path $boveda 'campo.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>campo</title><body><input id="a" value="copiado"> <input id="b"><script>addEventListener("beforeprint", () => { document.documentElement.dataset.impreso = "1"; });</script></body></html>'
+    $r = Visor @('open', $boveda)
+    Comprobar 'abre la bóveda en la ventana nueva' ($r.ok -eq $true) $r
+    $r = Visor @('open', (Join-Path $boveda 'campo.html'))
+    Comprobar 'abre la página con campos' ($r.ok -eq $true -and $r.loaded -eq $true) $r
+    Clic $proceso 600 400
+    [System.Windows.Forms.SendKeys]::SendWait('^p')
+    Start-Sleep -Seconds 2
+    $r = Visor @('eval', 'document.documentElement.dataset.impreso || "0"')
+    Comprobar 'Ctrl+P no abre la impresión' ($r.ok -eq $true -and $r.value -eq '0') $r
+    if ($r.value -ne '0') { [System.Windows.Forms.SendKeys]::SendWait('{ESC}') }
+    [System.Windows.Forms.SendKeys]::SendWait('^+i')
+    Start-Sleep -Seconds 3
+    $herramientas = @([Ventanas]::Visibles() | Where-Object { $_.Titulo -like 'DevTools*' })
+    Comprobar 'Ctrl+Shift+I no abre las herramientas de desarrollo' ($herramientas.Count -eq 0) @($herramientas | ForEach-Object Titulo)
+    Cerrar $herramientas
+    $r = Visor @('eval', '(() => { document.getElementById("a").focus(); return document.activeElement.id; })()')
+    Comprobar 'el campo de la página tiene el foco' ($r.ok -eq $true -and $r.value -eq 'a') $r
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^c')
+    Start-Sleep -Milliseconds 500
+    $null = Visor @('eval', '(() => { document.getElementById("b").focus(); return document.activeElement.id; })()')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 500
+    $r = Visor @('eval', 'document.getElementById("b").value')
+    Comprobar 'Ctrl+A, Ctrl+C y Ctrl+V funcionan en un campo de la página' ($r.ok -eq $true -and $r.value -eq 'copiado') $r
+    $antes = (Visor @('eval', 'String(devicePixelRatio)')).value
+    [System.Windows.Forms.SendKeys]::SendWait('^{ADD}')
+    Start-Sleep -Seconds 1
+    $despues = (Visor @('eval', 'String(devicePixelRatio)')).value
+    Comprobar 'Ctrl+más amplía la página' ([double]$despues -gt [double]$antes) @{ antes = $antes; despues = $despues }
+    [System.Windows.Forms.SendKeys]::SendWait('^0')
+    Start-Sleep -Milliseconds 500
+
+    # 10. Los botones laterales del ratón van atrás y adelante como visor, una sola vez.
+    Set-Content -Path (Join-Path $boveda 'tercera.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Tercera</title><body><h1>Tercera</h1></body></html>'
+    foreach ($archivo in 'nota.md', 'pagina.html', 'tercera.html') {
+        $r = Visor @('open', (Join-Path $boveda $archivo))
+    }
+    Comprobar 'la pestaña llega a la tercera página' ($r.ok -eq $true -and "$($r.file)" -like '*tercera.html') $r
+    function Lateral($proceso, [int] $x, [int] $y, [uint32] $boton) {
+        $proceso.Refresh()
+        $h = $proceso.MainWindowHandle
+        $rect = New-Object Raton+RECT
+        $null = [Raton]::GetWindowRect($h, [ref] $rect)
+        $null = [Raton]::SetForegroundWindow($h)
+        $null = [Raton]::SetCursorPos($rect.Left + $x, $rect.Top + $y)
+        Start-Sleep -Milliseconds 200
+        # MOUSEEVENTF_XDOWN y XUP; $boton: 1 atrás (XBUTTON1), 2 adelante (XBUTTON2).
+        [Raton]::mouse_event(0x0080, 0, 0, $boton, [UIntPtr]::Zero)
+        [Raton]::mouse_event(0x0100, 0, 0, $boton, [UIntPtr]::Zero)
+        Start-Sleep -Seconds 2
+    }
+    Lateral $proceso 600 400 1
+    $r = Visor @('status')
+    Comprobar 'el botón lateral de atrás vuelve una sola página' ("$($r.file)" -like '*pagina.html') @{ file = $r.file }
+    Lateral $proceso 600 400 2
+    $r = Visor @('status')
+    Comprobar 'el botón lateral de adelante avanza una sola página' ("$($r.file)" -like '*tercera.html') @{ file = $r.file }
+    Captura (Join-Path $Salida 'botones-laterales.png')
+
+    $null = $proceso.CloseMainWindow()
+    $cerro = $proceso.WaitForExit(20000)
+    Comprobar 'la segunda ventana cierra limpia' ($cerro -and $proceso.ExitCode -eq 0) @{ termino = $cerro; codigo = $(if ($cerro) { $proceso.ExitCode } else { $null }) }
 }
 catch {
     Comprobar 'sin excepciones' $false "$_"
