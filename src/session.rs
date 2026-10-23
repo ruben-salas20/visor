@@ -94,6 +94,9 @@ pub struct Shared {
     pub restoring: bool,
     pub events: Vec<Value>,
     pub next_id: u64,
+    /// The file events are appended to. None in a state made by hand, as in
+    /// the tests, which must not write into the user's log.
+    pub log: Option<PathBuf>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
@@ -128,7 +131,7 @@ impl Shared {
             let text: String = events.iter().map(|e| format!("{e}\n")).collect();
             let _ = vault::write_atomic(path, text);
         }
-        Shared { events: events.into(), next_id: last_id + 1, ..Default::default() }
+        Shared { events: events.into(), next_id: last_id + 1, log: Some(path.to_path_buf()), ..Default::default() }
     }
 
     pub fn window(&self, window: WinId) -> Option<&WindowShared> {
@@ -248,8 +251,10 @@ pub fn push_event(shared: &mut Shared, mut event: Value, window: Option<WinId>) 
     if shared.events.len() >= MAX_EVENTS {
         shared.events.remove(0);
     }
-    shared.events.push(event.clone());
-    append_event(&event);
+    if let Some(log) = &shared.log {
+        append_event(log, &event);
+    }
+    shared.events.push(event);
 }
 
 /// Adds a line to a view's console, dropping the oldest past `MAX_CONSOLE`.
@@ -265,8 +270,7 @@ pub fn push_console(shared: &mut Shared, window: WinId, view: u64, level: &str, 
     page.console.push(json!({ "time": now(), "level": level, "text": text }));
 }
 
-fn append_event(event: &Value) {
-    let path = paths::events();
+fn append_event(path: &Path, event: &Value) {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
