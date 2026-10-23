@@ -1,12 +1,13 @@
 //! The whole process: the agent socket, the local web server, the one event
 //! loop, the windows and the state they share (`Common`). Each window has an
 //! `App` (see `app.rs`); the loop hands each event to the `App` named by
-//! `Routed::window`. Window 0 is the process itself.
+//! `Routed::window`. Window 0 is the process itself. The loop and the windows
+//! are the system's (`shell.rs`); `Visor` is the `shell::Handler` they call.
 //!
 //! The `RefCell` of `Common` follows one rule. A borrow must not span a call to
 //! an `App` method: that method may borrow `common` again, and the second
-//! borrow panics with "already borrowed". A borrow may span a GTK call only when
-//! the callee cannot reach `common`, as in `App::create_view`. When in doubt,
+//! borrow panics with "already borrowed". A borrow may span a call into the
+//! window library only when the callee cannot reach `common`, as in `App::create_view`. When in doubt,
 //! copy the value into a local and end the borrow before the call.
 
 use crate::agent::command::{Command, Request};
@@ -16,6 +17,7 @@ use crate::paths;
 use crate::session::{AgentRequest, LOADED, Shared, SharedRef};
 use crate::trf;
 use crate::ui::action::{self, Proxy, Routed, UserEvent};
+use crate::ui::shell::{self, Signal, Target};
 use crate::ui::app::App;
 use crate::ui::common::{Common, CommonRef, Settings};
 use crate::ui::theme::{self, Theme};
@@ -23,15 +25,11 @@ use crate::ui::watch::watch;
 use crate::ui::windows::{Closed, WinId, Windows};
 use crate::vault;
 use crate::vault::config::{Config, WindowState, Workspace};
-use gtk::prelude::CssProviderExt;
-use notify::RecursiveMode;
+use notify::{RecommendedWatcher, RecursiveMode};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopWindowTarget};
-use wry::WebContext;
 
 pub fn launch() -> i32 {
     // Started for a page outside every vault: that page alone, without the
@@ -46,11 +44,7 @@ pub fn launch() -> i32 {
         }
     };
 
-    let event_loop = EventLoopBuilder::<Routed>::with_user_event().build();
-    let loop_proxy = event_loop.create_proxy();
-    let send: action::Send = Arc::new(move |routed| {
-        let _ = loop_proxy.send_event(routed);
-    });
+    let (event_loop, send) = shell::event_loop();
     let process = Proxy::new(0, send.clone());
     let shared: SharedRef = Arc::new(Mutex::new(Shared::with_saved_events()));
     let agent_proxy = process.clone();
@@ -73,100 +67,96 @@ pub fn launch() -> i32 {
     std::thread::spawn(move || {
         p.send(UserEvent::MonoFont(theme::monospace_font()));
     });
-    // One context for every view of every window: one network process, and a
-    // single writer for cookies and storage, which two contexts on one folder
-    // would fight over.
-    // WebKitGTK's defaults are decisions here, measured, so this code sets
-    // neither: DMA-BUF stays on (off starts ~0.5 s sooner, but Three.js drops
-    // from 60 to 26 fps), and the cache stays WebBrowser-sized without a limit
-    // (DocumentViewer frees ~700 MB after heavy sites, but CDN libraries then
-    // reload slower and fail offline; the disk cache does not slow startup).
-    let context = WebContext::new(None);
-    // Once for the screen, so every window takes the same styles. GTK only
-    // draws the window now: the frame and the pages cover it.
-    let styles = gtk::CssProvider::new();
-    // GTK3 repaints the window background under the pages on every frame of
-    // an animation; they cover it, so it would cost ~2% CPU for nothing.
-    let _ = styles.load_from_data(b"window.background { background: none; }");
-    if let Some(screen) = gtk::gdk::Screen::default() {
-        gtk::StyleContext::add_provider_for_screen(&screen, &styles, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
-    }
+    let context = shell::web_context();
+    shell::prepare();
     let auto_update = config.auto_update != Some(false);
     let (states, focus) = if loose { (vec![WindowState::default()], 0) } else { config.restore_windows() };
     let common: CommonRef = Rc::new(RefCell::new(Common::new(config, theme, context, port, frame_base, process.clone())));
 
-    let mut visor = Visor {
+    let visor = Visor {
         common,
         shared,
         windows: Windows::new(),
         apps: HashMap::new(),
-        by_tao: HashMap::new(),
+        by_system: HashMap::new(),
         send,
         claim: Some(claim),
         loose,
+        start: Some(Start { states, focus, auto_update, process }),
+        _theme_watcher: None,
     };
-    visor.shared.lock().unwrap().restoring = true;
-    for state in states {
-        let workspace = Some(state.workspace.clone()).filter(|w| !w.panes.is_empty());
-        visor.open_window(&event_loop, state, workspace, loose, None);
-    }
-    if let Some(&w) = visor.windows.ids().get(focus) {
-        visor.focus(w);
-        visor.apps[&w].present(None);
-    }
-    visor.shared.lock().unwrap().restoring = false;
-    LOADED.notify_all();
-    let _theme_watcher = theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, process, |_| UserEvent::ThemeChanged));
-    // Outside the check: a leftover from an update must go even when updates are off.
-    crate::update::remove_leftover();
-    // Once the windows and their first pages exist, so the check never delays them.
-    if auto_update {
-        crate::update::spawn();
-    }
-    // Lets the system offer visor for .md and .html; a write only when the binary moved.
-    // A package brings its own entry.
-    if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe())
-        && !crate::package::managed(&exe)
-    {
-        std::thread::spawn(move || {
-            let _ = crate::desktop::write_if_changed(&icon, crate::desktop::ICON);
-            let _ = crate::desktop::refresh(&exe, &file);
-        });
+    shell::run(event_loop, visor)
+}
+
+/// What `Visor::start` opens and starts once the loop runs.
+struct Start {
+    states: Vec<WindowState>,
+    focus: usize,
+    auto_update: bool,
+    process: Proxy,
+}
+
+impl shell::Handler for Visor {
+    fn start(&mut self, target: &Target) {
+        let Some(Start { states, focus, auto_update, process }) = self.start.take() else { return };
+        let loose = self.loose;
+        self.shared.lock().unwrap().restoring = true;
+        for state in states {
+            let workspace = Some(state.workspace.clone()).filter(|w| !w.panes.is_empty());
+            self.open_window(target, state, workspace, loose, None);
+        }
+        if let Some(&w) = self.windows.ids().get(focus) {
+            self.focus(w);
+            self.apps[&w].present(None);
+        }
+        self.shared.lock().unwrap().restoring = false;
+        LOADED.notify_all();
+        self._theme_watcher = theme::dir().and_then(|d| watch(&d, RecursiveMode::Recursive, 300, process, |_| UserEvent::ThemeChanged));
+        // Outside the check: a leftover from an update must go even when updates are off.
+        crate::update::remove_leftover();
+        // Once the windows and their first pages exist, so the check never delays them.
+        if auto_update {
+            crate::update::spawn();
+        }
+        // Lets the system offer visor for .md and .html; a write only when the binary moved.
+        // A package brings its own entry.
+        if let (Some(file), Some(icon), Ok(exe)) = (paths::desktop_entry(), paths::desktop_icon(), std::env::current_exe())
+            && !crate::package::managed(&exe)
+        {
+            std::thread::spawn(move || {
+                let _ = crate::desktop::write_if_changed(&icon, crate::desktop::ICON);
+                let _ = crate::desktop::refresh(&exe, &file);
+            });
+        }
     }
 
-    event_loop.run(move |event, target, flow| {
-        let _keep = &_theme_watcher;
-        *flow = ControlFlow::Wait;
-        let exit = match event {
-            Event::WindowEvent { window_id, event, .. } => {
-                let Some(&w) = visor.by_tao.get(&window_id) else { return };
-                match event {
-                    WindowEvent::CloseRequested => visor.close(w),
-                    WindowEvent::Focused(true) => {
-                        visor.focus(w);
-                        false
-                    }
-                    WindowEvent::Resized(_) => {
-                        if let Some(app) = visor.apps.get_mut(&w) {
-                            app.resized();
-                        }
-                        visor.window_changed(w);
-                        false
-                    }
-                    _ => false,
-                }
-            }
-            Event::UserEvent(Routed { window: 0, event }) => visor.process_event(event, target),
-            Event::UserEvent(Routed { window, event }) => {
-                visor.window_event(window, event);
+    fn window(&mut self, id: shell::WindowId, signal: Signal) -> bool {
+        let Some(&w) = self.by_system.get(&id) else { return false };
+        match signal {
+            Signal::Close => self.close(w),
+            Signal::Focused => {
+                self.focus(w);
                 false
             }
-            _ => false,
-        };
-        if exit {
-            *flow = ControlFlow::Exit;
+            Signal::Resized => {
+                if let Some(app) = self.apps.get_mut(&w) {
+                    app.resized();
+                }
+                self.window_changed(w);
+                false
+            }
         }
-    })
+    }
+
+    fn user(&mut self, target: &Target, routed: Routed) -> bool {
+        match routed {
+            Routed { window: 0, event } => self.process_event(event, target),
+            Routed { window, event } => {
+                self.window_event(window, event);
+                false
+            }
+        }
+    }
 }
 
 /// A second `visor` while one runs: asks it for another window.
@@ -189,17 +179,20 @@ struct Visor {
     shared: SharedRef,
     windows: Windows,
     apps: HashMap<WinId, App>,
-    by_tao: HashMap<tao::window::WindowId, WinId>,
+    by_system: HashMap<shell::WindowId, WinId>,
     send: action::Send,
     claim: Option<Claim>,
     /// Started for a loose page; see `save_windows`.
     loose: bool,
+    /// Until the loop starts.
+    start: Option<Start>,
+    _theme_watcher: Option<RecommendedWatcher>,
 }
 
 impl Visor {
     /// Opens a window on `state`'s vault with `workspace`'s tabs, or with the
     /// vault's last tabs when there is none.
-    fn open_window(&mut self, target: &EventLoopWindowTarget<Routed>, state: WindowState, workspace: Option<Workspace>, loose: bool, token: Option<&str>) -> WinId {
+    fn open_window(&mut self, target: &Target, state: WindowState, workspace: Option<Workspace>, loose: bool, token: Option<&str>) -> WinId {
         let w = self.windows.open();
         {
             let mut shared = self.shared.lock().unwrap();
@@ -213,13 +206,13 @@ impl Visor {
         app.show_vault_with(vault, workspace);
         app.sync_frame();
         app.present(token);
-        self.by_tao.insert(app.tao_id(), w);
+        self.by_system.insert(app.window_id(), w);
         self.apps.insert(w, app);
         w
     }
 
     /// Another window, on the focused window's vault, with one empty tab.
-    fn new_window(&mut self, target: &EventLoopWindowTarget<Routed>, token: Option<&str>) -> WinId {
+    fn new_window(&mut self, target: &Target, token: Option<&str>) -> WinId {
         let vault = self.windows.focused().and_then(|w| self.apps.get(&w)).and_then(|app| app.window_state().vault);
         let w = self.open_window(target, WindowState { vault, ..Default::default() }, Some(Workspace::default()), false, token);
         self.window_changed(w);
@@ -241,7 +234,7 @@ impl Visor {
         let Some(mut app) = self.apps.remove(&w) else { return false };
         // Its vault keeps these tabs as its last ones; the window itself is forgotten.
         app.save_layout();
-        self.by_tao.remove(&app.tao_id());
+        self.by_system.remove(&app.window_id());
         let closed = self.windows.close(w);
         {
             let mut shared = self.shared.lock().unwrap();
@@ -320,7 +313,7 @@ impl Visor {
     }
 
     /// An event for the process. True when the process must end.
-    fn process_event(&mut self, event: UserEvent, target: &EventLoopWindowTarget<Routed>) -> bool {
+    fn process_event(&mut self, event: UserEvent, target: &Target) -> bool {
         match event {
             UserEvent::SaveConfig => {
                 let mut c = self.common.borrow_mut();

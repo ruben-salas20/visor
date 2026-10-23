@@ -4,20 +4,20 @@ use crate::vault::annot;
 use crate::session::{Loading, Page, Place, AgentRequest, SharedRef, SizeReply, ValueReply, push_console, push_event};
 use crate::ui::common::{CommonRef, SettingsChange};
 use crate::ui::windows::WinId;
-use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, Routed, UserEvent};
+use crate::ui::action::{Action, LoadFailure, Proxy, RestartCheck, UserEvent};
 use crate::ui::address::Engine;
 use crate::ui::host::Host;
 use crate::ui::protocol::PageMsg;
 use crate::vault::config::{Config, PaneState, WindowState, Workspace};
 use crate::vault::files as vault_files;
 use crate::ui::page_calls;
-use crate::ui::page_view::{Document, build_page, clean_position, host_of};
+use crate::ui::page_view::{Document, PageView, build_page, clean_position, host_of};
+use crate::ui::shell::{self, Target, Window};
 use crate::vault::is_web;
 use crate::ui::tabs::{Effect, Tabs};
 use crate::ui::theme::Theme;
 use crate::ui::watch::{self, LivePage, LooseWatchers, OwnWrite, PageAction, RealDisk, watch};
 use crate::vault::{self, Access, Vault};
-use gtk::prelude::*;
 use notify::{RecommendedWatcher, RecursiveMode};
 use serde_json::json;
 use std::cell::Cell;
@@ -27,12 +27,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use tao::dpi::LogicalSize;
-use tao::event_loop::EventLoopWindowTarget;
-use tao::platform::unix::WindowExtUnix;
-use tao::window::WindowBuilder;
-use webkit2gtk::{SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt, UserStyleLevel, UserStyleSheet, WebViewExt};
-use wry::{WebView, WebViewExtUnix};
 
 mod bar;
 mod files;
@@ -43,66 +37,6 @@ mod sides;
 
 const ZOOM_STEPS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
-/// App-wide shortcuts. They are caught on the window before the focused
-/// webview sees them, so they work whichever side has focus.
-///
-/// `in_drawing` is set while a drawing is in front: Ctrl+K then goes to the
-/// page, which uses it to add a link.
-fn connect_shortcuts(window: &tao::window::Window, proxy: Proxy, in_drawing: Rc<Cell<bool>>) {
-    use gtk::gdk::{ModifierType, keys::constants as key};
-    window.gtk_window().connect_key_press_event(move |_, event| {
-        let ctrl = event.state().contains(ModifierType::CONTROL_MASK);
-        let alt = event.state().contains(ModifierType::MOD1_MASK);
-        let shift = event.state().contains(ModifierType::SHIFT_MASK);
-        let k = event.keyval().to_lower();
-        // Ctrl+1 … Ctrl+9 from the top row or the keypad. Ctrl+0 is left to the zoom.
-        let digit = match k {
-            key::_1 | key::KP_1 => 1,
-            key::_2 | key::KP_2 => 2,
-            key::_3 | key::KP_3 => 3,
-            key::_4 | key::KP_4 => 4,
-            key::_5 | key::KP_5 => 5,
-            key::_6 | key::KP_6 => 6,
-            key::_7 | key::KP_7 => 7,
-            key::_8 | key::KP_8 => 8,
-            key::_9 | key::KP_9 => 9,
-            _ => 0,
-        };
-        let action = match () {
-            _ if ctrl && shift && k == key::a => Action::PickElement,
-            _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
-            _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::ZoomKey(1),
-            _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::ZoomKey(-1),
-            _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::ZoomKey(0),
-            _ if ctrl && digit > 0 => Action::SelectNth(digit),
-            _ if ctrl && k == key::comma => Action::Settings,
-            _ if ctrl && k == key::k && !in_drawing.get() => Action::Shortcuts,
-            _ if ctrl && !shift && k == key::f && !in_drawing.get() => Action::Find,
-            _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
-            _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
-            _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
-            _ if ctrl && alt && k == key::Right => Action::FocusSide(1),
-            // Also «|»: on Spanish layouts «\» needs AltGr and «|» does not.
-            _ if ctrl && matches!(k, key::backslash | key::bar) => Action::ToggleSplit,
-            _ if k == key::F5 => Action::Reload,
-            _ if ctrl && k == key::r => Action::Reload,
-            _ if ctrl && k == key::o => Action::PickVault,
-            _ if ctrl && k == key::q => Action::Quit,
-            _ if ctrl && k == key::b => Action::ToggleSidebar,
-            _ if ctrl && k == key::l => Action::FocusAddress,
-            _ if ctrl && k == key::n => Action::NewNote,
-            _ if ctrl && k == key::e => Action::ToggleEdit,
-            _ if ctrl && k == key::t => Action::NewTab,
-            _ if ctrl && k == key::w => Action::CloseTab(None),
-            _ if alt && k == key::Left => Action::Back,
-            _ if alt && k == key::Right => Action::Forward,
-            _ => return gtk::glib::Propagation::Proceed,
-        };
-        proxy.send(UserEvent::Action(action));
-        gtk::glib::Propagation::Stop
-    });
-}
-
 /// Whether agents may read the document a view committed.
 fn readable(vault: Option<&Vault>, document: &Document) -> Result<(), String> {
     if vault::agent_may_read(&document.borrow(), vault) {
@@ -112,12 +46,10 @@ fn readable(vault: Option<&Vault>, document: &Document) -> Result<(), String> {
     }
 }
 
-/// Encodes a snapshot as PNG and writes it. Returns how many bytes went to the file.
-fn save_png(surface: &gtk::cairo::Surface, path: &Path) -> Result<u64, String> {
-    let mut bytes = Vec::new();
-    surface.write_to_png(&mut bytes).map_err(|e| trf!("No se pudo codificar la captura: {e}", "Could not encode the snapshot: {e}"))?;
-    fs::write(path, &bytes).map_err(|e| trf!("No se pudo escribir {}: {e}", "Could not write {}: {e}", path.display()))?;
-    Ok(bytes.len() as u64)
+/// Writes a snapshot's PNG. Returns how many bytes went to the file.
+fn write_png(path: &Path, png: &[u8]) -> Result<u64, String> {
+    fs::write(path, png).map_err(|e| trf!("No se pudo escribir {}: {e}", "Could not write {}: {e}", path.display()))?;
+    Ok(png.len() as u64)
 }
 
 fn empty_page(message: &str, pick: bool) -> String {
@@ -154,12 +86,12 @@ pub(super) struct App {
     address: HashMap<u64, bar::Marks>,
     tabs: Tabs,
     /// The live pages' views, by view id.
-    views: Vec<(u64, WebView)>,
+    views: Vec<(u64, PageView)>,
     /// What each view committed, as WebKit reported it: agents may read only visor's pages.
     documents: HashMap<u64, Document>,
     /// The find bar's state and its search; see `app/find.rs`.
     finder: find::Bar,
-    /// Whether the focused view shows a drawing; see `connect_shortcuts`.
+    /// Whether the focused view shows a drawing; see `shell::connect_shortcuts`.
     in_drawing: Rc<Cell<bool>>,
     /// Whether the panel shows: not for a loose page started alone, and Ctrl+B flips it.
     sidebar_shown: bool,
@@ -199,14 +131,14 @@ pub(super) struct App {
     /// Tabs, sides or size changed since the process last saved the windows.
     layout_changed: bool,
     /// Last, so the views above are dropped before their window.
-    window: tao::window::Window,
+    window: Window,
 }
 
 impl App {
     /// Builds the window's widgets and its first, empty side. `common` is the
     /// process-wide state that the other windows share too.
     pub(super) fn new(
-        target: &EventLoopWindowTarget<Routed>,
+        target: &Target,
         proxy: Proxy,
         shared: SharedRef,
         common: CommonRef,
@@ -215,14 +147,10 @@ impl App {
     ) -> App {
         let win = proxy.window();
         let (width, height) = state.size.map_or((1200.0, 820.0), |(w, h)| (f64::from(w), f64::from(h)));
-        let window = WindowBuilder::new()
-            .with_title("Visor")
-            .with_inner_size(LogicalSize::new(width, height))
-            .build(target)
-            .expect("ventana");
+        let window = shell::create_window(target, "Visor", (width, height));
         let in_drawing = Rc::new(Cell::new(false));
-        connect_shortcuts(&window, proxy.clone(), in_drawing.clone());
-        // The borrow covers Host::new, a GTK call that only connects handlers
+        shell::connect_shortcuts(&window, proxy.clone(), in_drawing.clone());
+        // The borrow covers Host::new, which only connects handlers
         // sending through the proxy; none of them reads `common`.
         let host = {
             let mut c = common.borrow_mut();
@@ -267,26 +195,23 @@ impl App {
         }
     }
 
-    pub(super) fn tao_id(&self) -> tao::window::WindowId {
+    pub(super) fn window_id(&self) -> shell::WindowId {
         self.window.id()
     }
 
-    /// Asks the compositor for the focus. `token` is the activation token of
+    /// Asks the system for the focus. `token` is the activation token of
     /// the launch that asked for this window, without which Wayland may refuse.
     pub(super) fn present(&self, token: Option<&str>) {
-        if let Some(token) = token {
-            self.window.gtk_window().set_startup_id(token);
-        }
-        self.window.set_focus();
+        self.window.present(token);
     }
 
     /// What the settings keep of this window, to reopen it as it is.
     pub(super) fn window_state(&self) -> WindowState {
-        let size = self.window.inner_size().to_logical::<f64>(self.window.scale_factor());
+        let (width, height) = self.window.logical_size();
         WindowState {
             vault: self.vault().map(|v| v.path().to_path_buf()),
             workspace: self.tabs.workspace(),
-            size: Some((size.width.round() as u32, size.height.round() as u32)),
+            size: Some((width.round() as u32, height.round() as u32)),
             sidebar_width: self.sidebar_width,
             split_ratio: self.split_ratio,
         }
@@ -299,6 +224,7 @@ impl App {
     }
 
     pub(super) fn resized(&mut self) {
+        self.host.resized();
         self.layout_changed = true;
     }
 
@@ -379,7 +305,7 @@ impl App {
     }
 
     /// The view of the focused side's active tab. It is always loaded.
-    fn view(&self) -> Option<&WebView> {
+    fn view(&self) -> Option<&PageView> {
         self.view_of(self.tabs.focused_view()?)
     }
 
@@ -394,7 +320,7 @@ impl App {
         shared.focused_page(self.win).file.clone()
     }
 
-    fn view_of(&self, view: u64) -> Option<&WebView> {
+    fn view_of(&self, view: u64) -> Option<&PageView> {
         self.views.iter().find(|(id, _)| *id == view).map(|(_, v)| v)
     }
 
@@ -492,15 +418,14 @@ impl App {
                 }
                 Effect::Unload { view } => {
                     self.views.retain(|(id, _)| *id != view);
+                    self.host.forget_view(view);
                     self.documents.remove(&view);
                     self.shared.lock().unwrap().window_mut(self.win).pages.remove(&view);
                 }
                 Effect::MoveView { view, from, to } => {
-                    // Views move to the other side's container; WebKit keeps the page loaded.
+                    // The page stays loaded.
                     if let Some(v) = self.view_of(view) {
-                        let widget = v.webview();
-                        self.host.views(from).remove(&widget);
-                        self.host.views(to).pack_start(&widget, true, true, 0);
+                        self.host.move_view(v, view, from, to);
                     }
                 }
                 Effect::Navigate { view, target, fragment } => {
@@ -513,7 +438,7 @@ impl App {
                 Effect::SavePosition { view } => {
                     // Asked while still on screen: the tab may be unloaded later.
                     if let Some(v) = self.view_of(view)
-                        && v.webview().is_visible()
+                        && v.is_shown()
                     {
                         let proxy = self.proxy.clone();
                         let _ = v.evaluate_script_with_callback(page_calls::hide(), move |json| {
@@ -524,7 +449,7 @@ impl App {
                 Effect::Show { side } => self.show_active(side),
                 Effect::Focus => {
                     if let Some(view) = self.view() {
-                        view.webview().grab_focus();
+                        view.grab_focus();
                     }
                 }
             }
@@ -535,13 +460,13 @@ impl App {
     /// Builds the hidden view of a tab. False if the system could not.
     fn create_view(&mut self, side: usize, id: u64, target: &str, fragment: &str) -> bool {
         let vault_base = self.vault_base();
-        // The borrow covers build_page, a GTK call. build_page only connects
-        // handlers that send events through the proxy and reads neither App nor
-        // `common` (see page_view.rs), so no handler can borrow `common` meanwhile.
+        // The borrow covers build_page, which only connects handlers that send
+        // events through the proxy and reads neither App nor `common` (see
+        // page_view.rs), so no handler can borrow `common` meanwhile.
         let built = {
             let mut c = self.common.borrow_mut();
             let background = c.background;
-            build_page(&self.host.views(side), &mut c.context, background, self.proxy.clone(), &vault_base, id)
+            build_page(&self.window, &self.host, side, &mut c.context, background, self.proxy.clone(), &vault_base, id)
         };
         let view = match built {
             Ok((v, document)) => {
@@ -553,12 +478,12 @@ impl App {
                 return false;
             }
         };
-        view.webview().set_visible(false);
+        view.set_shown(false);
         self.style_view(&view);
         if let Some(theme) = &self.theme() {
             let _ = view.set_background_color(theme.rgba());
         }
-        view.webview().set_zoom_level(self.cfg(|c| c.zoom.unwrap_or(1.0)));
+        view.set_zoom(self.cfg(|c| c.zoom.unwrap_or(1.0)));
         self.shared.lock().unwrap().window_mut(self.win).pages.insert(id, Page::default());
         self.load_into(&view, target, fragment);
         self.views.push((id, view));
@@ -576,12 +501,12 @@ impl App {
         }
         for (i, tab) in side.tabs().iter().enumerate() {
             if let Some(view) = tab.view().and_then(|id| self.view_of(id)) {
-                view.webview().set_visible(i == side.active());
+                view.set_shown(i == side.active());
             }
         }
     }
 
-    fn load_into(&self, view: &WebView, target: &str, fragment: &str) {
+    fn load_into(&self, view: &PageView, target: &str, fragment: &str) {
         if target.is_empty() {
             let _ = view.load_html(&empty_page(self.empty_message(), self.vault().is_none()));
         } else if is_web(target) {
@@ -629,7 +554,7 @@ impl App {
             self.focus_changed();
         }
         if grab && let Some(view) = self.view() {
-            view.webview().grab_focus();
+            view.grab_focus();
         }
     }
 
@@ -646,19 +571,9 @@ impl App {
         loading
     }
 
-    fn style_view(&self, view: &WebView) {
-        if let Some(manager) = view.webview().user_content_manager() {
-            manager.remove_all_style_sheets();
-            if let Some(theme) = &self.theme() {
-                manager.add_style_sheet(&UserStyleSheet::new(
-                    &theme.page_css(),
-                    UserContentInjectedFrames::AllFrames,
-                    UserStyleLevel::User,
-                    &[],
-                    &[],
-                ));
-            }
-        }
+    fn style_view(&self, view: &PageView) {
+        let theme = self.theme();
+        view.set_style(theme.as_ref().map(|t| t.page_css()).as_deref());
     }
 
     /// Websites and loose HTML pages expect a browser's white background: on
@@ -688,7 +603,7 @@ impl App {
     fn apply_zoom(&self, id: u64) {
         let Some(view) = self.view_of(id) else { return };
         let zoom = if self.is_pdf_view(id) { 1.0 } else { self.cfg(|c| c.zoom.unwrap_or(1.0)) };
-        view.webview().set_zoom_level(zoom);
+        view.set_zoom(zoom);
     }
 
     pub(super) fn apply_theme(&mut self) {
@@ -802,7 +717,7 @@ impl App {
                     let _ = v.evaluate_script(&page_calls::place(position));
                 }
                 if loaded.web {
-                    let title = self.view_of(view).and_then(|v| v.webview().title()).map(|t| t.to_string());
+                    let title = self.view_of(view).and_then(|v| v.title());
                     self.tabs.set_title(view, title);
                 }
             }
@@ -875,8 +790,8 @@ impl App {
                     let _ = view.reload();
                 }
             }
-            Action::Back => self.view().map_or((), |v| v.webview().go_back()),
-            Action::Forward => self.view().map_or((), |v| v.webview().go_forward()),
+            Action::Back => self.view().map_or((), PageView::back),
+            Action::Forward => self.view().map_or((), PageView::forward),
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => self.sidebar_shown = !self.sidebar_shown,
             Action::FocusAddress => self.focus_address(),
@@ -994,7 +909,7 @@ impl App {
     /// Runs a page function on the focused side, giving that page the keys.
     fn page_call(&self, code: &str) {
         if let Some(view) = self.view() {
-            view.webview().grab_focus();
+            view.grab_focus();
         }
         self.eval(code);
     }
@@ -1198,10 +1113,8 @@ impl App {
         if data.len() > vault::drawing::MAX_IMAGE / 3 * 4 + 4 {
             return Err(tr("La imagen pesa más de 10 MB.", "The image is over 10 MB.").into());
         }
-        let bytes = gtk::glib::base64_decode(data);
-        let stamp = gtk::glib::DateTime::now_local()
-            .and_then(|now| now.format("%Y-%m-%d %H%M%S"))
-            .map_err(|_| tr("No se pudo leer la hora.", "Could not read the time.").to_string())?;
+        let bytes = crate::platform::decode_base64(data);
+        let stamp = crate::platform::local_stamp().ok_or_else(|| tr("No se pudo leer la hora.", "Could not read the time.").to_string())?;
         vault::drawing::save_image(&path, &stamp, &bytes)
     }
 
@@ -1325,7 +1238,7 @@ impl App {
 
     /// The focused view, if agents may read its page, and what it committed. The
     /// decision uses the address WebKit committed, never the webview's own address.
-    fn readable_view(&self) -> Result<(&WebView, Document), String> {
+    fn readable_view(&self) -> Result<(&PageView, Document), String> {
         let id = self.tabs.focused_view().ok_or(tr("No hay nada abierto.", "Nothing is open."))?;
         let (Some(view), Some(document)) = (self.view_of(id), self.documents.get(&id)) else {
             return Err(tr("No hay nada abierto.", "Nothing is open.").into());
@@ -1346,15 +1259,10 @@ impl App {
         };
         let vault_base = self.vault_base();
         let script = page_calls::eval(code, [&vault_base, vault::loose_base()]);
-        // run_javascript, not evaluate_javascript: the latter needs the v2_40 feature,
-        // which visor does not enable (Cargo.toml asks for v2_38).
         let vault_now = self.vault();
-        view.webview().run_javascript(&script, None::<&gtk::gio::Cancellable>, move |result| {
+        view.run_script(&script, move |result| {
             // A website committed meanwhile would have answered: its words must not reach the agent.
-            let answer = readable(vault_now.as_deref(), &document)
-                .and_then(|()| result.map_err(|e| e.to_string()))
-                .and_then(|r| r.js_value().map(|v| v.to_string()).ok_or_else(|| tr("La página no devolvió nada.", "The page returned nothing.").to_string()))
-                .and_then(|raw| page_calls::eval_answer(&raw));
+            let answer = readable(vault_now.as_deref(), &document).and(result).and_then(|raw| page_calls::eval_answer(&raw));
             let _ = reply.send(answer);
         });
     }
@@ -1369,10 +1277,8 @@ impl App {
             }
         };
         let vault_now = self.vault();
-        view.webview().snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&gtk::gio::Cancellable>, move |result| {
-            let answer = readable(vault_now.as_deref(), &document)
-                .and_then(|()| result.map_err(|e| e.to_string()))
-                .and_then(|surface| save_png(&surface, &path));
+        view.snapshot(move |result| {
+            let answer = readable(vault_now.as_deref(), &document).and(result).and_then(|png| write_png(&path, &png));
             let _ = reply.send(answer);
         });
     }
@@ -1442,15 +1348,7 @@ impl App {
     }
 }
 
-/// Opens `file` in another application. Visor itself may be the system's
-/// default for the file's type, and would only open it again, so it is skipped.
+/// Opens `file` in another application; see `platform::open_elsewhere`.
 pub(super) fn open_elsewhere(file: &Path) -> bool {
-    use gtk::gio;
-    let (kind, _) = gio::content_type_guess(Some(file), &[]);
-    let target = gio::File::for_path(file);
-    gio::AppInfo::default_for_type(&kind, false)
-        .into_iter()
-        .chain(gio::AppInfo::recommended_for_type(&kind))
-        .filter(|app| app.id().as_deref() != Some("visor.desktop"))
-        .any(|app| app.launch(std::slice::from_ref(&target), None::<&gio::AppLaunchContext>).is_ok())
+    crate::platform::open_elsewhere(file)
 }

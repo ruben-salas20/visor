@@ -23,12 +23,12 @@ pub fn update_check() -> PathBuf {
 
 /// The desktop entry that offers visor for `.md` and `.html` files.
 pub fn desktop_entry() -> Option<PathBuf> {
-    Some(dirs::data_dir()?.join("applications/visor.desktop"))
+    Some(crate::platform::desktop_data_dir()?.join("applications/visor.desktop"))
 }
 
 /// The icon that the desktop entry names.
 pub fn desktop_icon() -> Option<PathBuf> {
-    Some(dirs::data_dir()?.join("icons/hicolor/scalable/apps/visor.svg"))
+    Some(crate::platform::desktop_data_dir()?.join("icons/hicolor/scalable/apps/visor.svg"))
 }
 
 pub fn events() -> PathBuf {

@@ -9,8 +9,6 @@ use crate::ui::address::{self, Engine, Plan};
 use crate::ui::protocol::bar::{Address, Msg, State};
 use crate::vault;
 use std::path::PathBuf;
-use webkit2gtk::WebViewExt;
-use wry::WebViewExtUnix;
 
 /// Counts the two things the frame must react to, per side. Each count only goes up.
 #[derive(Default, Clone, Copy)]
@@ -54,13 +52,13 @@ impl App {
             .iter()
             .map(|side| {
                 let target = side.tab().target();
-                let view = side.tab().view().and_then(|id| self.view_of(id)).map(|v| v.webview());
+                let view = side.tab().view().and_then(|id| self.view_of(id));
                 let marks = self.address.get(&side.id()).copied().unwrap_or_default();
                 Address {
                     side: side.id(),
                     target: target.to_string(),
-                    back: view.as_ref().is_some_and(WebViewExt::can_go_back),
-                    forward: view.as_ref().is_some_and(WebViewExt::can_go_forward),
+                    back: view.is_some_and(|v| v.can_go_back().unwrap_or(false)),
+                    forward: view.is_some_and(|v| v.can_go_forward().unwrap_or(false)),
                     annotations: !target.is_empty() && !vault::is_web(target) && !vault::is_loose(target),
                     edit: marks.edit,
                     refused: marks.refused,

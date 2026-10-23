@@ -5,7 +5,8 @@
   if (window.top !== window || window.visor || !served) return;
   // The app drops messages without this key, so frames from other origins,
   // which can post to the handler but not read this scope, cannot speak for the page.
-  const handler = window.webkit.messageHandlers.ipc;
+  // WebKitGTK's handler, or WebView2's channel on Windows; both reach wry's IPC handler.
+  const handler = window.webkit ? window.webkit.messageHandlers.ipc : window.chrome.webview;
   const KEY = "__VISOR_KEY__";
   // A lone surrogate (a clipped emoji) is valid for JSON.stringify, which writes it
   // as an escape, but serde_json rejects it and the whole message would be lost.

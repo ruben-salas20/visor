@@ -1,20 +1,18 @@
 //! Area D, Ctrl+F. PDFs and the note editor have a search of their own; the
 //! rest gets the frame's find bar, `marco/src/areas/find/`. Two engines run
 //! the search: `page/find.js` for visor's own pages, which can say which match
-//! is current, and WebKit's find controller for websites, which can only count.
+//! is current, and the engine's own search for websites, which can only count
+//! (`page_view::Finder`; WebKit's find controller on Linux).
 //! Answers come back as events and are dropped when a newer search has started.
 
 use super::App;
 use crate::i18n::{Lang, lang};
 use crate::ui::action::{Action, UserEvent};
 use crate::ui::page_calls;
+use crate::ui::page_view::{FindSignals, Finder};
 use crate::ui::protocol::find::{Msg, State};
 use crate::vault;
-use gtk::glib::SignalHandlerId;
-use gtk::prelude::*;
 use serde_json::Value;
-use webkit2gtk::{FindController, FindControllerExt, FindOptions, WebViewExt};
-use wry::WebViewExtUnix;
 
 /// WebKit and `find.js` stop counting here: past it, the counter says "more than".
 const MAX_MATCHES: u32 = 1000;
@@ -45,9 +43,9 @@ struct Search {
     /// The page answered before, so `window.__visorFind` is in it and calls carry no script.
     loaded: bool,
     /// Only with `FindEngine::WebKit`.
-    controller: Option<FindController>,
-    /// Connected to `controller`; disconnected when the search ends.
-    handlers: Vec<SignalHandlerId>,
+    finder: Option<Finder>,
+    /// The finder's signals; disconnected when the search ends.
+    signals: Option<FindSignals>,
 }
 
 /// Which search runs in the page of a view.
@@ -55,7 +53,7 @@ struct Search {
 pub(super) enum FindEngine {
     /// `page/find.js`, for the vault and loose files: visor's own pages only.
     Page,
-    /// WebKit's find controller, for websites, which get no script from visor.
+    /// The engine's search, for websites, which get no script from visor.
     WebKit,
 }
 
@@ -169,7 +167,7 @@ impl App {
     /// Hides the bar and ends its search. `focus` gives the keyboard back to the page.
     fn close_find(&mut self, focus: bool) {
         let side = self.finder.side;
-        if let Some(s) = self.finder.searched.as_ref().filter(|s| s.controller.is_none()) {
+        if let Some(s) = self.finder.searched.as_ref().filter(|s| s.finder.is_none()) {
             self.eval_in(s.view, &page_calls::find_clear(s.loaded));
         }
         self.detach_find();
@@ -181,36 +179,22 @@ impl App {
 
     /// Makes `view` the one searched, with `engine`. Nothing runs in the page yet.
     fn attach_find(&mut self, view: u64, engine: FindEngine) {
-        let controller = match engine {
-            FindEngine::Page => None,
-            FindEngine::WebKit => match self.view_of(view).and_then(|v| v.webview().find_controller()) {
-                Some(controller) => Some(controller),
+        let (finder, signals) = match engine {
+            FindEngine::Page => (None, None),
+            FindEngine::WebKit => match self.view_of(view).and_then(|v| v.finder(&self.proxy, view, MAX_MATCHES)) {
+                Some((finder, signals)) => (Some(finder), Some(signals)),
                 None => return,
             },
         };
-        let mut handlers = Vec::new();
-        if let Some(c) = &controller {
-            let proxy = self.proxy.clone();
-            handlers.push(c.connect_found_text(move |_, n| {
-                proxy.send(UserEvent::FindFound { view, total: n.min(MAX_MATCHES), more: n > MAX_MATCHES });
-            }));
-            let proxy = self.proxy.clone();
-            handlers.push(c.connect_failed_to_find_text(move |_| {
-                proxy.send(UserEvent::FindFound { view, total: 0, more: false });
-            }));
-        }
-        self.finder.searched = Some(Search { view, engine, loaded: false, controller, handlers });
+        self.finder.searched = Some(Search { view, engine, loaded: false, finder, signals });
     }
 
     /// Ends the search for good, without touching the page: its answers become
     /// stale, WebKit's search stops and its signals are disconnected.
     fn detach_find(&mut self) {
         self.finder.request = self.finder.request.wrapping_add(1);
-        if let Some(Search { controller: Some(c), handlers, .. }) = self.finder.searched.take() {
-            c.search_finish();
-            for id in handlers {
-                c.disconnect(id);
-            }
+        if let Some(Search { signals: Some(signals), .. }) = self.finder.searched.take() {
+            signals.end();
         }
         self.finder.current = 0;
         self.finder.total = 0;
@@ -221,14 +205,14 @@ impl App {
     /// next (`Some(true)`) or previous match (`Some(false)`).
     fn run_find(&mut self, step_to: Option<bool>) {
         let Some(s) = self.finder.searched.as_ref() else { return };
-        let (view, engine, loaded, controller) = (s.view, s.engine, s.loaded, s.controller.clone());
+        let (view, engine, loaded, controller) = (s.view, s.engine, s.loaded, s.finder.clone());
         self.finder.request = self.finder.request.wrapping_add(1);
         let request = self.finder.request;
         let text = self.finder.text.clone();
         let (match_case, whole_word) = (self.finder.match_case, self.finder.whole_word);
         if text.is_empty() {
             match (engine, &controller) {
-                (FindEngine::WebKit, Some(c)) => c.search_finish(),
+                (FindEngine::WebKit, Some(c)) => c.clear(),
                 _ => self.eval_in(view, &page_calls::find_clear(loaded)),
             }
             self.finder.current = 0;
@@ -244,14 +228,14 @@ impl App {
                         self.finder.current = 1;
                         self.finder.total = 0;
                         self.finder.more = false;
-                        c.search(&text, options(match_case, whole_word).bits(), MAX_MATCHES);
+                        c.search(&text, match_case, whole_word);
                     }
                     Some(forward) if self.finder.total > 0 => {
                         self.finder.current = step(self.finder.current, self.finder.total, forward);
                         if forward {
-                            c.search_next();
+                            c.next();
                         } else {
-                            c.search_previous();
+                            c.previous();
                         }
                     }
                     Some(_) => {}
@@ -331,19 +315,6 @@ fn counter(current: u32, total: u32, more: bool, lang: Lang) -> String {
     }
 }
 
-/// The options for the two checkboxes. WebKitGTK 2.0 has no flag for the end
-/// of a word, so "whole word" only checks the start.
-fn options(match_case: bool, whole_word: bool) -> FindOptions {
-    let mut options = FindOptions::WRAP_AROUND;
-    if !match_case {
-        options |= FindOptions::CASE_INSENSITIVE;
-    }
-    if whole_word {
-        options |= FindOptions::AT_WORD_STARTS;
-    }
-    options
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,17 +345,6 @@ mod tests {
         assert_eq!(counter(1, 1000, true, Lang::Es), "1 de más de 1000");
         assert_eq!(counter(0, 0, false, Lang::Es), "Sin resultados");
         assert_eq!(counter(2, 5, false, Lang::En), "2 of 5");
-    }
-
-    #[test]
-    fn the_checkboxes_set_the_webkit_options() {
-        let both = options(true, true);
-        assert!(!both.contains(FindOptions::CASE_INSENSITIVE));
-        assert!(both.contains(FindOptions::AT_WORD_STARTS));
-        let neither = options(false, false);
-        assert!(neither.contains(FindOptions::CASE_INSENSITIVE));
-        assert!(!neither.contains(FindOptions::AT_WORD_STARTS));
-        assert!(neither.contains(FindOptions::WRAP_AROUND));
     }
 
     #[test]
