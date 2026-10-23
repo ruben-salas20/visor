@@ -4,7 +4,8 @@
 //! console either, and exits. Like `pythonw.exe` beside `python.exe`.
 //!
 //! Its whole contract is "same arguments, `visor.exe` in the same folder", so an
-//! update that replaces only `visor.exe` keeps it working (src/update.rs).
+//! update that replaces only `visor.exe` keeps it working (src/update.rs). If
+//! an update left only `visor.exe.old`, it puts that back first.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
@@ -19,6 +20,11 @@ fn main() {
         fail("No se pudo abrir visor: Windows no dice en qué carpeta está visorw.exe.");
     };
     let visor = exe.with_file_name("visor.exe");
+    // An update that failed halfway may leave only visor.exe.old (update.rs).
+    let old = exe.with_file_name("visor.exe.old");
+    if !visor.exists() && old.exists() && std::fs::rename(&old, &visor).is_err() {
+        let _ = std::fs::copy(&old, &visor);
+    }
     let started = Command::new(&visor)
         .args(std::env::args_os().skip(1))
         .stdin(Stdio::null())

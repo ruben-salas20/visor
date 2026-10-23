@@ -247,8 +247,12 @@ fn put_in_place(tmp: &Path, exe: &Path) -> io::Result<()> {
     }
     fs::rename(exe, &old)?;
     if let Err(e) = fs::rename(tmp, exe) {
-        // Put the current file back, so that visor.exe is never missing.
-        let _ = fs::rename(&old, exe);
+        // Put the current file back, so that visor.exe is never missing. If
+        // the rename fails too, a copy may still work: a running .exe can be
+        // read. If both fail, visorw.exe puts the .old back on the next start.
+        if fs::rename(&old, exe).is_err() {
+            let _ = fs::copy(&old, exe);
+        }
         return Err(e);
     }
     Ok(())

@@ -269,6 +269,17 @@ try {
         Comprobar 'visorw.exe sin visor.exe avisa y no termina bien' $avisa $dato
         Captura (Join-Path $Salida 'visorw-sin-visor.png')
         if (-not $huerfano.HasExited) { taskkill /F /PID $huerfano.Id | Out-Null }
+
+        # 7. Una actualización fallida a medias deja solo visor.exe.old: visorw.exe lo devuelve a su sitio.
+        # `help` solo escribe la ayuda y termina, sin abrir la app.
+        $rota = Join-Path $tmp 'actualizacion-rota'
+        New-Item -ItemType Directory -Force -Path $rota | Out-Null
+        Copy-Item $ExeW $rota
+        Copy-Item $Exe (Join-Path $rota 'visor.exe.old')
+        $arreglo = Start-Process -FilePath (Join-Path $rota 'visorw.exe') -ArgumentList 'help' -PassThru -Wait
+        $dato = @{ codigo = $arreglo.ExitCode; archivos = @(Get-ChildItem $rota | ForEach-Object Name) }
+        $vuelve = (Test-Path (Join-Path $rota 'visor.exe')) -and -not (Test-Path (Join-Path $rota 'visor.exe.old'))
+        Comprobar 'visorw.exe devuelve visor.exe.old a su sitio' $vuelve $dato
     }
 }
 catch {
