@@ -37,6 +37,8 @@ pub struct PageView {
     shown: Cell<bool>,
     /// The theme's script for new documents; see `set_style`.
     style: Rc<RefCell<Style>>,
+    /// visor asked for a load that has not started yet; see `track_commits`.
+    asked: Rc<Cell<bool>>,
 }
 
 #[derive(Default)]
@@ -81,16 +83,18 @@ fn com_error(e: windows_core::Error) -> wry::Error {
 /// document whose start was not seen commits nothing, so nothing trusts it.
 /// `committed` hears each commit, and `finished` the end of the last
 /// navigation started: an older one that ends late (the empty page, while a
-/// note already loads) is not the page an agent waits for.
+/// note already loads) is not the page an agent waits for. `asked` is set
+/// when visor asks for a load, which starts only later: until it does, no end counts.
 pub(in crate::ui) fn track_commits(
     com: &ICoreWebView2,
     document: Document,
+    asked: Rc<Cell<bool>>,
     committed: impl Fn(&str) + 'static,
     finished: impl Fn() + 'static,
 ) -> windows_core::Result<()> {
     let pending: Rc<RefCell<HashMap<u64, String>>> = Rc::default();
     let latest = Rc::new(Cell::new(0u64));
-    let (starts, started) = (pending.clone(), latest.clone());
+    let (starts, started, waiting) = (pending.clone(), latest.clone(), asked.clone());
     let on_start = NavigationStartingEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
         let (mut uri, mut id, mut cancelled) = (PWSTR::null(), 0u64, BOOL(0));
@@ -106,6 +110,7 @@ pub(in crate::ui) fn track_commits(
             return Ok(());
         }
         started.set(id);
+        waiting.set(false);
         // A redirect keeps its id and overwrites its address.
         starts.borrow_mut().insert(id, uri);
         Ok(())
@@ -116,7 +121,7 @@ pub(in crate::ui) fn track_commits(
             // SAFETY: a COM getter on the live event arguments.
             unsafe { args.NavigationId(&mut id)? };
         }
-        if id == latest.get() {
+        if id == latest.get() && !asked.get() {
             finished();
         }
         Ok(())
@@ -212,7 +217,8 @@ pub fn build_page(
     // Followed here, not by the page script, so websites are tracked too.
     let p = proxy.clone();
     let done = proxy.clone();
-    track_commits(&com, document.clone(), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
+    let asked = Rc::new(Cell::new(false));
+    track_commits(&com, document.clone(), asked.clone(), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
         .map_err(com_error)?;
     let p = proxy.clone();
     let on_focus = FocusChangedEventHandler::create(Box::new(move |_, _| {
@@ -261,7 +267,26 @@ pub fn build_page(
         }
     }
     host.attach(side, id, &web);
-    Ok((PageView { web, shown: Cell::new(false), style: Rc::default() }, document))
+    Ok((PageView { web, shown: Cell::new(false), style: Rc::default(), asked }, document))
+}
+
+// These three stand in for wry's, reached otherwise through Deref, to mark
+// the load as asked for: WebView2 starts it only after the call returns.
+impl PageView {
+    pub fn load_url(&self, url: &str) -> wry::Result<()> {
+        self.asked.set(true);
+        self.web.load_url(url)
+    }
+
+    pub fn load_html(&self, html: &str) -> wry::Result<()> {
+        self.asked.set(true);
+        self.web.load_html(html)
+    }
+
+    pub fn reload(&self) -> wry::Result<()> {
+        self.asked.set(true);
+        self.web.reload()
+    }
 }
 
 impl PageView {
