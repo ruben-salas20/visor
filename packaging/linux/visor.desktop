@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=visor
+Comment=Lee y anota bóvedas de HTML y Markdown para estudiar con IA
+Icon=visor
+Exec=visor open --loose %f
+Terminal=false
+MimeType=text/markdown;text/html;
+Categories=Education;
