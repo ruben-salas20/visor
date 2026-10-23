@@ -56,7 +56,7 @@ getrandom = "0.4.3"
 sha2 = "0.11.1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Shell"] }
 
-# Experimento L5 (spikes/l5-paquetes): paquete .deb con cargo-deb.
+# The .deb that .github/workflows/release.yml builds with cargo-deb, on Debian 12.
 [package.metadata.deb]
 maintainer = "Ruben Salas <rubend.salasp@uqvirtual.edu.co>"
 section = "utils"
@@ -64,6 +64,6 @@ priority = "optional"
 depends = "$auto"
 assets = [
     ["target/release/visor", "usr/bin/", "755"],
-    ["spikes/l5-paquetes/visor.desktop", "usr/share/applications/", "644"],
+    ["packaging/linux/visor.desktop", "usr/share/applications/", "644"],
     ["docs/img/logo/simbolo.svg", "usr/share/icons/hicolor/scalable/apps/visor.svg", "644"],
 ]

@@ -1,0 +1,393 @@
+# Release of visor: tools/publicar.sh pushes the tag v<version>, and this workflow
+# builds every file for Linux and Windows, tests them installed, and creates the
+# GitHub release. A tag with a «-» (v0.3.0-rc) makes a pre-release.
+#
+# Run by hand (workflow_dispatch) or from a push to port-release, it is a dry
+# run: it builds and tests everything and leaves the files as workflow
+# artifacts, without creating any release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [port-release]
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "tools/linux/**"
+      - "tools/windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  version:
+    name: versión
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      numeric: ${{ steps.v.outputs.numeric }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$RELEASE" = true ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::La etiqueta $GITHUB_REF_NAME no coincide con la versión de Cargo.toml ($version)."
+            exit 1
+          fi
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          {
+            echo "version=$version"
+            echo "numeric=${version%%-*}"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "visor $version; pre-release: $prerelease; publica: $RELEASE" >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    name: Linux (binario y .deb, Debian 12)
+    needs: version
+    runs-on: ubuntu-24.04
+    # Debian 12 has an older glibc than ubuntu-latest: the binary then runs on
+    # more distributions (experiment L1, glibc 2.34).
+    container: debian:12
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config curl ca-certificates git \
+            libwebkit2gtk-4.1-dev dpkg-dev
+
+      - name: Rust (stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Caché de cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-deb
+            target
+          key: release-debian12-${{ hashFiles('Cargo.lock') }}
+          restore-keys: release-debian12-
+
+      - name: Compilar y empaquetar
+        run: |
+          cargo build --release --locked --bin visor
+          command -v cargo-deb >/dev/null || cargo install cargo-deb --locked
+          rm -rf target/debian
+          cargo deb --no-build
+          mkdir -p dist
+          cp target/release/visor dist/visor-x86_64-linux
+          cp target/debian/*.deb "dist/visor_${VERSION}_amd64.deb"
+
+      - name: Resumen
+        run: |
+          {
+            echo "## Linux"
+            echo
+            echo "glibc que exige el binario: $(objdump -T target/release/visor | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1)"
+            echo
+            echo '```'
+            dpkg-deb -I "dist/visor_${VERSION}_amd64.deb" | grep -E 'Package|Version|Installed-Size|Depends'
+            ls -l dist
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/
+          if-no-files-found: error
+
+  deb-install:
+    name: instalar .deb en ${{ matrix.image }}
+    needs: linux
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ matrix.image }}
+      options: --shm-size=1g
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:12", "ubuntu:22.04"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-linux
+          path: dist
+      - name: Instalar en un sistema limpio
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ./dist/visor_*_amd64.deb xvfb xauth dbus-x11
+      - name: Probar la copia instalada
+        run: xvfb-run -a dbus-run-session -- bash tools/linux/installed.sh deb
+
+  flatpak:
+    name: Linux (Flatpak)
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ID: io.github.ruben_salas20.visor
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Permitir espacios de nombres de usuario a bubblewrap
+        # Ubuntu 24.04 restricts unprivileged user namespaces without an AppArmor profile.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Instalar flatpak
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            flatpak flatpak-builder librsvg2-common xvfb xauth dbus-x11
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Compilar el Flatpak
+        timeout-minutes: 90
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean \
+            --state-dir="$RUNNER_TEMP/fb-state" --repo="$RUNNER_TEMP/repo" \
+            "$RUNNER_TEMP/fb-build" packaging/linux/$ID.yml
+          mkdir -p dist
+          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$RUNNER_TEMP/repo" "dist/visor-${VERSION}-x86_64.flatpak" "$ID"
+          ls -l dist >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Instalar el bundle y probarlo
+        run: |
+          flatpak --user install -y --noninteractive --bundle "dist/visor-${VERSION}-x86_64.flatpak"
+          xvfb-run -a dbus-run-session -- bash tools/linux/installed.sh flatpak
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-flatpak
+          path: dist/
+          if-no-files-found: error
+
+  windows:
+    name: Windows (exe, zip e instalador)
+    needs: version
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      NUMERIC: ${{ needs.version.outputs.numeric }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Compilar
+        run: cargo build --release --locked --bins
+
+      - name: Inno Setup
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          # x64compatible in visor.iss needs Inno Setup 6.3 or later.
+          if (-not $iscc -or [version](Get-Item $iscc).VersionInfo.ProductVersion -lt [version]'6.3') {
+            Write-Host "Inno Setup ausente o antiguo ($iscc); instalando con choco."
+            choco install innosetup -y --no-progress
+            $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw 'No se encuentra ISCC.exe' }
+          "Inno Setup: {0}" -f (Get-Item $iscc).VersionInfo.ProductVersion | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Bootstrapper de WebView2
+        run: |
+          $boot = "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe"
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $boot
+          $firma = Get-AuthenticodeSignature $boot
+          if ($firma.Status -ne 'Valid' -or $firma.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            throw "El bootstrapper de WebView2 no lleva una firma válida de Microsoft: $($firma.Status) $($firma.SignerCertificate.Subject)"
+          }
+          "Bootstrapper de WebView2: {0:N0} bytes, {1}" -f (Get-Item $boot).Length, (Get-Item $boot).VersionInfo.ProductVersion | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "BOOT=$boot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Empaquetar
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\visor.exe dist\visor-x86_64-windows.exe
+          $zip = "$env:RUNNER_TEMP\zip"
+          New-Item -ItemType Directory -Force $zip | Out-Null
+          Copy-Item target\release\visor.exe, target\release\visorw.exe, packaging\windows\LEEME.txt $zip
+          Compress-Archive -Path "$zip\*" -DestinationPath "dist\visor-$env:VERSION-windows-portable.zip"
+          & $env:ISCC /Q "/DVersion=$env:VERSION" "/DNumVersion=$env:NUMERIC" "/DBin=$PWD\target\release" "/DWebView2=$env:BOOT" "/DOutput=$PWD\dist" "/DOutputName=visor-$env:VERSION-windows-instalador" packaging\windows\visor.iss
+          if ($LASTEXITCODE) { throw "ISCC falló ($LASTEXITCODE)" }
+          Get-ChildItem dist | ForEach-Object { "{0}: {1:N0} bytes" -f $_.Name, $_.Length } | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Comprobar el zip
+        run: |
+          $dir = "$env:RUNNER_TEMP\zip-check"
+          Expand-Archive "dist\visor-$env:VERSION-windows-portable.zip" $dir
+          $nombres = (Get-ChildItem $dir | ForEach-Object Name | Sort-Object) -join ','
+          if ($nombres -ne 'LEEME.txt,visor.exe,visorw.exe') { throw "El zip trae: $nombres" }
+          foreach ($b in 'visor', 'visorw') {
+            if ((Get-FileHash "$dir\$b.exe").Hash -ne (Get-FileHash "target\release\$b.exe").Hash) { throw "$b.exe del zip no es el compilado" }
+          }
+          "zip: $nombres" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Instalar en silencio
+        run: |
+          $p = Start-Process "dist\visor-$env:VERSION-windows-instalador.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$env:RUNNER_TEMP\instalar.log" -Wait -PassThru
+          if ($p.ExitCode) { Get-Content "$env:RUNNER_TEMP\instalar.log" -Tail 30; throw "El instalador terminó con $($p.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\visor"
+          foreach ($f in 'visor.exe', 'visorw.exe', 'unins000.exe') {
+            if (-not (Test-Path "$app\$f")) { throw "Falta $app\$f" }
+          }
+          if ((Get-FileHash "$app\visor.exe").Hash -ne (Get-FileHash dist\visor-x86_64-windows.exe).Hash) { throw 'El visor.exe instalado no es el publicado' }
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\visor.lnk"
+          if (-not (Test-Path $lnk)) { throw "Falta el acceso directo $lnk" }
+          $destino = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath
+          if ($destino -ne "$app\visorw.exe") { throw "El acceso directo apunta a $destino" }
+          $esperada = "`"$app\visorw.exe`" open --loose `"%1`""
+          foreach ($id in 'visor.md', 'visor.html') {
+            $orden = (Get-ItemProperty "HKCU:\Software\Classes\$id\shell\open\command").'(default)'
+            if ($orden -ne $esperada) { throw "$id abre con: $orden" }
+          }
+          foreach ($par in @(@('.md', 'visor.md'), @('.markdown', 'visor.md'), @('.html', 'visor.html'), @('.htm', 'visor.html'))) {
+            $ext, $id = $par
+            if ((Get-Item "HKCU:\Software\Classes\$ext\OpenWithProgids").GetValueNames() -notcontains $id) { throw "$ext no ofrece $id en «Abrir con»" }
+            $defecto = (Get-Item "HKCU:\Software\Classes\$ext" -ErrorAction SilentlyContinue)?.GetValue('')
+            if ($defecto -like 'visor*') { throw "$ext queda con visor como programa predeterminado" }
+          }
+          "Instalado en $app; acceso directo a $destino; «Abrir con» para .md, .markdown, .html y .htm" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Prueba de humo de la copia instalada
+        env:
+          VISOR_NO_UPDATE: "1"
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\visor"
+          ./tools/windows/smoke.ps1 -Exe "$app\visor.exe" -ExeW "$app\visorw.exe" -Salida "$env:RUNNER_TEMP\humo"
+
+      - name: Desinstalar en silencio
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\visor"
+          Get-Process visor -ErrorAction SilentlyContinue | Stop-Process -Force
+          # A leftover of an update, which the uninstaller must also remove.
+          Set-Content "$app\visor.exe.old" 'x'
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          # The uninstaller runs a copy of itself from %TEMP% and returns at once.
+          for ($i = 0; $i -lt 60 -and (Test-Path $app); $i++) { Start-Sleep 1 }
+          if (Test-Path $app) { Get-ChildItem -Recurse $app | ForEach-Object FullName; throw "Quedan archivos en $app" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\visor.lnk") { throw 'Queda el acceso directo' }
+          foreach ($k in 'visor.md', 'visor.html', 'Applications\visorw.exe') {
+            if (Test-Path "HKCU:\Software\Classes\$k") { throw "Queda la clave $k" }
+          }
+          foreach ($ext in '.md', '.markdown', '.html', '.htm') {
+            $abrir = Get-Item "HKCU:\Software\Classes\$ext\OpenWithProgids" -ErrorAction SilentlyContinue
+            if ($abrir -and ($abrir.GetValueNames() -like 'visor*')) { throw "$ext sigue ofreciendo visor" }
+          }
+          'Desinstalado: sin archivos, acceso directo ni claves' | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-humo
+          path: ${{ runner.temp }}/humo/
+          if-no-files-found: ignore
+
+  publish:
+    name: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'publicar' || 'reunir (sin publicar)' }}
+    needs: [version, linux, deb-install, flatpak, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: SHA-256 y notas
+        run: |
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          if [ "$RELEASE" = true ]; then
+            # actions/checkout may leave the tag lightweight; the message is in the annotated one.
+            git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          else
+            echo "visor $VERSION (prueba, sin publicar)" > notes.md
+          fi
+          {
+            echo
+            echo "## SHA-256"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >> notes.md
+          {
+            echo "## Archivos"
+            echo
+            echo "| archivo | bytes |"
+            echo "|---|---:|"
+            for f in dist/*; do echo "| $(basename "$f") | $(stat -c %s "$f") |"; done
+            echo
+            cat notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Subir como artefacto (prueba)
+        if: env.RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-prueba
+          path: |
+            dist/
+            notes.md
+
+      - name: Crear la release
+        if: env.RELEASE == 'true'
+        run: |
+          flags=()
+          [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+            --title "visor $VERSION" --notes-file notes.md "${flags[@]}"

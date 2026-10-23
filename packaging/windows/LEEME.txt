@@ -1,0 +1,26 @@
+﻿visor para Windows, versión portable
+
+Para abrir visor, haz doble clic en visorw.exe.
+
+Qué hay en esta carpeta:
+- visorw.exe abre visor sin ventana de consola. Úsalo para los accesos directos.
+- visor.exe es el programa. Desde una terminal da las órdenes de la CLI:
+  por ejemplo, «visor.exe help».
+
+Deja los dos archivos juntos en la misma carpeta: visorw.exe abre el
+visor.exe que tiene al lado.
+
+visor necesita Microsoft Edge WebView2 para mostrar las páginas. Windows 11
+ya lo trae. Si visor no abre, instálalo desde
+https://developer.microsoft.com/microsoft-edge/webview2/
+
+visor busca una versión nueva una vez al día y, si la hay, reemplaza
+visor.exe. Para eso necesita poder escribir en esta carpeta: no la pongas en
+Archivos de programa.
+
+Para quitar visor, borra esta carpeta.
+
+Si prefieres que se instale solo, con acceso en el menú Inicio y en «Abrir con»,
+usa el instalador: el archivo que termina en «windows-instalador.exe».
+
+Más información: https://github.com/ruben-salas20/visor
