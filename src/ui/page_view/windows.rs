@@ -15,11 +15,11 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2, ICoreWebView2_2,
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2, ICoreWebView2_2, ICoreWebView2_28, ICoreWebView2Environment15, ICoreWebView2Find,
 };
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CapturePreviewCompletedHandler, ContainsFullScreenElementChangedEventHandler,
-    ContentLoadingEventHandler, ExecuteScriptCompletedHandler, FocusChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    ContentLoadingEventHandler, ExecuteScriptCompletedHandler, FindMatchCountChangedEventHandler, FindStartCompletedHandler, FocusChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     WebResourceResponseReceivedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::HGLOBAL;
@@ -166,7 +166,7 @@ pub fn build_page(
                 open_external(&url);
                 return false;
             }
-            is_web(&url) || url.starts_with("about:") || url.starts_with("data:")
+            is_web(&url) || ["about:", "data:", "blob:"].iter().any(|s| url.starts_with(s))
         })
         .with_devtools(true)
         .build_as_child(window.winit())?;
@@ -337,9 +337,27 @@ impl PageView {
         }
     }
 
-    /// WebView2's own search is not reached yet: websites cannot be searched on Windows.
-    pub fn finder(&self, _proxy: &Proxy, _view: u64, _max: u32) -> Option<(Finder, FindSignals)> {
-        None
+    /// WebView2's search in this page, for websites. Its counts reach the app
+    /// as `FindFound` from `view`, up to `max`. None with a runtime too old for it.
+    pub fn finder(&self, proxy: &Proxy, view: u64, max: u32) -> Option<(Finder, FindSignals)> {
+        let com: ICoreWebView2_28 = self.web.webview().cast().ok()?;
+        let environment: ICoreWebView2Environment15 = self.web.environment().cast().ok()?;
+        // SAFETY: plain COM calls on the live view; the handler owns what it needs.
+        unsafe {
+            let find = com.Find().ok()?;
+            let p = proxy.clone();
+            let counted = FindMatchCountChangedEventHandler::create(Box::new(move |sender, _| {
+                let mut count = 0;
+                if let Some(sender) = sender {
+                    sender.MatchCount(&mut count)?;
+                }
+                found(&p, view, max, count);
+                Ok(())
+            }));
+            let mut token = 0i64;
+            find.add_MatchCountChanged(&counted, &mut token).ok()?;
+            Some((Finder { find: find.clone(), environment, proxy: proxy.clone(), view, max }, FindSignals { find, token }))
+        }
     }
 }
 
@@ -366,19 +384,75 @@ fn read_stream(stream: &IStream) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Not built on Windows yet; see `PageView::finder`.
+/// Runs WebView2's search in one page, without its own find dialog.
 #[derive(Clone)]
-pub struct Finder;
-
-impl Finder {
-    pub fn search(&self, _text: &str, _match_case: bool, _whole_word: bool) {}
-    pub fn next(&self) {}
-    pub fn previous(&self) {}
-    pub fn clear(&self) {}
+pub struct Finder {
+    find: ICoreWebView2Find,
+    environment: ICoreWebView2Environment15,
+    proxy: Proxy,
+    view: u64,
+    max: u32,
 }
 
-pub struct FindSignals;
+/// What `MatchCount` says, as the app counts it.
+fn found(proxy: &Proxy, view: u64, max: u32, count: i32) {
+    let n = count.max(0) as u32;
+    proxy.send(UserEvent::FindFound { view, total: n.min(max), more: n > max });
+}
+
+impl Finder {
+    pub fn search(&self, text: &str, match_case: bool, whole_word: bool) {
+        // SAFETY: plain COM calls on live objects; the handler owns what it needs.
+        unsafe {
+            let Ok(options) = self.environment.CreateFindOptions() else { return };
+            let _ = options.SetFindTerm(&HSTRING::from(text));
+            let _ = options.SetIsCaseSensitive(match_case);
+            let _ = options.SetShouldMatchWord(whole_word);
+            let _ = options.SetSuppressDefaultFindDialog(true);
+            let _ = options.SetShouldHighlightAllMatches(true);
+            let (find, proxy, view, max) = (self.find.clone(), self.proxy.clone(), self.view, self.max);
+            // A search with no match changes no count: the answer comes from here too.
+            let started = FindStartCompletedHandler::create(Box::new(move |_| {
+                let mut count = 0;
+                if find.MatchCount(&mut count).is_ok() {
+                    found(&proxy, view, max, count);
+                }
+                Ok(())
+            }));
+            let _ = self.find.Start(&options, &started);
+        }
+    }
+
+    pub fn next(&self) {
+        // SAFETY: a plain COM call on a live object.
+        let _ = unsafe { self.find.FindNext() };
+    }
+
+    pub fn previous(&self) {
+        // SAFETY: a plain COM call on a live object.
+        let _ = unsafe { self.find.FindPrevious() };
+    }
+
+    /// Takes the highlights off.
+    pub fn clear(&self) {
+        // SAFETY: a plain COM call on a live object.
+        let _ = unsafe { self.find.Stop() };
+    }
+}
+
+/// The search's count handler, until the search ends.
+pub struct FindSignals {
+    find: ICoreWebView2Find,
+    token: i64,
+}
 
 impl FindSignals {
-    pub fn end(self) {}
+    /// Stops the search and its handler.
+    pub fn end(self) {
+        // SAFETY: plain COM calls on a live object, with the token it gave.
+        unsafe {
+            let _ = self.find.Stop();
+            let _ = self.find.remove_MatchCountChanged(self.token);
+        }
+    }
 }

@@ -22,6 +22,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
+use webview2_com::ProcessFailedEventHandler;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, HGDIOBJ, RGN_DIFF, RGN_OR, SetWindowRgn};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -104,12 +105,22 @@ impl Host {
         shell.catch_shortcuts(&frame.controller());
         let com = frame.webview();
         track_commits(&com, document, |_| {}).map_err(|e| wry::Error::Io(std::io::Error::other(e.to_string())))?;
-        // WebView2's own menu (back, reload) means nothing in the frame.
-        // SAFETY: plain COM calls on a live view.
+        // The frame has no state of its own: a new process asks for it again.
+        let reload = ProcessFailedEventHandler::create(Box::new(|sender, _| {
+            if let Some(view) = sender {
+                // SAFETY: a plain COM call on the view that failed.
+                let _ = unsafe { view.Reload() };
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        // SAFETY: plain COM calls on a live view; the handler lives as long as it does.
         unsafe {
+            // WebView2's own menu (back, reload) means nothing in the frame.
             if let Ok(settings) = com.Settings() {
                 let _ = settings.SetAreDefaultContextMenusEnabled(false);
             }
+            let _ = com.add_ProcessFailed(&reload, &mut token);
         }
         Ok(Host { frame, parent, slots: RefCell::default(), holes: RefCell::default(), cover: RefCell::default(), fullscreen: Cell::new(None) })
     }
