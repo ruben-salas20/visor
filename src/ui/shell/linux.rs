@@ -1,7 +1,7 @@
 //! tao over GTK: the loop, the windows, the shortcuts caught on the GTK window.
 
-use super::{Handler, Signal};
-use crate::ui::action::{self, Action, Proxy, Routed, UserEvent};
+use super::{Handler, Key, Mods, Signal, shortcut};
+use crate::ui::action::{self, Proxy, Routed, UserEvent};
 use gtk::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -44,6 +44,10 @@ impl Window {
         }
         self.0.set_focus();
     }
+
+    /// A page asked for fullscreen, or left it. WebKitGTK makes the window
+    /// fullscreen itself.
+    pub fn set_page_fullscreen(&self, _on: bool) {}
 
     pub(in crate::ui) fn tao(&self) -> &tao::window::Window {
         &self.0
@@ -114,62 +118,60 @@ pub fn prepare() {
     }
 }
 
-/// App-wide shortcuts. They are caught on the window before the focused
-/// webview sees them, so they work whichever side has focus.
-///
-/// `in_drawing` is set while a drawing is in front: Ctrl+K then goes to the
-/// page, which uses it to add a link.
+/// The app-wide shortcuts (`shell::shortcut`), caught on the GTK window before
+/// the focused webview sees the key.
 pub fn connect_shortcuts(window: &Window, proxy: Proxy, in_drawing: Rc<Cell<bool>>) {
-    use gtk::gdk::{ModifierType, keys::constants as key};
+    use gtk::gdk::ModifierType;
     window.0.gtk_window().connect_key_press_event(move |_, event| {
-        let ctrl = event.state().contains(ModifierType::CONTROL_MASK);
-        let alt = event.state().contains(ModifierType::MOD1_MASK);
-        let shift = event.state().contains(ModifierType::SHIFT_MASK);
-        let k = event.keyval().to_lower();
-        // Ctrl+1 … Ctrl+9 from the top row or the keypad. Ctrl+0 is left to the zoom.
-        let digit = match k {
-            key::_1 | key::KP_1 => 1,
-            key::_2 | key::KP_2 => 2,
-            key::_3 | key::KP_3 => 3,
-            key::_4 | key::KP_4 => 4,
-            key::_5 | key::KP_5 => 5,
-            key::_6 | key::KP_6 => 6,
-            key::_7 | key::KP_7 => 7,
-            key::_8 | key::KP_8 => 8,
-            key::_9 | key::KP_9 => 9,
-            _ => 0,
+        let state = event.state();
+        let mut mods = Mods {
+            ctrl: state.contains(ModifierType::CONTROL_MASK),
+            alt: state.contains(ModifierType::MOD1_MASK),
+            shift: state.contains(ModifierType::SHIFT_MASK),
         };
-        let action = match () {
-            _ if ctrl && shift && k == key::a => Action::PickElement,
-            _ if ctrl && shift && k == key::l => Action::ToggleAnnotations,
-            _ if ctrl && matches!(k, key::plus | key::equal | key::KP_Add) => Action::ZoomKey(1),
-            _ if ctrl && matches!(k, key::minus | key::KP_Subtract) => Action::ZoomKey(-1),
-            _ if ctrl && matches!(k, key::_0 | key::KP_0) => Action::ZoomKey(0),
-            _ if ctrl && digit > 0 => Action::SelectNth(digit),
-            _ if ctrl && k == key::comma => Action::Settings,
-            _ if ctrl && k == key::k && !in_drawing.get() => Action::Shortcuts,
-            _ if ctrl && !shift && k == key::f && !in_drawing.get() => Action::Find,
-            _ if ctrl && k == key::ISO_Left_Tab => Action::CycleTab(-1),
-            _ if ctrl && k == key::Tab => Action::CycleTab(if shift { -1 } else { 1 }),
-            _ if ctrl && alt && k == key::Left => Action::FocusSide(0),
-            _ if ctrl && alt && k == key::Right => Action::FocusSide(1),
-            // Also «|»: on Spanish layouts «\» needs AltGr and «|» does not.
-            _ if ctrl && matches!(k, key::backslash | key::bar) => Action::ToggleSplit,
-            _ if k == key::F5 => Action::Reload,
-            _ if ctrl && k == key::r => Action::Reload,
-            _ if ctrl && k == key::o => Action::PickVault,
-            _ if ctrl && k == key::q => Action::Quit,
-            _ if ctrl && k == key::b => Action::ToggleSidebar,
-            _ if ctrl && k == key::l => Action::FocusAddress,
-            _ if ctrl && k == key::n => Action::NewNote,
-            _ if ctrl && k == key::e => Action::ToggleEdit,
-            _ if ctrl && k == key::t => Action::NewTab,
-            _ if ctrl && k == key::w => Action::CloseTab(None),
-            _ if alt && k == key::Left => Action::Back,
-            _ if alt && k == key::Right => Action::Forward,
-            _ => return gtk::glib::Propagation::Proceed,
-        };
+        let Some(key) = key_of(event.keyval().to_lower(), &mut mods) else { return gtk::glib::Propagation::Proceed };
+        let Some(action) = shortcut(key, mods, in_drawing.get()) else { return gtk::glib::Propagation::Proceed };
         proxy.send(UserEvent::Action(action));
         gtk::glib::Propagation::Stop
     });
+}
+
+/// The shortcuts' name for a GDK key, if they use it.
+fn key_of(k: gtk::gdk::keys::Key, mods: &mut Mods) -> Option<Key> {
+    use gtk::gdk::keys::constants as key;
+    let digits = [
+        (key::_0, key::KP_0),
+        (key::_1, key::KP_1),
+        (key::_2, key::KP_2),
+        (key::_3, key::KP_3),
+        (key::_4, key::KP_4),
+        (key::_5, key::KP_5),
+        (key::_6, key::KP_6),
+        (key::_7, key::KP_7),
+        (key::_8, key::KP_8),
+        (key::_9, key::KP_9),
+    ];
+    if let Some(n) = digits.iter().position(|(top, pad)| k == *top || k == *pad) {
+        return Some(Key::Digit(n as u8));
+    }
+    Some(match k {
+        key::plus | key::equal | key::KP_Add => Key::Plus,
+        key::minus | key::KP_Subtract => Key::Minus,
+        key::Tab => Key::Tab,
+        // Shift+Tab, which GTK names on its own.
+        key::ISO_Left_Tab => {
+            mods.shift = true;
+            Key::Tab
+        }
+        key::Left => Key::Left,
+        key::Right => Key::Right,
+        key::F5 => Key::F5,
+        key::comma => Key::Char(','),
+        // Also «|»: on Spanish layouts «\» needs AltGr and «|» does not.
+        key::backslash | key::bar => Key::Char('\\'),
+        _ => {
+            let c = k.to_unicode().filter(char::is_ascii_lowercase)?;
+            Key::Char(c)
+        }
+    })
 }

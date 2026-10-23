@@ -56,10 +56,11 @@ USE
                              line says how many were skipped.
   visor screenshot <file.png>
                              PNG capture of what the person sees in the
-                             active tab, drawn by visor's engine (WebKit).
-                             Only vault or loose pages. The path must end
-                             in .png and is replaced if it exists. Returns
-                             "path" and "bytes".
+                             active tab, drawn by visor's web engine
+                             (WebKit, or WebView2 on Windows). Only vault
+                             or loose pages. The path must end in .png
+                             and is replaced if it exists. Returns "path"
+                             and "bytes".
   visor eval <js>            Runs JavaScript in the active tab and returns
                              "value" (JSON) and "type" (the JavaScript
                              type). Only vault or loose pages, never web

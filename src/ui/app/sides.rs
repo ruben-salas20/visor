@@ -56,10 +56,11 @@ impl App {
         State { sides, focused: self.tabs.focused(), ratio }
     }
 
-    /// A page asked for fullscreen, or left it. WebKit makes the window
-    /// fullscreen; the pages of that side cover it, and the frame hides.
+    /// A page asked for fullscreen, or left it. The window goes fullscreen;
+    /// the pages of that side cover it, and the frame hides.
     pub(super) fn fullscreen(&mut self, view: u64, on: bool) {
         let holder = on.then(|| self.tabs.locate(view)).flatten().map(|(p, _)| self.tabs.side(p).id());
+        self.window.set_page_fullscreen(holder.is_some());
         self.host.set_fullscreen(holder);
     }
 

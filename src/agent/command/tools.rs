@@ -83,7 +83,7 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "screenshot",
-            "Saves a PNG capture of what the person sees in the active tab, drawn by visor's engine (WebKit). Only for vault or loose pages; fails on an external web page. path must be absolute and end in .png.",
+            "Saves a PNG capture of what the person sees in the active tab, drawn by visor's web engine (WebKit or WebView2). Only for vault or loose pages; fails on an external web page. path must be absolute and end in .png.",
             object(
                 json!({
                     "path": {

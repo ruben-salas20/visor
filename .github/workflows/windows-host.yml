@@ -1,0 +1,85 @@
+# Anfitrión de Windows (docs/plan-multiplataforma.md, fase 2 de la interfaz): el
+# visor real, con su interfaz (winit + WebView2), compila, pasa cargo test y abre
+# una ventana que responde a la CLI. Cubre lo que hacía windows-check.yml (W1).
+name: Windows host
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["port-*"]
+    paths:
+      - "src/**"
+      - "assets/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tools/windows/**"
+      - ".github/workflows/windows-host.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: compilar, probar y abrir visor
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar WebView2 Runtime
+        id: runtime
+        run: |
+          $clave = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          if (-not $pv) {
+            Write-Host 'WebView2 Runtime no encontrado; instalando el bootstrapper.'
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe"
+            Start-Process -Wait -FilePath "$env:RUNNER_TEMP\MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent','/install'
+            $pv = (Get-ItemProperty -Path $clave -Name pv -ErrorAction SilentlyContinue).pv
+          }
+          Write-Host "WebView2 Runtime pv: $pv"
+          "pv=$pv" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: cargo test
+        run: cargo test --no-fail-fast 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\test.txt"
+
+      - name: Compilar (release)
+        run: |
+          cargo build --release
+          "Binario: {0:N0} bytes" -f (Get-Item target\release\visor.exe).Length | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Prueba de humo
+        run: ./tools/windows/smoke.ps1 -Exe target\release\visor.exe -Salida "$env:RUNNER_TEMP\humo"
+
+      - name: Resumen
+        if: always()
+        run: |
+          $salida = @("WebView2 Runtime pv: ${{ steps.runtime.outputs.pv }}", '')
+          if (Test-Path "$env:RUNNER_TEMP\test.txt") {
+            $salida += '## cargo test', '', '```'
+            $salida += Get-Content "$env:RUNNER_TEMP\test.txt" | Select-String -Pattern '^test result|FAILED|panicked at' | ForEach-Object Line
+            $salida += '```', ''
+          }
+          if (Test-Path "$env:RUNNER_TEMP\humo\resumen.md") {
+            $salida += '## Prueba de humo', ''
+            $salida += Get-Content "$env:RUNNER_TEMP\humo\resumen.md"
+          }
+          $salida -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-host
+          path: ${{ runner.temp }}/humo/
