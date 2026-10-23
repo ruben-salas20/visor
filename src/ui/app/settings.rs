@@ -11,7 +11,7 @@ use crate::ui::protocol::sides::kind_of;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
-use wry::WebView;
+use crate::ui::page_view::PageView;
 
 const RESTART_WAIT: Duration = Duration::from_secs(3);
 
@@ -94,7 +94,7 @@ impl App {
     /// A page that never answers (still loading, stuck) counts as unknown after
     /// `RESTART_WAIT`, so the button never does nothing.
     pub(super) fn ask_restart(&mut self) {
-        let views: Vec<&WebView> = self.views.iter().map(|(_, v)| v).collect();
+        let views: Vec<&PageView> = self.views.iter().map(|(_, v)| v).collect();
         if views.is_empty() {
             return self.restart();
         }
@@ -104,7 +104,7 @@ impl App {
         let decided = Arc::new(AtomicBool::new(false));
         {
             let (decided, proxy) = (decided.clone(), self.proxy.clone());
-            gtk::glib::timeout_add_local_once(RESTART_WAIT, move || {
+            crate::ui::shell::after(RESTART_WAIT, move || {
                 if !decided.swap(true, Ordering::SeqCst) {
                     proxy.send(UserEvent::RestartChecked(RestartCheck::Unknown));
                 }

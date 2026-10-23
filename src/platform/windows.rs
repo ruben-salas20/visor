@@ -196,6 +196,74 @@ pub fn restart(command: &mut Command) -> io::Error {
     }
 }
 
+/// Hands `target` (an address or a file) to the program the system has for it.
+fn shell_open(target: &OsStr) -> bool {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    const SW_SHOWNORMAL: i32 = 1;
+    let (verb, target) = (wide(OsStr::new("open")), wide(target));
+    // SAFETY: both buffers end in NUL and live for the whole call.
+    let code = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+    // The shell returns a value above 32 on success.
+    code as isize > 32
+}
+
+/// Hands a `mailto:` address to the system's mail app.
+pub fn open_external(url: &str) {
+    shell_open(OsStr::new(url));
+}
+
+/// Opens `file` with the program the system has for its type.
+// The Linux side skips visor when it is the default; here the shell picks
+// one program, which may be visor itself.
+pub fn open_elsewhere(file: &Path) -> bool {
+    shell_open(file.as_os_str())
+}
+
+/// The bytes of a base64 text. What is not base64 is skipped, as glib does on Linux.
+pub fn decode_base64(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    };
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in text.bytes() {
+        if c == b'=' {
+            break;
+        }
+        let Some(v) = value(c) else { continue };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
+}
+
+/// The local time as `2026-10-22 184500`, for the name of a pasted image.
+pub fn local_stamp() -> Option<String> {
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    // SAFETY: GetLocalTime only writes the structure it is given.
+    let t = unsafe {
+        let mut t = std::mem::zeroed();
+        GetLocalTime(&mut t);
+        t
+    };
+    Some(format!("{:04}-{:02}-{:02} {:02}{:02}{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond))
+}
+
+/// Windows has no desktop entries: the installer registers the file types.
+pub fn desktop_data_dir() -> Option<PathBuf> {
+    None
+}
+
 /// `\\?\C:\x` is `C:\x`, and `\\?\UNC\server\share` is `\\server\share`. None for other text.
 fn unprefixed(text: &str) -> Option<String> {
     if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {

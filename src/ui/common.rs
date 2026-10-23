@@ -86,7 +86,7 @@ impl Common {
         // Scheduled here, where it is marked, so nothing marks it without a write coming.
         if !std::mem::replace(&mut self.save_scheduled, true) {
             let saver = self.saver.clone();
-            gtk::glib::timeout_add_local_once(CONFIG_SAVE_DELAY, move || saver.send(UserEvent::SaveConfig));
+            crate::ui::shell::after(CONFIG_SAVE_DELAY, move || saver.send(UserEvent::SaveConfig));
         }
     }
 

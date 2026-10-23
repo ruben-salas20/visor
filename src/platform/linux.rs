@@ -92,3 +92,37 @@ pub fn detach(command: &mut Command) -> &mut Command {
 pub fn restart(command: &mut Command) -> io::Error {
     command.exec()
 }
+
+/// Hands a `mailto:` address to the system's mail app.
+pub fn open_external(url: &str) {
+    let _ = Command::new("xdg-open").arg(url).spawn();
+}
+
+/// Opens `file` in another application. Visor itself may be the system's
+/// default for the file's type, and would only open it again, so it is skipped.
+pub fn open_elsewhere(file: &Path) -> bool {
+    use gtk::gio;
+    use gtk::gio::prelude::AppInfoExt;
+    let (kind, _) = gio::content_type_guess(Some(file), &[]);
+    let target = gio::File::for_path(file);
+    gio::AppInfo::default_for_type(&kind, false)
+        .into_iter()
+        .chain(gio::AppInfo::recommended_for_type(&kind))
+        .filter(|app| app.id().as_deref() != Some("visor.desktop"))
+        .any(|app| app.launch(std::slice::from_ref(&target), None::<&gio::AppLaunchContext>).is_ok())
+}
+
+/// The bytes of a base64 text. What is not base64 is skipped, as glib does.
+pub fn decode_base64(text: &str) -> Vec<u8> {
+    gtk::glib::base64_decode(text)
+}
+
+/// The local time as `2026-10-22 184500`, for the name of a pasted image.
+pub fn local_stamp() -> Option<String> {
+    gtk::glib::DateTime::now_local().and_then(|now| now.format("%Y-%m-%d %H%M%S")).ok().map(|s| s.to_string())
+}
+
+/// Where the desktop entry and its icon go. visor writes its own entry only here.
+pub fn desktop_data_dir() -> Option<PathBuf> {
+    dirs::data_dir()
+}

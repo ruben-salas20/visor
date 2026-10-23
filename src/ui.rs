@@ -8,6 +8,7 @@ pub mod host;
 pub mod page_calls;
 pub mod page_view;
 pub mod protocol;
+pub mod shell;
 pub mod tabs;
 pub mod visor;
 pub mod theme;

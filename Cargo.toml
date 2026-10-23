@@ -9,9 +9,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-cairo-rs = { version = "0.18.5", features = ["png"] }
 dirs = "7.0.0"
-gtk = "0.18"
 icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 notify = "8.2"
 percent-encoding = "2.3.2"
@@ -19,10 +17,7 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tao = "0.37.1"
 tiny_http = "0.12.0"
-# Must match the version wry pins (docs/adr/0033).
-webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 wry = "0.57.0"
 
 [profile.release]
@@ -41,10 +36,23 @@ opt-level = 3
 [build-dependencies]
 brotli = "9.0.0"
 
+# The window and its webviews: tao and WebKitGTK on Linux, winit and WebView2 on Windows (docs/adr/0040).
+[target.'cfg(target_os = "linux")'.dependencies]
+cairo-rs = { version = "0.18.5", features = ["png"] }
+gtk = "0.18"
+tao = "0.37.1"
+# Must match the version wry pins (docs/adr/0033).
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+
 [target."cfg(windows)".dependencies]
+# The versions wry 0.57 pins; `windows` with features wry already enables.
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-core = "0.62"
+winit = "0.30"
 getrandom = "0.4.3"
 sha2 = "0.11.1"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Shell"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Shell"] }
 
 # Experimento L5 (spikes/l5-paquetes): paquete .deb con cargo-deb.
 [package.metadata.deb]
