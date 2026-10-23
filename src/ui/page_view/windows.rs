@@ -6,7 +6,7 @@ use super::{Document, accept, scripts};
 use crate::i18n::tr;
 use crate::platform::open_external;
 use crate::trf;
-use crate::ui::action::{LoadFailure, Proxy, UserEvent};
+use crate::ui::action::{Action, LoadFailure, Proxy, UserEvent};
 use crate::ui::host::Host;
 use crate::ui::shell::Window;
 use crate::vault::is_web;
@@ -14,6 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::{Mutex, Once};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2, ICoreWebView2_2, ICoreWebView2_28, ICoreWebView2Environment15, ICoreWebView2Find,
 };
@@ -22,13 +23,58 @@ use webview2_com::{
     ContentLoadingEventHandler, ExecuteScriptCompletedHandler, FindMatchCountChangedEventHandler, FindStartCompletedHandler, FocusChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     WebResourceResponseReceivedEventHandler, take_pwstr,
 };
-use windows::Win32::Foundation::HGLOBAL;
+use windows::Win32::Foundation::{HGLOBAL, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
 use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, GA_PARENT, GetAncestor, GetMessageW, HC_ACTION, MSG, MSLLHOOKSTRUCT, SetWindowsHookExW, WH_MOUSE_LL, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WindowFromPoint,
+};
 use windows_core::{BOOL, HSTRING, Interface, PWSTR};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::http::Request;
-use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewExtWindows};
+use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
+
+/// The document visor's empty page commits as. WebView2 commits `load_html`
+/// at a data: address, which a page may also reach; this one no navigation
+/// reaches, since the navigation handler refuses its scheme.
+pub const EMPTY_PAGE: &str = "visor:empty";
+
+/// Recognises visor's own empty page among the navigations of a view.
+#[derive(Default)]
+pub(in crate::ui) struct Empty {
+    /// visor called `load_html`, whose navigation has not started yet.
+    asked: Cell<bool>,
+    /// The data: addresses visor's empty pages started at. A data: document
+    /// is its address, so a later start at one of them (back, reload) is
+    /// that same page, byte for byte.
+    seen: RefCell<Vec<String>>,
+}
+
+impl Empty {
+    /// Whether the navigation to `uri` that starts now loads visor's empty page.
+    fn claims(&self, uri: &str, user_initiated: bool) -> bool {
+        let asked = self.asked.replace(false);
+        if uri.starts_with("data:") {
+            let mut seen = self.seen.borrow_mut();
+            if seen.iter().any(|s| s == uri) {
+                return true;
+            }
+            if asked {
+                // The message of the empty page changes with the vault: a few are enough.
+                if seen.len() == 8 {
+                    seen.remove(0);
+                }
+                seen.push(uri.to_string());
+            }
+            return asked;
+        }
+        // In case WebView2 reports the string as about:blank: only the start visor asked for,
+        // which WebView2 counts as the user's, not a page script's.
+        asked && user_initiated && uri == "about:blank"
+    }
+}
 
 /// A page's webview, with what WebView2 does beyond wry. wry's own methods
 /// (load, evaluate, reload) are reached through it.
@@ -39,6 +85,7 @@ pub struct PageView {
     style: Rc<RefCell<Style>>,
     /// visor asked for a load that has not started yet; see `track_commits`.
     asked: Rc<Cell<bool>>,
+    empty: Rc<Empty>,
 }
 
 #[derive(Default)]
@@ -85,10 +132,12 @@ fn com_error(e: windows_core::Error) -> wry::Error {
 /// navigation started: an older one that ends late (the empty page, while a
 /// note already loads) is not the page an agent waits for. `asked` is set
 /// when visor asks for a load, which starts only later: until it does, no end counts.
+/// visor's empty page, as `empty` recognises it, commits as `EMPTY_PAGE`.
 pub(in crate::ui) fn track_commits(
     com: &ICoreWebView2,
     document: Document,
     asked: Rc<Cell<bool>>,
+    empty: Option<Rc<Empty>>,
     committed: impl Fn(&str) + 'static,
     finished: impl Fn() + 'static,
 ) -> windows_core::Result<()> {
@@ -97,17 +146,21 @@ pub(in crate::ui) fn track_commits(
     let (starts, started, waiting) = (pending.clone(), latest.clone(), asked.clone());
     let on_start = NavigationStartingEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
-        let (mut uri, mut id, mut cancelled) = (PWSTR::null(), 0u64, BOOL(0));
+        let (mut uri, mut id, mut cancelled, mut user) = (PWSTR::null(), 0u64, BOOL(0), BOOL(0));
         // SAFETY: COM getters on the live event arguments; take_pwstr frees the text.
         unsafe {
             args.Uri(&mut uri)?;
             args.NavigationId(&mut id)?;
             args.Cancel(&mut cancelled)?;
+            args.IsUserInitiated(&mut user)?;
         }
-        let uri = take_pwstr(uri);
+        let mut uri = take_pwstr(uri);
         // Refused by the navigation handler, which runs first: it never loads.
         if cancelled.as_bool() {
             return Ok(());
+        }
+        if empty.as_ref().is_some_and(|e| e.claims(&uri, user.as_bool())) {
+            uri = EMPTY_PAGE.to_string();
         }
         started.set(id);
         waiting.set(false);
@@ -210,6 +263,10 @@ pub fn build_page(
             }
             is_web(&url) || ["about:", "data:", "blob:"].iter().any(|s| url.starts_with(s))
         })
+        // Print, caret browsing, the inspector's keys and the like: only visor's
+        // shortcuts act, as in WebKitGTK. Editing keys stay; the inspector stays
+        // in the context menu, as on Linux.
+        .with_browser_accelerator_keys(false)
         .with_devtools(true)
         .build_as_child(window.winit())?;
     let com = web.webview();
@@ -218,7 +275,8 @@ pub fn build_page(
     let p = proxy.clone();
     let done = proxy.clone();
     let asked = Rc::new(Cell::new(false));
-    track_commits(&com, document.clone(), asked.clone(), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
+    let empty = Rc::new(Empty::default());
+    track_commits(&com, document.clone(), asked.clone(), Some(empty.clone()), move |url| p.send(UserEvent::Navigated { view: id, url: url.to_string() }), move || done.send(UserEvent::PageLoaded(id)))
         .map_err(com_error)?;
     let p = proxy.clone();
     let on_focus = FocusChangedEventHandler::create(Box::new(move |_, _| {
@@ -240,6 +298,7 @@ pub fn build_page(
     // HTTP errors of the page's resources. The main document is left out (a
     // failed page shows its own error), and so is the favicon Chromium asks for
     // on its own. Network errors would need the DevTools protocol: not reported yet.
+    let buttons = proxy.clone();
     let (p, main) = (proxy, document.clone());
     let on_response = WebResourceResponseReceivedEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
@@ -267,7 +326,8 @@ pub fn build_page(
         }
     }
     host.attach(side, id, &web);
-    Ok((PageView { web, shown: Cell::new(false), style: Rc::default(), asked }, document))
+    watch_side_buttons(web.hwnd(), id, buttons);
+    Ok((PageView { web, shown: Cell::new(false), style: Rc::default(), asked, empty }, document))
 }
 
 // These three stand in for wry's, reached otherwise through Deref, to mark
@@ -275,16 +335,20 @@ pub fn build_page(
 impl PageView {
     pub fn load_url(&self, url: &str) -> wry::Result<()> {
         self.asked.set(true);
+        self.empty.asked.set(false);
         self.web.load_url(url)
     }
 
+    /// Only visor's empty page is loaded from a string; see `Empty`.
     pub fn load_html(&self, html: &str) -> wry::Result<()> {
         self.asked.set(true);
+        self.empty.asked.set(true);
         self.web.load_html(html)
     }
 
     pub fn reload(&self) -> wry::Result<()> {
         self.asked.set(true);
+        self.empty.asked.set(false);
         self.web.reload()
     }
 }
@@ -419,6 +483,85 @@ impl PageView {
     }
 }
 
+impl Drop for PageView {
+    fn drop(&mut self) {
+        let hwnd = self.web.hwnd().0 as isize;
+        BUTTONED.lock().unwrap_or_else(|e| e.into_inner()).retain(|v| v.hwnd != hwnd);
+    }
+}
+
+/// A page view the mouse side buttons act on.
+struct Buttoned {
+    /// wry's child window, which holds WebView2's own windows.
+    hwnd: isize,
+    id: u64,
+    proxy: Proxy,
+}
+
+static BUTTONED: Mutex<Vec<Buttoned>> = Mutex::new(Vec::new());
+
+/// Makes the side buttons over this view go back and forward as visor does,
+/// in the view under the pointer. WebView2 would move in the page's history
+/// by itself, past `Action::Back`; cancelling that at `NavigationStarting`
+/// cannot tell back from forward, misses moves inside one document (anchors,
+/// `pushState`) and would cancel a page's own `history.back()`. So a
+/// low-level mouse hook takes the buttons before any window sees them, as the
+/// GTK handler does on Linux. It runs on a thread of its own, so a busy loop
+/// never holds the system's pointer back.
+fn watch_side_buttons(hwnd: HWND, id: u64, proxy: Proxy) {
+    BUTTONED.lock().unwrap_or_else(|e| e.into_inner()).push(Buttoned { hwnd: hwnd.0 as isize, id, proxy });
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        std::thread::spawn(|| {
+            // SAFETY: the hook lives as long as this thread, which pumps its
+            // messages until the process ends, as a low-level hook needs.
+            unsafe {
+                let module = GetModuleHandleW(None).ok().map(Into::into);
+                if let Err(e) = SetWindowsHookExW(WH_MOUSE_LL, Some(on_mouse), module, 0) {
+                    eprintln!("{e}");
+                    return;
+                }
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+            }
+        });
+    });
+}
+
+/// The view whose window holds the point, if a side button acts on it.
+fn buttoned_at(point: POINT) -> Option<(u64, Proxy)> {
+    // SAFETY: plain window queries; a window gone meanwhile only ends the walk.
+    let mut window = unsafe { WindowFromPoint(point) };
+    let views = BUTTONED.lock().unwrap_or_else(|e| e.into_inner());
+    while !window.is_invalid() {
+        if let Some(v) = views.iter().find(|v| v.hwnd == window.0 as isize) {
+            return Some((v.id, v.proxy.clone()));
+        }
+        // SAFETY: as above.
+        window = unsafe { GetAncestor(window, GA_PARENT) };
+    }
+    None
+}
+
+unsafe extern "system" fn on_mouse(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let message = wparam.0 as u32;
+    if code == HC_ACTION as i32 && (message == WM_XBUTTONDOWN || message == WM_XBUTTONUP) {
+        // SAFETY: for these messages Windows passes a MSLLHOOKSTRUCT.
+        let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        if let Some((id, proxy)) = buttoned_at(info.pt) {
+            // The press acts, as on Linux; neither it nor the release reaches WebView2.
+            if message == WM_XBUTTONDOWN {
+                let action = if (info.mouseData >> 16) == 1 { Action::Back } else { Action::Forward };
+                proxy.send(UserEvent::Focused(id));
+                proxy.send(UserEvent::Action(action));
+            }
+            return LRESULT(1);
+        }
+    }
+    // SAFETY: passes the event on, as every hook must.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
 /// The script that puts the theme's style in a document, or empties it.
 /// Put again at DOMContentLoaded so it comes after the page's own styles.
 fn style_script(css: &str) -> String {
@@ -512,5 +655,28 @@ impl FindSignals {
             let _ = self.find.Stop();
             let _ = self.find.remove_MatchCountChanged(self.token);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_string_visor_loads_is_its_empty_page() {
+        let empty = Empty::default();
+        assert!(!empty.claims("data:text/html,x", true), "visor did not ask");
+        empty.asked.set(true);
+        assert!(empty.claims("data:text/html,x", true));
+        assert!(!empty.claims("about:blank", true), "one load, one start");
+        assert!(empty.claims("data:text/html,x", false), "the same page again, as back does");
+        assert!(!empty.claims("data:text/html,y", true));
+        empty.asked.set(true);
+        assert!(!empty.claims("about:blank", false), "a page's own script");
+        empty.asked.set(true);
+        assert!(empty.claims("about:blank", true));
+        empty.asked.set(true);
+        assert!(!empty.claims("http://127.0.0.1/x", true));
+        assert!(!empty.claims("data:text/html,z", true), "another start spent the mark");
     }
 }

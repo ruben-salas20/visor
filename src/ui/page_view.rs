@@ -46,7 +46,7 @@ fn accept(body: &str, key: &str, document: &str) -> Option<String> {
     let fields = msg.as_object_mut()?;
     match fields.remove("key") {
         Some(Value::String(k)) if k == key => {}
-        None if document.starts_with("about:") && fields.get("type") == Some(&json!("pick_vault")) => {}
+        None if document == EMPTY_PAGE && fields.get("type") == Some(&json!("pick_vault")) => {}
         _ => return None,
     }
     Some(msg.to_string())
@@ -110,9 +110,11 @@ mod tests {
         assert_eq!(accept(r#"{"type":"save_note","text":"a","key":"x"}"#, "k", page), None);
         assert_eq!(accept(r#"{"type":"save_note","key":7}"#, "k", page), None);
         assert_eq!(accept("no es JSON", "k", page), None);
-        assert_eq!(accept(r#"{"type":"pick_vault"}"#, "k", "about:blank").as_deref(), Some(r#"{"type":"pick_vault"}"#));
+        assert_eq!(accept(r#"{"type":"pick_vault"}"#, "k", EMPTY_PAGE).as_deref(), Some(r#"{"type":"pick_vault"}"#));
         assert_eq!(accept(r#"{"type":"pick_vault"}"#, "k", page), None, "only the start page goes without a key");
-        assert_eq!(accept(r#"{"type":"create_note","dir":"","name":"x"}"#, "k", "about:blank"), None);
+        assert_eq!(accept(r#"{"type":"pick_vault"}"#, "k", "about:srcdoc"), None);
+        assert_eq!(accept(r#"{"type":"pick_vault"}"#, "k", "data:text/html,<button>"), None);
+        assert_eq!(accept(r#"{"type":"create_note","dir":"","name":"x"}"#, "k", EMPTY_PAGE), None);
     }
 
     #[test]

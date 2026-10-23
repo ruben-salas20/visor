@@ -30,7 +30,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, HWND_TOP, SWP_ASYNC
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::http::Request;
-use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewExtWindows};
+use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
 const BRIDGE: &str = include_str!("../frame-bridge.js");
 
@@ -100,11 +100,13 @@ impl Host {
             // The frame never leaves its origin, nor opens windows.
             .with_navigation_handler(move |url| url.starts_with(&allowed))
             .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
+            // As in the page views: only visor's shortcuts act.
+            .with_browser_accelerator_keys(false)
             .with_devtools(true)
             .build_as_child(window)?;
         shell.catch_shortcuts(&frame.controller());
         let com = frame.webview();
-        track_commits(&com, document, Rc::default(), |_| {}, || {}).map_err(|e| wry::Error::Io(std::io::Error::other(e.to_string())))?;
+        track_commits(&com, document, Rc::default(), None, |_| {}, || {}).map_err(|e| wry::Error::Io(std::io::Error::other(e.to_string())))?;
         // The frame has no state of its own: a new process asks for it again.
         let reload = ProcessFailedEventHandler::create(Box::new(|sender, _| {
             if let Some(view) = sender {
