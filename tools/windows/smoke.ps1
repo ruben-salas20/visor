@@ -4,12 +4,16 @@
 # (VISOR_SOCKET propio), y comprueba por la CLI: que responde, que abre una nota
 # y una página HTML, que eval y screenshot funcionan en una página de la bóveda,
 # que una página hostil de la bóveda y una web no consiguen nada, y que la ventana
-# se cierra limpia. Deja en $Salida el informe (informe.json) y las capturas.
+# se cierra limpia. Con -ExeW abre visor como el Explorador, con visorw.exe, y
+# comprueba además que la app no tiene consola, que `visor mcp` responde por
+# stdio y que visorw.exe sin visor.exe avisa. Deja en $Salida el informe
+# (informe.json) y las capturas.
 #
-# Uso: smoke.ps1 -Exe <visor.exe> -Salida <carpeta>
+# Uso: smoke.ps1 -Exe <visor.exe> [-ExeW <visorw.exe>] -Salida <carpeta>
 
 param(
     [Parameter(Mandatory)] [string] $Exe,
+    [string] $ExeW,
     [Parameter(Mandatory)] [string] $Salida
 )
 
@@ -70,6 +74,12 @@ function Visor([string[]] $argumentos) {
     try { return $texto | ConvertFrom-Json } catch { return [pscustomobject]@{ ok = $false; error = "no es JSON: $texto" } }
 }
 
+# Las consolas que Windows abrió para el proceso $id: conhost.exe (u OpenConsole.exe)
+# arranca como hijo del primer programa de consola que la necesita.
+function Consolas([int] $id) {
+    return @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $id" | Where-Object { $_.Name -in 'conhost.exe', 'OpenConsole.exe' } | ForEach-Object Name)
+}
+
 function Pestanas($estado) {
     $n = 0
     foreach ($lado in @($estado.sides.list)) { $n += @($lado.tabs).Count }
@@ -114,19 +124,64 @@ function Clic($proceso, [int] $x, [int] $y) {
 
 $servidor = $null
 $proceso = $null
+$lanzador = $null
 try {
-    $proceso = Start-Process -FilePath $Exe -PassThru -RedirectStandardOutput (Join-Path $Salida 'visor.stdout.txt') -RedirectStandardError (Join-Path $Salida 'visor.stderr.txt')
+    if ($ExeW) {
+        # Como el Explorador: visorw.exe arranca visor.exe y termina enseguida.
+        $ExeW = (Resolve-Path $ExeW).Path
+        $lanzador = Start-Process -FilePath $ExeW -PassThru
+        $termino = $lanzador.WaitForExit(10000)
+        Comprobar 'visorw.exe arranca visor y termina' ($termino -and $lanzador.ExitCode -eq 0) @{ termino = $termino; codigo = $(if ($termino) { $lanzador.ExitCode } else { $null }) }
+    }
+    else {
+        $proceso = Start-Process -FilePath $Exe -PassThru -RedirectStandardOutput (Join-Path $Salida 'visor.stdout.txt') -RedirectStandardError (Join-Path $Salida 'visor.stderr.txt')
+    }
 
     # 1. La instancia responde.
     $estado = $null
     $limite = (Get-Date).AddSeconds(60)
-    while ((Get-Date) -lt $limite -and -not $proceso.HasExited) {
+    while ((Get-Date) -lt $limite -and -not ($proceso -and $proceso.HasExited)) {
         $estado = Visor @('status')
         if ($estado.ok -eq $true) { break }
         Start-Sleep -Milliseconds 500
     }
     Comprobar 'visor status responde' ($estado.ok -eq $true) $estado
     if ($estado.ok -ne $true) { throw 'visor no respondió en 60 s' }
+
+    if ($lanzador) {
+        $app = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($lanzador.Id) AND Name = 'visor.exe'")
+        Comprobar 'visorw.exe arrancó un solo visor.exe' ($app.Count -eq 1) @($app | ForEach-Object ProcessId)
+        if ($app.Count -ne 1) { throw 'no se encuentra el visor.exe que arrancó visorw.exe' }
+        $proceso = Get-Process -Id $app[0].ProcessId
+        # Abre el proceso ya, para poder leer su código de salida al cerrarse.
+        $null = $proceso.Handle
+        $consolas = Consolas $proceso.Id
+        Comprobar 'la app abierta con visorw.exe no tiene consola' ($consolas.Count -eq 0) $consolas
+        # Control: el mismo visor.exe abierto desde el Explorador sí la tiene.
+        $control = Start-Process -FilePath $Exe -ArgumentList 'mcp' -PassThru
+        Start-Sleep -Seconds 2
+        $consolas = Consolas $control.Id
+        Comprobar 'control: visor.exe abierto directamente tiene consola' ($consolas.Count -ge 1) $consolas
+        taskkill /T /F /PID $control.Id | Out-Null
+    }
+
+    # MCP por stdio: initialize y salida limpia al cerrar la entrada.
+    $info = [System.Diagnostics.ProcessStartInfo]::new($Exe, 'mcp')
+    $info.UseShellExecute = $false
+    $info.RedirectStandardInput = $true
+    $info.RedirectStandardOutput = $true
+    $mcp = [System.Diagnostics.Process]::Start($info)
+    $mcp.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"humo","version":"0"}}}')
+    $mcp.StandardInput.Flush()
+    $linea = $mcp.StandardOutput.ReadLineAsync()
+    $llego = $linea.Wait(10000)
+    $respuesta = $null
+    if ($llego) { try { $respuesta = $linea.Result | ConvertFrom-Json } catch {} }
+    Comprobar 'visor mcp responde a initialize por stdio' ($llego -and $respuesta.result.serverInfo.name -eq 'visor') $respuesta
+    $mcp.StandardInput.Close()
+    $termino = $mcp.WaitForExit(10000)
+    Comprobar 'visor mcp termina al cerrar su entrada' ($termino -and $mcp.ExitCode -eq 0) @{ termino = $termino }
+    if (-not $termino) { taskkill /T /F /PID $mcp.Id | Out-Null }
 
     # 2. Una bóveda, una nota y una página HTML.
     $r = Visor @('open', $boveda)
@@ -199,6 +254,22 @@ try {
     $null = $proceso.CloseMainWindow()
     $cerro = $proceso.WaitForExit(20000)
     Comprobar 'cierra limpio' ($cerro -and $proceso.ExitCode -eq 0) @{ termino = $cerro; codigo = $(if ($cerro) { $proceso.ExitCode } else { $null }) }
+
+    # 6. visorw.exe sin visor.exe al lado: un aviso de Windows, y no arranca nada.
+    # El aviso espera a la persona, así que se lee su título y se cierra a la fuerza.
+    if ($ExeW) {
+        $sola = Join-Path $tmp 'sin-visor'
+        New-Item -ItemType Directory -Force -Path $sola | Out-Null
+        Copy-Item $ExeW $sola
+        $huerfano = Start-Process -FilePath (Join-Path $sola 'visorw.exe') -PassThru
+        Start-Sleep -Seconds 3
+        $huerfano.Refresh()
+        $dato = @{ termino = $huerfano.HasExited; titulo = $huerfano.MainWindowTitle; codigo = $(if ($huerfano.HasExited) { $huerfano.ExitCode } else { $null }) }
+        $avisa = (-not $huerfano.HasExited -and $huerfano.MainWindowTitle -eq 'visor') -or ($huerfano.HasExited -and $huerfano.ExitCode -ne 0)
+        Comprobar 'visorw.exe sin visor.exe avisa y no termina bien' $avisa $dato
+        Captura (Join-Path $Salida 'visorw-sin-visor.png')
+        if (-not $huerfano.HasExited) { taskkill /F /PID $huerfano.Id | Out-Null }
+    }
 }
 catch {
     Comprobar 'sin excepciones' $false "$_"

@@ -98,6 +98,12 @@ Every command answers in JSON. "ok": false means an error, and the
 command exits with code 1. <path> can be relative to the current folder
 or to the open vault.
 
+ON MICROSOFT WINDOWS
+  visorw.exe, in the same folder as visor.exe, opens visor without a
+  console window: shortcuts and Explorer use it. It takes the same
+  arguments, starts visor.exe with them and answers nothing. Agents and
+  terminals use visor (visor.exe), which answers in JSON.
+
 WINDOWS
   visor can have several windows, each with its own vault and tabs (two
   windows may show the same vault). `visor status` lists them in

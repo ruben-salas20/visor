@@ -189,7 +189,7 @@ fn due(check: &Path) -> bool {
 }
 
 fn install(url: &str, sha256: &str, tmp: &Path, exe: &Path) -> Result<(), String> {
-    let downloaded = Command::new("curl")
+    let downloaded = crate::platform::no_console(&mut Command::new("curl"))
         .args(["-fsSL", "--max-time", "300", "-o"])
         .arg(tmp)
         .arg(url)
@@ -234,6 +234,8 @@ fn put_in_place(tmp: &Path, exe: &Path) -> io::Result<()> {
 
 /// Windows cannot overwrite or delete a running .exe, but it can rename one. So
 /// the current file moves aside to `.old`, and the new one takes its place.
+/// visorw.exe stays as it is: it only starts visor.exe beside it with the same
+/// arguments (src/bin/visorw.rs), so a new visor.exe needs no new visorw.exe.
 #[cfg(windows)]
 fn put_in_place(tmp: &Path, exe: &Path) -> io::Result<()> {
     let old = old_copy(exe);
@@ -280,7 +282,7 @@ fn remove_old_copy(exe: &Path) {
 pub fn remove_leftover() {}
 
 fn curl(args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("curl").args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let out = crate::platform::no_console(&mut Command::new("curl")).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
     out.status.success().then_some(out.stdout)
 }
 
