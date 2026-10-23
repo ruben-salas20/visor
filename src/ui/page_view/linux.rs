@@ -21,6 +21,9 @@ use webkit2gtk::{
 use wry::http::Request;
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
+/// The document visor's empty page commits as: WebKit gives `load_html` no other address.
+pub const EMPTY_PAGE: &str = "about:blank";
+
 /// A page's webview, with what WebKitGTK does beyond wry. wry's own methods
 /// (load, evaluate, reload) are reached through it.
 pub struct PageView(WebView);

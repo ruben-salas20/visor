@@ -11,7 +11,7 @@ use crate::ui::protocol::PageMsg;
 use crate::vault::config::{Config, PaneState, WindowState, Workspace};
 use crate::vault::files as vault_files;
 use crate::ui::page_calls;
-use crate::ui::page_view::{Document, PageView, build_page, clean_position, host_of};
+use crate::ui::page_view::{Document, EMPTY_PAGE, PageView, build_page, clean_position, host_of};
 use crate::ui::shell::{self, Target, Window};
 use crate::vault::is_web;
 use crate::ui::tabs::{Effect, Tabs};
@@ -966,7 +966,7 @@ impl App {
             }
         };
         match msg {
-            PageMsg::PickVault if trusted || url.starts_with("about:") => self.pick_vault(),
+            PageMsg::PickVault if trusted || url == EMPTY_PAGE => self.pick_vault(),
             PageMsg::SaveNote { text } if note => {
                 let result = self.save_note(url, &text);
                 let (ok, error) = match result {
