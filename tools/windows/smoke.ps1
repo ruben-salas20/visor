@@ -363,6 +363,8 @@ setTimeout(() => { location.href = 'data:text/html,<button>x</button><script>win
 
     # 9. Los atajos propios de WebView2 están apagados; los de edición, la búsqueda y el zoom siguen.
     Set-Content -Path (Join-Path $boveda 'campo.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>campo</title><body><input id="a" value="copiado"> <input id="b"><script>addEventListener("beforeprint", () => { document.documentElement.dataset.impreso = "1"; });</script></body></html>'
+    # La del caso 10, ya ahora: un archivo recién creado podría llegar a la bóveda después de abrirlo.
+    Set-Content -Path (Join-Path $boveda 'tercera.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Tercera</title><body><h1>Tercera</h1></body></html>'
     $r = Visor @('open', $boveda)
     Comprobar 'abre la bóveda en la ventana nueva' ($r.ok -eq $true) $r
     $r = Visor @('open', (Join-Path $boveda 'campo.html'))
@@ -397,11 +399,13 @@ setTimeout(() => { location.href = 'data:text/html,<button>x</button><script>win
     Start-Sleep -Milliseconds 500
 
     # 10. Los botones laterales del ratón van atrás y adelante como visor, una sola vez.
-    Set-Content -Path (Join-Path $boveda 'tercera.html') -Encoding utf8 -Value '<!doctype html><html lang="es"><meta charset="utf-8"><title>Tercera</title><body><h1>Tercera</h1></body></html>'
+    $recorrido = @()
     foreach ($archivo in 'nota.md', 'pagina.html', 'tercera.html') {
-        $r = Visor @('open', (Join-Path $boveda $archivo))
+        $null = Visor @('open', (Join-Path $boveda $archivo))
+        $null = Esperar { "$((Visor @('status')).file)" -like "*$archivo" } 10
+        $recorrido += "$((Visor @('status')).file)"
     }
-    Comprobar 'la pestaña llega a la tercera página' ($r.ok -eq $true -and "$($r.file)" -like '*tercera.html') $r
+    Comprobar 'la pestaña llega a la tercera página' ("$($recorrido[-1])" -like '*tercera.html') $recorrido
     function Lateral($proceso, [int] $x, [int] $y, [uint32] $boton) {
         $proceso.Refresh()
         $h = $proceso.MainWindowHandle
