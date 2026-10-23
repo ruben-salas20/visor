@@ -292,12 +292,16 @@ fn curl(args: &[&str]) -> Option<Vec<u8>> {
 
 /// Dotted numbers after an optional «v», compared part by part: 0.1.10 > 0.1.9.
 /// Anything else is never newer.
+/// A test version (`0.3.0-rc`) is older than its release (`0.3.0`), so whoever
+/// tried it gets the release. GitHub's latest release is never a test one.
 fn is_newer(remote: &str, local: &str) -> bool {
-    fn numbers(v: &str) -> Option<Vec<u64>> {
-        v.strip_prefix('v').unwrap_or(v).split('.').map(|p| p.parse().ok()).collect()
+    fn parts(v: &str) -> Option<(Vec<u64>, bool)> {
+        let v = v.strip_prefix('v').unwrap_or(v);
+        let (numbers, test) = v.split_once('-').map_or((v, false), |(n, _)| (n, true));
+        Some((numbers.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?, test))
     }
-    match (numbers(remote), numbers(local)) {
-        (Some(remote), Some(local)) => remote > local,
+    match (parts(remote), parts(local)) {
+        (Some((remote, remote_test)), Some((local, local_test))) => remote > local || (remote == local && local_test && !remote_test),
         _ => false,
     }
 }
@@ -315,6 +319,11 @@ mod tests {
         assert!(!is_newer("v0.1.8", "0.1.9"));
         assert!(!is_newer("nightly", "0.1.9"));
         assert!(!is_newer("0.2.x", "0.1.9"));
+        assert!(is_newer("v0.3.0", "0.3.0-rc"), "the release replaces its test version");
+        assert!(!is_newer("v0.3.0-rc", "0.3.0"));
+        assert!(!is_newer("v0.3.0-rc", "0.3.0-rc"));
+        assert!(is_newer("v0.3.1", "0.3.0-rc"));
+        assert!(!is_newer("v0.2.9", "0.3.0-rc"));
         assert!(!is_newer("", "0.1.9"));
     }
 
