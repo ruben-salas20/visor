@@ -6,7 +6,17 @@ name: Windows host
 on:
   workflow_dispatch:
   push:
-    branches: ["port-*"]
+    branches: [main]
+    paths:
+      - "src/**"
+      - "assets/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tools/windows/**"
+      - ".github/workflows/windows-host.yml"
+  pull_request:
+    branches: [main]
     paths:
       - "src/**"
       - "assets/**"
