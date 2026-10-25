@@ -18,7 +18,7 @@ Thanks for helping. You can write to us in **English or Spanish**: issues, pull 
 
 ## Build and test
 
-visor builds only on Linux. You need Rust 1.89 or later, GTK 3 and WebKitGTK 4.1.
+visor builds on Linux and Windows, with Rust 1.89 or later. On Linux you also need GTK 3 and WebKitGTK 4.1. On Windows, the MSVC toolchain and the WebView2 runtime (it comes with Windows 11).
 
 ```
 cargo build --release
