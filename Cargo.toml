@@ -1,6 +1,6 @@
 [package]
 name = "visor"
-version = "0.3.0-rc.1"
+version = "0.3.0-rc.2"
 edition = "2024"
 # let chains (`if let … && …`) need 1.88; File::try_lock, 1.89.
 rust-version = "1.89"
