@@ -1,7 +1,7 @@
 //! The window on Windows: every view is a WebView2 child window of the winit
 //! window. Each side's page views sit in the hole the frame announces for that
 //! side, and the frame's view lies over them all, transparent in the holes:
-//! WebView2 blends sibling views (spikes/menus-encima).
+//! WebView2 blends sibling views (menus-encima prototype, removed from the tree; see git history).
 //!
 //! The frame's window has a region (`SetWindowRgn`): the zone `ui/cover.rs`
 //! computes, the window minus the holes plus the boxes the frame draws over the

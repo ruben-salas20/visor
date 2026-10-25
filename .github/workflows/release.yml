@@ -2,20 +2,14 @@
 # builds every file for Linux and Windows, tests them installed, and creates the
 # GitHub release. A tag with a «-» (v0.3.0-rc) makes a pre-release.
 #
-# Run by hand (workflow_dispatch) or from a push to port-release, it is a dry
-# run: it builds and tests everything and leaves the files as workflow
-# artifacts, without creating any release.
+# Run by hand (workflow_dispatch), it is a dry run: it builds and tests
+# everything and leaves the files as workflow artifacts, without creating any
+# release.
 name: release
 
 on:
   push:
     tags: ["v*"]
-    branches: [port-release]
-    paths:
-      - ".github/workflows/release.yml"
-      - "packaging/**"
-      - "tools/linux/**"
-      - "tools/windows/**"
   workflow_dispatch:
 
 permissions:
