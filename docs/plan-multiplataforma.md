@@ -34,9 +34,9 @@ Reglas del proyecto que se mantienen:
   2. **Riesgo de la actualización en Windows, mitigado (2026-10-23):** si fallan a la vez el renombrado del `.exe` nuevo y la vuelta atrás, `update.rs` copia el `.old` a `visor.exe` (un `.exe` en marcha se puede leer); si eso también falla, `visorw.exe` devuelve `visor.exe.old` a su sitio al abrirse (prueba de humo, caso 7). Las órdenes `visor` de los agentes no lo arreglan: hasta que se abra visorw, faltaría `visor.exe`.
   3. **Huecos de Windows.** Los que bloqueaban la 0.3.0 están hechos (fila «Huecos de Windows»): botón «Abrir carpeta…» de la página vacía, atajos propios de WebView2 (Ctrl+P) y botones laterales del ratón. Pasan a la 0.3.1 los demás. Lista completa: Fallos de red de los recursos (dominio `Network` de DevTools, coste sin medir); botones laterales del ratón por `Action::Back`; Ctrl+clic en segundo plano; `open_elsewhere` puede reabrir visor si es el programa por defecto; botón «Abrir carpeta…» de la página vacía sin comprobar; atajos propios de WebView2 (Ctrl+P) activos; carpeta de datos de WebView2 compartida entre dos instancias. Los que no bloqueen, a la 0.3.1.
   4. **Versión de prueba `0.3.0-rc.1`, publicada el 2026-10-23** (pre-release, ejecución 40006779845; icono de visor en los `.exe` y el instalador). Antes se corrigió una carrera en Windows: el arranque tardío de la página vacía respondía a `visor open` de una nota en la misma pestaña (`Asked` en `page_view/windows.rs`). Pendiente: las pruebas del usuario. El usuario la prueba en su Windows 10/11 (clic, arrastre, teclado, escala 125–150 %, varias ventanas, reinicio, papelera, actualización, instalador y portable) y en su Linux de cada día. X11 real (Mint): si no se consigue, aviso de que no está probado.
-  5. **Preparar `main`:** hecho en parte (2026-10-25, rama `port-prepare-main`): fuera `spikes/` y los flujos de CI de experimentos (quedan en la historia; las rutas `spikes/…` de este plan apuntan a ella); `release.yml` ya no se dispara por `port-release` (solo etiquetas `v*` y a mano) y `windows-host.yml` corre en `main` y en los PR a `main`. Falta: ADR 0001 y 0004 al día (con consulta) y el PR a `main`.
+  5. **Preparar `main`:** hecho en parte (2026-10-25, rama `port-prepare-main`): fuera `spikes/` y los flujos de CI de experimentos (quedan en la historia; las rutas `spikes/…` de este plan apuntan a ella); `release.yml` ya no se dispara por `port-release` (solo etiquetas `v*` y a mano) y `windows-host.yml` corre en `main` y en los PR a `main`. ADR 0001 y 0004 al día (2026-10-25, #55). Falta el PR a `main`.
   6. **Publicar la 0.3.0.**
-  - Sin decidir: CSP para el origen del marco.
+  - CSP para el origen del marco, hecho (2026-10-25): `FRAME_CSP` en `http.rs`, solo en las respuestas del marco (127.0.0.255); las páginas no la llevan. Probado en Linux (diálogos, ajustes y buscador idénticos con y sin ella; con `script-src 'none'` el marco queda en blanco, así que WebKit la aplica). En Windows, la comprobará `windows-host.yml` en el PR a `main`.
   - Hecho antes: pendientes de la fase 0 (2026-10-22: resueltos; las páginas HTML sueltas y las webs van sobre fondo blanco), anfitrión de Windows y `visorw.exe` (filas en «Resultados»).
 - **Al terminar cada subagente:** revisar su diff, fusionar en esta rama, anotar en «Resultados», y borrar su worktree y sus ramas (local y de GitHub). Encargos acotados: un subagente Haiku se quedó sin contexto en U1; el de Opus, con líneas exactas que leer, terminó en 15 minutos.
 - **Permisos:** subir la rama del worktree y lanzar su CI está autorizado. **Sin permiso explícito:** tocar `main`, instalar nada con `sudo`, cambiar ADR, comentar en el issue 35 (el repositorio es público), abrir ventanas en el escritorio del usuario (Hyprland) y medir rendimiento. Las pruebas funcionales en un sway sin pantalla y `cargo test` no necesitan permiso.
@@ -259,7 +259,7 @@ No dependen del resultado de los experimentos y mejoran visor también en Linux:
 
 ## Decisiones pendientes del usuario
 
-- **CSP para el origen del marco:** propuesta sin decidir.
+- Ninguna por ahora (el CSP del marco se aprobó y se hizo el 2026-10-25).
 
 ## Registro de descartes
 

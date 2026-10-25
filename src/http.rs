@@ -94,7 +94,15 @@ fn serve(server: Server, realm: Realm, host: String, prefix: String, shared: Sha
     });
 }
 
-fn serve_asset(request: Request, name: &str) {
+/// What the frame may load: its own files and nothing else. The frame is the one
+/// page that can ask Rust to change files, so if something ever slipped script
+/// into it, the browser refuses to run it. Inline styles stay: React and its
+/// components add `<style>` elements. Pages are served elsewhere, without it.
+pub const FRAME_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self' data:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; \
+     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+fn serve_asset(request: Request, name: &str, csp: Option<&str>) {
     let Some((_, bytes, brotli)) = ASSETS.iter().find(|(n, _, _)| *n == name) else {
         let _ = request.respond(text(404, tr("No encontrado", "Not found")));
         return;
@@ -104,6 +112,9 @@ fn serve_asset(request: Request, name: &str) {
         .with_header(header("Cache-Control", "max-age=86400"));
     if *brotli {
         response = response.with_header(header("Content-Encoding", "br"));
+    }
+    if let Some(csp) = csp {
+        response = response.with_header(header("Content-Security-Policy", csp));
     }
     let _ = request.respond(response);
 }
@@ -146,7 +157,7 @@ fn handle(request: Request, realm: &Realm, shared: &SharedRef, prefix: &str, hos
         return;
     };
     if let Realm::Frame = realm {
-        serve_asset(request, &format!("{FRAME_ASSETS}{rel}"));
+        serve_asset(request, &format!("{FRAME_ASSETS}{rel}"), Some(FRAME_CSP));
         return;
     }
     // Both page origins serve the bundled libraries: a loose note's page loads them from its own origin.
@@ -154,7 +165,7 @@ fn handle(request: Request, realm: &Realm, shared: &SharedRef, prefix: &str, hos
     if let Some(name) = rel.strip_prefix(crate::vault::markdown::ASSETS)
         && !name.starts_with(FRAME_ASSETS)
     {
-        serve_asset(request, name);
+        serve_asset(request, name, None);
         return;
     }
     let rel = percent_encoding::percent_decode_str(rel).decode_utf8_lossy().into_owned();
@@ -308,6 +319,18 @@ fn serve_file(request: Request, path: &Path, range: Option<String>) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn frame_runs_only_its_own_scripts() {
+        let directive = |name: &str| {
+            FRAME_CSP.split(';').map(str::trim).find(|d| d.split_whitespace().next() == Some(name)).unwrap_or_default().to_string()
+        };
+        assert_eq!(directive("default-src"), "default-src 'none'");
+        assert_eq!(directive("script-src"), "script-src 'self'", "no inline script, no eval, nothing remote");
+        assert_eq!(directive("connect-src"), "connect-src 'none'");
+        assert_eq!(directive("frame-ancestors"), "frame-ancestors 'none'");
+        header("Content-Security-Policy", FRAME_CSP);
+    }
 
     #[test]
     fn loose_pages_found_with_nfc_names() {
