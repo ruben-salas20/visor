@@ -1,6 +1,6 @@
 # visor
 
-Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. Rust + tao + wry sobre WebKitGTK, Wayland nativo; solo compila en Linux. La interfaz es un marco en HTML (React, `marco/`) en su propio webview (ADR 0040). Los agentes lo controlan por CLI o MCP. `src/agent/help.txt` es `visor help` y la herramienta MCP `guide`: si cambias un comportamiento visible, actualízalo. Términos del dominio: `CONTEXT.md`.
+Visor de bóvedas (carpetas) de HTML y Markdown para estudiar con IA, al estilo de Obsidian. Rust + wry: en Linux, tao y GTK con WebKitGTK, Wayland nativo; en Windows, winit y WebView2 (ADR 0001 y 0040). La interfaz es un marco en HTML (React, `marco/`) en su propio webview (ADR 0040). Los agentes lo controlan por CLI o MCP. `src/agent/help.txt` es `visor help` y la herramienta MCP `guide`: si cambias un comportamiento visible, actualízalo. Términos del dominio: `CONTEXT.md`.
 
 ## Mapa
 
@@ -35,4 +35,4 @@ Solo lo que el código no dice por sí mismo.
 ## Antes de…
 
 - **probar o medir**: lee `docs/pruebas.md`. El usuario suele tener visor abierto; tus órdenes irían a su ventana si no aíslas la instancia.
-- **tocar arquitectura, dependencias o perfil de compilación**: lee el ADR afectado en `docs/adr/` (el nombre de cada archivo dice de qué trata; 0034 reúne las decisiones de una línea, y los valores por defecto de WebKit que no se tocan están comentados junto a `WebContext::new` en `ui/shell/linux.rs`). Cada ADR recoge lo medido o acordado con el usuario; cambia uno solo con datos nuevos y consultándolo. Los que citan cifras (0003, 0004, 0011, 0013, 0019, 0026, 0028, 0036, 0037) se re-miden con `docs/pruebas.md`.
+- **tocar arquitectura, dependencias o perfil de compilación**: lee el ADR afectado en `docs/adr/` (el nombre de cada archivo dice de qué trata; 0034 reúne las decisiones de una línea, y los valores por defecto de WebKit que no se tocan están comentados junto a `WebContext::new` en `ui/shell/linux.rs`). Cada ADR recoge lo medido o acordado con el usuario; cambia uno solo con datos nuevos y consultándolo. Los que citan cifras (0003, 0011, 0013, 0019, 0026, 0028, 0036, 0037) se re-miden con `docs/pruebas.md`.
