@@ -362,8 +362,8 @@ SHORTCUTS IN THE APP
   Ctrl+1 … Ctrl+8  tab number N of the focused side; Ctrl+9, the last one
   Ctrl+| (o Ctrl+\)  split the window or go back to one side
   Ctrl+Alt+←  Ctrl+Alt+→  left or right side
-  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered); in a PDF,
-                          the viewer's own zoom
+  Ctrl++  Ctrl+-  Ctrl+0  zoom in, out or reset (remembered); in a PDF
+                          or a drawing, the viewer's or Excalidraw's own zoom
   Ctrl+,  settings: theme, text size, updates and search engine
   Ctrl+F  search in the page: Enter next, Shift+Enter previous, Esc closes.
           In a PDF or a note's editor, their own search.

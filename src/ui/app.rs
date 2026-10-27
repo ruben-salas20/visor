@@ -598,11 +598,17 @@ impl App {
         self.shared.lock().unwrap().page_of(self.win, id).file.as_deref().is_some_and(|f| vault::is_pdf(Path::new(f)))
     }
 
+    fn is_drawing_view(&self, id: u64) -> bool {
+        self.shared.lock().unwrap().page_of(self.win, id).file.as_deref().is_some_and(|f| vault::is_drawing(Path::new(f)))
+    }
+
     /// A PDF has the zoom of its own viewer, which draws the canvases at the
-    /// size shown; WebKit's would stretch them blurry, toolbar and all.
+    /// size shown; WebKit's would stretch them blurry, toolbar and all. A drawing
+    /// has Excalidraw's: under WebKit's, texts and arrows slid off their shapes.
     fn apply_zoom(&self, id: u64) {
         let Some(view) = self.view_of(id) else { return };
-        let zoom = if self.is_pdf_view(id) { 1.0 } else { self.cfg(|c| c.zoom.unwrap_or(1.0)) };
+        let own = self.is_pdf_view(id) || self.is_drawing_view(id);
+        let zoom = if own { 1.0 } else { self.cfg(|c| c.zoom.unwrap_or(1.0)) };
         view.set_zoom(zoom);
     }
 
@@ -795,9 +801,10 @@ impl App {
             Action::PickVault => self.pick_vault(),
             Action::ToggleSidebar => self.sidebar_shown = !self.sidebar_shown,
             Action::FocusAddress => self.focus_address(),
-            Action::ZoomKey(step) => match self.tabs.focused_view().filter(|id| self.is_pdf_view(*id)) {
-                Some(_) => self.eval(&page_calls::pdf_zoom(step)),
-                None => self.act(Action::Zoom(step)),
+            Action::ZoomKey(step) => match self.tabs.focused_view() {
+                Some(id) if self.is_pdf_view(id) => self.eval(&page_calls::pdf_zoom(step)),
+                Some(id) if self.is_drawing_view(id) => self.eval(&page_calls::drawing_zoom(step)),
+                _ => self.act(Action::Zoom(step)),
             },
             Action::Zoom(step) => {
                 let now = self.cfg(|c| c.zoom.unwrap_or(1.0));
