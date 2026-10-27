@@ -984,8 +984,9 @@
   // The listeners exist only while picking: otherwise every mouse move and click
   // on the page would call into this code just to return.
   function startPicking() {
-    // A PDF has text only: its elements belong to the viewer.
-    if (pdf) return;
+    // A PDF has text only: its elements belong to the viewer. The bar hides
+    // the button there; the shortcut says why it does nothing.
+    if (pdf) return say(tr("En un PDF solo se anota texto: selecciónalo.", "In a PDF only text is annotated: select it."));
     if (picking) return stopPicking();
     if (!closePopSafely()) return;
     ensureHost();
@@ -1001,6 +1002,18 @@
     document.documentElement.style.cursor = "crosshair";
     addEventListener("mousemove", onPickMove, true);
     addEventListener("click", onPickClick, true);
+  }
+
+  function say(text) {
+    ensureHost();
+    const card = document.createElement("div");
+    card.className = "card banner";
+    card.setAttribute("role", "status");
+    card.textContent = text;
+    // It only informs: clicks go through to the viewer's toolbar below.
+    card.style.pointerEvents = "none";
+    ui.append(card);
+    setTimeout(() => card.remove(), 2500);
   }
 
   function stopPicking() {

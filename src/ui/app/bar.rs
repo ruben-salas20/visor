@@ -8,7 +8,7 @@ use crate::ui::action::Action;
 use crate::ui::address::{self, Engine, Plan};
 use crate::ui::protocol::bar::{Address, Msg, State};
 use crate::vault;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Counts the two things the frame must react to, per side. Each count only goes up.
 #[derive(Default, Clone, Copy)]
@@ -54,12 +54,14 @@ impl App {
                 let target = side.tab().target();
                 let view = side.tab().view().and_then(|id| self.view_of(id));
                 let marks = self.address.get(&side.id()).copied().unwrap_or_default();
+                let (annotations, pick) = annotation_buttons(target);
                 Address {
                     side: side.id(),
                     target: target.to_string(),
                     back: view.is_some_and(|v| v.can_go_back().unwrap_or(false)),
                     forward: view.is_some_and(|v| v.can_go_forward().unwrap_or(false)),
-                    annotations: !target.is_empty() && !vault::is_web(target) && !vault::is_loose(target),
+                    annotations,
+                    pick,
                     edit: marks.edit,
                     refused: marks.refused,
                 }
@@ -111,5 +113,25 @@ impl App {
     fn address_error(&mut self) {
         let side = self.tabs.focused_side().id();
         self.address.entry(side).or_default().refused += 1;
+    }
+}
+
+/// Which annotation buttons a target shows: the list on vault pages, and
+/// picking an element too, except on a PDF, which has text only.
+fn annotation_buttons(target: &str) -> (bool, bool) {
+    let annotations = !target.is_empty() && !vault::is_web(target) && !vault::is_loose(target);
+    (annotations, annotations && !vault::is_pdf(Path::new(target)))
+}
+
+#[cfg(test)]
+mod annotation_tests {
+    use super::annotation_buttons;
+
+    #[test]
+    fn a_pdf_has_the_list_but_no_picking() {
+        assert_eq!(annotation_buttons("tema/apuntes.pdf"), (true, false));
+        assert_eq!(annotation_buttons("tema/ondas.md"), (true, true));
+        assert_eq!(annotation_buttons("https://example.org/a.pdf"), (false, false));
+        assert_eq!(annotation_buttons(""), (false, false));
     }
 }

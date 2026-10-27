@@ -147,9 +147,11 @@ export function AddressRow({ side, focused }: { side: number; focused: boolean }
       )}
       {address.annotations && (
         <>
-          <button className={icon} title={tr('Anotar un elemento (Ctrl+Shift+A)', 'Annotate an element (Ctrl+Shift+A)')} onClick={() => post({ area: 'bar', type: 'pick_element', side })}>
-            <Crosshair className="size-3.5" />
-          </button>
+          {address.pick && (
+            <button className={icon} title={tr('Anotar un elemento (Ctrl+Shift+A)', 'Annotate an element (Ctrl+Shift+A)')} onClick={() => post({ area: 'bar', type: 'pick_element', side })}>
+              <Crosshair className="size-3.5" />
+            </button>
+          )}
           <button className={icon} title={tr('Anotaciones de la página (Ctrl+Shift+L)', 'Page annotations (Ctrl+Shift+L)')} onClick={() => post({ area: 'bar', type: 'toggle_annotations', side })}>
             <ListTree className="size-3.5" />
           </button>
