@@ -8,6 +8,8 @@ export type Address = {
   forward: boolean
   /** Only vault pages have annotations. */
   annotations: boolean
+  /** Whether an element can be picked to annotate: a PDF has text only. */
+  pick: boolean
   /** Goes up each time Rust asks for the field (Ctrl+L). */
   edit: number
   /** Goes up each time a typed address led nowhere. */

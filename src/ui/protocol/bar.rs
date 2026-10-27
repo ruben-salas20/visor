@@ -32,6 +32,8 @@ pub struct Address {
     pub forward: bool,
     /// Whether the annotation buttons apply: only vault pages have annotations.
     pub annotations: bool,
+    /// Whether an element can be picked to annotate: a PDF has text only.
+    pub pick: bool,
     /// Goes up each time Rust asks for this address (Ctrl+L): the frame opens the field.
     pub edit: u64,
     /// Goes up each time a typed address led nowhere: the frame marks the field.
@@ -51,7 +53,7 @@ mod tests {
     #[test]
     fn the_marks_reach_the_frame() {
         let state = State {
-            sides: vec![Address { side: 1, target: String::new(), back: false, forward: false, annotations: false, edit: 2, refused: 1 }],
+            sides: vec![Address { side: 1, target: String::new(), back: false, forward: false, annotations: false, pick: false, edit: 2, refused: 1 }],
         };
         let json = serde_json::to_value(&state).unwrap();
         assert_eq!(json["sides"][0]["edit"], 2);
