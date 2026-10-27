@@ -36,6 +36,11 @@ pub fn pdf_zoom(step: i8) -> String {
     format!("window.__visorPdf && window.__visorPdf.zoom({step})")
 }
 
+/// Ctrl+plus (1), Ctrl+minus (-1) or Ctrl+0 (0) for Excalidraw's own zoom.
+pub fn drawing_zoom(step: i8) -> String {
+    format!("window.__visorDrawing && window.__visorDrawing.zoom({step})")
+}
+
 /// Ctrl+F in a PDF: PDF.js has its own find bar.
 pub fn pdf_find() -> &'static str {
     "window.__visorPdf && window.__visorPdf.find()"

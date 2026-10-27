@@ -457,6 +457,24 @@
       if (editing) say(tr("El archivo cambió fuera de visor. Si sigues editando, lo sobrescribes.", "The file changed outside visor. If you keep editing, you will overwrite it."), true);
       else location.reload();
     },
+    // Ctrl+plus, Ctrl+minus and Ctrl+0, sent by Rust: they never reach the page.
+    // WebKit's zoom would scale the canvas but not Excalidraw's own coordinates:
+    // texts and arrows slid off their shapes. Excalidraw's steps, about the center.
+    zoom(step) {
+      api.then((excalidraw) => {
+        const app = excalidraw.getAppState();
+        const now = app.zoom.value;
+        const next = step === 0 ? 1 : Math.min(30, Math.max(0.1, Math.round((now + step * 0.1) * 10) / 10));
+        const cx = app.width / 2, cy = app.height / 2;
+        excalidraw.updateScene({
+          appState: {
+            zoom: { value: next },
+            scrollX: app.scrollX + (cx / next - cx / now),
+            scrollY: app.scrollY + (cy / next - cy / now),
+          },
+        });
+      });
+    },
     // Before visor hides the tab, which it may unload later: pending changes are saved.
     hide() {
       save();
